@@ -53,7 +53,7 @@ impl Default for WbgtOptions {
 ///
 /// ```
 /// use thermalcomfort::models::wbgt::{wbgt, WbgtOptions};
-/// use measurements::Temperature;
+/// use thermalcomfort::Temperature;
 ///
 /// // Indoor environment (no direct solar radiation)
 /// let result = wbgt(

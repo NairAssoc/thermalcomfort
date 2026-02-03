@@ -2,7 +2,7 @@
 
 use thermalcomfort::models::pmv_typed::{pmv_ppd_iso_typed, pmv_ppd_ashrae_typed};
 use thermalcomfort::utilities::v_relative;
-use measurements::{Temperature, Speed};
+use thermalcomfort::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Type-Safe Thermal Comfort API Example ===\n");
@@ -12,7 +12,7 @@ fn main() {
     let tdb_f = Temperature::from_fahrenheit(77.0);
     let tr_c = Temperature::from_celsius(25.0);
     let v_kmh = Speed::from_kilometers_per_hour(0.36);
-    let rh = 50.0;
+    let rh = Humidity::from_percent(50.0);
     let met = 1.4;
     let clo = 0.5;
 
@@ -22,8 +22,7 @@ fn main() {
              v_kmh.as_kilometers_per_hour(), v_kmh.as_meters_per_second());
 
     // Calculate relative air speed
-    let vr_ms = v_relative(v_kmh.as_meters_per_second(), met);
-    let vr = Speed::from_meters_per_second(vr_ms);
+    let vr = v_relative(v_kmh, met);
 
     let result = pmv_ppd_iso_typed(tdb_f, tr_c, vr, rh, met, clo, Default::default());
     println!("  PMV: {:.2}", result.pmv);
@@ -40,8 +39,9 @@ fn main() {
 
     // Both should give same result
     let vr = Speed::from_meters_per_second(0.1);
-    let result_c = pmv_ppd_iso_typed(temp_c, temp_c, vr, 50.0, 1.2, 1.0, Default::default());
-    let result_f = pmv_ppd_iso_typed(temp_f, temp_f, vr, 50.0, 1.2, 1.0, Default::default());
+    let rh_50 = Humidity::from_percent(50.0);
+    let result_c = pmv_ppd_iso_typed(temp_c, temp_c, vr, rh_50, 1.2, 1.0, Default::default());
+    let result_f = pmv_ppd_iso_typed(temp_f, temp_f, vr, rh_50, 1.2, 1.0, Default::default());
 
     println!("  PMV (using Celsius): {:.2}", result_c.pmv);
     println!("  PMV (using Fahrenheit): {:.2}", result_f.pmv);
@@ -52,7 +52,7 @@ fn main() {
     let tdb = Temperature::from_celsius(25.0);
     let tr = Temperature::from_celsius(25.0);
     let v = Speed::from_meters_per_second(0.1);
-    let rh = 50.0;
+    let rh = Humidity::from_percent(50.0);
     let met = 1.2;
     let clo = 0.5;
 

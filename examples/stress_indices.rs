@@ -6,7 +6,7 @@ use thermalcomfort::models::{
     heat_index_rothfusz, humidex, thi, discomfort_index,
     wci, wind_chill_temperature
 };
-use measurements::{Temperature, Speed, Humidity};
+use thermalcomfort::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Thermal Stress Indices ===\n");
@@ -14,15 +14,15 @@ fn main() {
     // HEAT STRESS INDICES
     println!("--- Heat Stress Assessment ---\n");
 
-    let hot_temp = 35.0;  // °C
-    let hot_rh = 60.0;    // %
+    let hot_temp = Temperature::from_celsius(35.0);
+    let hot_rh = Humidity::from_percent(60.0);
 
-    println!("Conditions: {:.0}°C, {:.0}% RH\n", hot_temp, hot_rh);
+    println!("Conditions: {:.0}°C, {:.0}% RH\n", hot_temp.as_celsius(), hot_rh.as_percent());
 
     // Heat Index (Rothfusz)
     let hi = heat_index_rothfusz(
-        Temperature::from_celsius(hot_temp),
-        Humidity::from_percent(hot_rh),
+        hot_temp,
+        hot_rh,
         true,
         true
     );
@@ -40,8 +40,8 @@ fn main() {
 
     // Humidex
     let humidex_val = humidex(
-        Temperature::from_celsius(hot_temp),
-        Humidity::from_percent(hot_rh),
+        hot_temp,
+        hot_rh,
         true
     );
     println!("\nHumidex (Canadian):");
@@ -58,8 +58,8 @@ fn main() {
 
     // Temperature-Humidity Index (THI)
     let thi_val = thi(
-        Temperature::from_celsius(hot_temp),
-        Humidity::from_percent(hot_rh),
+        hot_temp,
+        hot_rh,
         true
     );
     println!("\nTemperature-Humidity Index:");
@@ -76,8 +76,8 @@ fn main() {
 
     // Discomfort Index
     let di = discomfort_index(
-        Temperature::from_celsius(hot_temp),
-        Humidity::from_percent(hot_rh)
+        hot_temp,
+        hot_rh
     );
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di);
@@ -96,16 +96,15 @@ fn main() {
     // COLD STRESS INDICES
     println!("\n\n--- Cold Stress Assessment ---\n");
 
-    let cold_temp = -10.0;  // °C
-    let wind_speed_kmh = 20.0;  // km/h
-    let wind_speed_ms = wind_speed_kmh / 3.6;  // convert to m/s
+    let cold_temp = Temperature::from_celsius(-10.0);
+    let wind_speed = Speed::from_kilometers_per_hour(20.0);
 
-    println!("Conditions: {:.0}°C, {:.0} km/h wind\n", cold_temp, wind_speed_kmh);
+    println!("Conditions: {:.0}°C, {:.0} km/h wind\n", cold_temp.as_celsius(), wind_speed.as_kilometers_per_hour());
 
     // Wind Chill Temperature
     let wct = wind_chill_temperature(
-        Temperature::from_celsius(cold_temp),
-        Speed::from_kilometers_per_hour(wind_speed_kmh),
+        cold_temp,
+        wind_speed,
         true
     );
     println!("Wind Chill Temperature:");
@@ -124,8 +123,8 @@ fn main() {
 
     // Wind Chill Index
     let wci_val = wci(
-        Temperature::from_celsius(cold_temp),
-        Speed::from_meters_per_second(wind_speed_ms),
+        cold_temp,
+        wind_speed,
         true
     );
     println!("\nWind Chill Index:");
@@ -146,21 +145,23 @@ fn main() {
     println!("\n\n--- Comparison Example ---");
     println!("For 30°C with varying humidity:\n");
 
-    for rh in [30.0, 50.0, 70.0, 90.0] {
+    let temp_30 = Temperature::from_celsius(30.0);
+    for rh_val in [30.0, 50.0, 70.0, 90.0] {
+        let rh = Humidity::from_percent(rh_val);
         let hi = heat_index_rothfusz(
-            Temperature::from_celsius(30.0),
-            Humidity::from_percent(rh),
+            temp_30,
+            rh,
             true,
             true
         );
         let hum = humidex(
-            Temperature::from_celsius(30.0),
-            Humidity::from_percent(rh),
+            temp_30,
+            rh,
             true
         );
 
         println!("  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",
-                 rh, hi, hum);
+                 rh_val, hi, hum);
     }
 
     println!("\nNote: Different indices emphasize different aspects:");

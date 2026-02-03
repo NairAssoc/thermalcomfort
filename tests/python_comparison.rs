@@ -19,7 +19,7 @@ use thermalcomfort::models::{
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::psychrometrics::{psy_ta_rh, wet_bulb_temperature, dew_point_temperature};
 use thermalcomfort::utilities::{v_relative, clo_tout, Posture};
-use measurements::{Temperature, Speed, Humidity};
+use measurements::{Temperature, Speed, Humidity, Pressure};
 
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
@@ -195,12 +195,12 @@ fn test_v_relative() {
                 .extract().unwrap();
 
             // Call Rust function
-            let rust_vr = v_relative(v, met);
+            let rust_vr = v_relative(Speed::from_meters_per_second(v), met);
 
             println!("  Python: {:.3}", py_vr);
-            println!("  Rust:   {:.3}", rust_vr);
+            println!("  Rust:   {:.3}", rust_vr.as_meters_per_second());
 
-            assert_abs_diff_eq!(rust_vr, py_vr, epsilon = 0.001);
+            assert_abs_diff_eq!(rust_vr.as_meters_per_second(), py_vr, epsilon = 0.001);
         }
     });
 }
@@ -230,12 +230,15 @@ fn test_wet_bulb_temperature() {
                 .extract().unwrap();
 
             // Call Rust function
-            let rust_twb = wet_bulb_temperature(tdb, rh);
+            let rust_twb = wet_bulb_temperature(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh)
+            );
 
             println!("  Python: {:.2}°C", py_twb);
-            println!("  Rust:   {:.2}°C", rust_twb);
+            println!("  Rust:   {:.2}°C", rust_twb.as_celsius());
 
-            assert_abs_diff_eq!(rust_twb, py_twb, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_twb.as_celsius(), py_twb, epsilon = 0.1);
         }
     });
 }
@@ -264,12 +267,15 @@ fn test_dew_point_temperature() {
                 .extract().unwrap();
 
             // Call Rust function
-            let rust_tdp = dew_point_temperature(tdb, rh);
+            let rust_tdp = dew_point_temperature(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh)
+            );
 
             println!("  Python: {:.2}°C", py_tdp);
-            println!("  Rust:   {:.2}°C", rust_tdp);
+            println!("  Rust:   {:.2}°C", rust_tdp.as_celsius());
 
-            assert_abs_diff_eq!(rust_tdp, py_tdp, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_tdp.as_celsius(), py_tdp, epsilon = 0.1);
         }
     });
 }
@@ -303,20 +309,24 @@ fn test_psychrometrics() {
             let py_h: f64 = py_result.getattr("h").unwrap().extract().unwrap();
 
             // Call Rust function
-            let rust_result = psy_ta_rh(tdb, rh, p_atm);
+            let rust_result = psy_ta_rh(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Pressure::from_pascals(p_atm)
+            );
 
-            println!("  p_sat: Python={:.1}, Rust={:.1}", py_p_sat, rust_result.p_sat);
-            println!("  p_vap: Python={:.1}, Rust={:.1}", py_p_vap, rust_result.p_vap);
+            println!("  p_sat: Python={:.1}, Rust={:.1}", py_p_sat, rust_result.p_sat.as_pascals());
+            println!("  p_vap: Python={:.1}, Rust={:.1}", py_p_vap, rust_result.p_vap.as_pascals());
             println!("  hr: Python={:.5}, Rust={:.5}", py_hr, rust_result.hr);
-            println!("  t_wb: Python={:.2}, Rust={:.2}", py_twb, rust_result.t_wb);
-            println!("  t_dp: Python={:.2}, Rust={:.2}", py_tdp, rust_result.t_dp);
+            println!("  t_wb: Python={:.2}, Rust={:.2}", py_twb, rust_result.t_wb.as_celsius());
+            println!("  t_dp: Python={:.2}, Rust={:.2}", py_tdp, rust_result.t_dp.as_celsius());
             println!("  h: Python={:.1}, Rust={:.1}", py_h, rust_result.h);
 
-            assert_abs_diff_eq!(rust_result.p_sat, py_p_sat, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.p_vap, py_p_vap, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.p_sat.as_pascals(), py_p_sat, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.p_vap.as_pascals(), py_p_vap, epsilon = 1.0);
             assert_abs_diff_eq!(rust_result.hr, py_hr, epsilon = 0.0001);
-            assert_abs_diff_eq!(rust_result.t_wb, py_twb, epsilon = 0.1);
-            assert_abs_diff_eq!(rust_result.t_dp, py_tdp, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.t_wb.as_celsius(), py_twb, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.t_dp.as_celsius(), py_tdp, epsilon = 0.1);
             assert_abs_diff_eq!(rust_result.h, py_h, epsilon = 10.0);
         }
     });
@@ -1062,7 +1072,7 @@ fn test_compare_work_capacity_iso() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_iso(wbgt, met);
+            let rust_result = work_capacity_iso(Temperature::from_celsius(wbgt), met);
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1087,7 +1097,7 @@ fn test_compare_work_capacity_niosh() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_niosh(wbgt, met);
+            let rust_result = work_capacity_niosh(Temperature::from_celsius(wbgt), met);
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1120,7 +1130,7 @@ fn test_compare_work_capacity_dunne() {
                 _ => WorkIntensity::Heavy,
             };
 
-            let rust_result = work_capacity_dunne(wbgt, intensity);
+            let rust_result = work_capacity_dunne(Temperature::from_celsius(wbgt), intensity);
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 1.0);
         }
@@ -1152,7 +1162,7 @@ fn test_compare_work_capacity_hothaps() {
                 _ => WorkIntensity::Heavy,
             };
 
-            let rust_result = work_capacity_hothaps(wbgt, intensity);
+            let rust_result = work_capacity_hothaps(Temperature::from_celsius(wbgt), intensity);
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1277,7 +1287,7 @@ fn test_compare_clo_tout() {
 
             let py_clo: f64 = py_result.getattr("clo_tout").unwrap().extract().unwrap();
 
-            let rust_result = clo_tout(tout);
+            let rust_result = clo_tout(Temperature::from_celsius(tout));
 
             assert_abs_diff_eq!(rust_result, py_clo, epsilon = 0.01);
         }
@@ -1305,12 +1315,12 @@ fn test_readme_example_basic_pmv_ppd() {
         let clo = 0.5;   // clothing insulation [clo]
 
         // Calculate relative air speed (accounts for body movement)
-        let vr = v_relative(v, met);
+        let vr = v_relative(Speed::from_meters_per_second(v), met);
 
         // Python calculation
         let py_result = pythermal
             .getattr("pmv_ppd_iso").unwrap()
-            .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+            .call1((tdb, tr, vr.as_meters_per_second(), rh, met, clo)).unwrap();
         let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
         let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
 
@@ -1318,7 +1328,7 @@ fn test_readme_example_basic_pmv_ppd() {
         let result = pmv_ppd_iso(
             Temperature::from_celsius(tdb),
             Temperature::from_celsius(tr),
-            Speed::from_meters_per_second(vr),
+            vr,
             Humidity::from_percent(rh),
             met,
             clo,
@@ -1354,15 +1364,19 @@ fn test_readme_example_psychrometric() {
         let py_t_dp: f64 = py_result.getattr("dew_point_tmp").unwrap().extract().unwrap();
 
         // Rust calculation
-        let psychro = psy_ta_rh(tdb, rh, p_atm);
+        let psychro = psy_ta_rh(
+            Temperature::from_celsius(tdb),
+            Humidity::from_percent(rh),
+            Pressure::from_pascals(p_atm)
+        );
 
         // Verify results match
-        assert_abs_diff_eq!(psychro.t_wb, py_t_wb, epsilon = 0.1);
-        assert_abs_diff_eq!(psychro.t_dp, py_t_dp, epsilon = 0.1);
+        assert_abs_diff_eq!(psychro.t_wb.as_celsius(), py_t_wb, epsilon = 0.1);
+        assert_abs_diff_eq!(psychro.t_dp.as_celsius(), py_t_dp, epsilon = 0.1);
 
         // Check that results are close to documented values
-        assert!((psychro.t_wb - 17.7).abs() < 0.5, "Wet bulb temp should be ~17.7°C");
-        assert!((psychro.t_dp - 13.9).abs() < 0.5, "Dew point should be ~13.9°C");
+        assert!((psychro.t_wb.as_celsius() - 17.7).abs() < 0.5, "Wet bulb temp should be ~17.7°C");
+        assert!((psychro.t_dp.as_celsius() - 13.9).abs() < 0.5, "Dew point should be ~13.9°C");
     });
 }
 

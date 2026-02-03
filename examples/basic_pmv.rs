@@ -2,37 +2,37 @@
 
 use thermalcomfort::models::pmv_ppd_iso;
 use thermalcomfort::utilities::v_relative;
-use measurements::{Temperature, Speed, Humidity};
+use thermalcomfort::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Thermal Comfort PMV/PPD Example ===\n");
 
     // Environmental parameters
-    let tdb = 25.0;  // dry bulb temperature [°C]
-    let tr = 25.0;   // mean radiant temperature [°C]
-    let rh = 50.0;   // relative humidity [%]
-    let v = 0.1;     // air speed [m/s]
+    let tdb = Temperature::from_celsius(25.0);  // dry bulb temperature
+    let tr = Temperature::from_celsius(25.0);   // mean radiant temperature
+    let rh = Humidity::from_percent(50.0);      // relative humidity
+    let v = Speed::from_meters_per_second(0.1); // air speed
     let met = 1.4;   // metabolic rate [met]
     let clo = 0.5;   // clothing insulation [clo]
 
     println!("Environmental Conditions:");
-    println!("  Temperature (dry bulb): {:.1}°C", tdb);
-    println!("  Mean radiant temp:      {:.1}°C", tr);
-    println!("  Relative humidity:      {:.0}%", rh);
-    println!("  Air speed:              {:.1} m/s", v);
+    println!("  Temperature (dry bulb): {:.1}°C", tdb.as_celsius());
+    println!("  Mean radiant temp:      {:.1}°C", tr.as_celsius());
+    println!("  Relative humidity:      {:.0}%", rh.as_percent());
+    println!("  Air speed:              {:.1} m/s", v.as_meters_per_second());
     println!("  Metabolic rate:         {:.1} met", met);
     println!("  Clothing insulation:    {:.1} clo", clo);
 
     // Calculate relative air speed (accounts for body movement)
     let vr = v_relative(v, met);
-    println!("\n  Relative air speed:     {:.2} m/s", vr);
+    println!("\n  Relative air speed:     {:.2} m/s", vr.as_meters_per_second());
 
     // Calculate PMV and PPD using measurement types
     let result = pmv_ppd_iso(
-        Temperature::from_celsius(tdb),
-        Temperature::from_celsius(tr),
-        Speed::from_meters_per_second(vr),
-        Humidity::from_percent(rh),
+        tdb,
+        tr,
+        vr,
+        rh,
         met,
         clo,
         Default::default()

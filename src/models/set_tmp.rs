@@ -72,7 +72,7 @@ impl Default for SetOptions {
 ///
 /// ```
 /// use thermalcomfort::models::set_tmp::{set_tmp, SetOptions};
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let set = set_tmp(
 ///     Temperature::from_celsius(25.0),

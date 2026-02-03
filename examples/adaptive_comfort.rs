@@ -5,32 +5,40 @@
 
 use thermalcomfort::models::{adaptive_ashrae, adaptive_en};
 use thermalcomfort::utilities::running_mean_outdoor_temperature;
-use measurements::{Temperature, Speed};
+use thermalcomfort::{Temperature, Speed};
 
 fn main() {
     println!("=== Adaptive Thermal Comfort Models ===\n");
 
     // Environmental conditions
-    let tdb = 25.0;  // indoor operative temperature [°C]
-    let tr = 25.0;   // mean radiant temperature [°C]
-    let v = 0.2;     // air speed [m/s]
+    let tdb = Temperature::from_celsius(25.0);  // indoor operative temperature
+    let tr = Temperature::from_celsius(25.0);   // mean radiant temperature
+    let v = Speed::from_meters_per_second(0.2); // air speed
 
     // Historical outdoor temperatures for running mean calculation
-    let outdoor_temps = vec![22.0, 21.5, 20.0, 19.5, 18.0, 17.5, 17.0];
+    let outdoor_temps = vec![
+        Temperature::from_celsius(22.0),
+        Temperature::from_celsius(21.5),
+        Temperature::from_celsius(20.0),
+        Temperature::from_celsius(19.5),
+        Temperature::from_celsius(18.0),
+        Temperature::from_celsius(17.5),
+        Temperature::from_celsius(17.0),
+    ];
     let t_running_mean = running_mean_outdoor_temperature(&outdoor_temps, 0.8);
 
     println!("Indoor Conditions:");
-    println!("  Operative temperature: {:.1}°C", tdb);
-    println!("  Air speed:             {:.1} m/s", v);
-    println!("  Running mean outdoor:  {:.1}°C\n", t_running_mean);
+    println!("  Operative temperature: {:.1}°C", tdb.as_celsius());
+    println!("  Air speed:             {:.1} m/s", v.as_meters_per_second());
+    println!("  Running mean outdoor:  {:.1}°C\n", t_running_mean.as_celsius());
 
     // ASHRAE 55 Adaptive Model
     println!("--- ASHRAE 55 Adaptive Model ---");
     let ashrae_result = adaptive_ashrae(
-        Temperature::from_celsius(tdb),
-        Temperature::from_celsius(tr),
-        Temperature::from_celsius(t_running_mean),
-        Speed::from_meters_per_second(v),
+        tdb,
+        tr,
+        t_running_mean,
+        v,
         Default::default()
     );
 
@@ -55,10 +63,10 @@ fn main() {
     // EN 16798-1 Adaptive Model
     println!("\n--- EN 16798-1 Adaptive Model ---");
     let en_result = adaptive_en(
-        Temperature::from_celsius(tdb),
-        Temperature::from_celsius(tr),
-        Temperature::from_celsius(t_running_mean),
-        Speed::from_meters_per_second(v),
+        tdb,
+        tr,
+        t_running_mean,
+        v,
         Default::default()
     );
 
@@ -85,7 +93,7 @@ fn main() {
     println!("\n--- Interpretation ---");
     println!("Adaptive comfort models are designed for naturally ventilated buildings");
     println!("where occupants can adapt through clothing, activity, and window operation.");
-    println!("\nThe running mean outdoor temperature ({:.1}°C) indicates that", t_running_mean);
+    println!("\nThe running mean outdoor temperature ({:.1}°C) indicates that", t_running_mean.as_celsius());
     println!("occupants have adapted to cooler conditions, so a wider range of");
     println!("indoor temperatures is acceptable compared to mechanically cooled buildings.");
 }

@@ -2,7 +2,7 @@
 
 use crate::constants::*;
 use libm::{exp, pow, log, round};
-pub use measurements::{Temperature, Speed, Pressure, Area};
+pub use measurements::{Temperature, Speed, Pressure, Area, Mass, Length};
 
 /// Convert Temperature to Celsius (f64)
 #[inline]
@@ -123,100 +123,76 @@ impl Default for Model {
 ///
 /// # Returns
 ///
-/// Running mean outdoor temperature [°C]
+/// Running mean outdoor temperature
 ///
 /// # Examples
 ///
 /// ```
 /// use thermalcomfort::utilities::running_mean_outdoor_temperature;
+/// use thermalcomfort::Temperature;
 ///
 /// // Last 7 days of daily mean temperatures (yesterday to 7 days ago)
-/// let temps = vec![22.0, 20.5, 19.0, 21.0, 18.5, 17.0, 16.5];
+/// let temps = vec![
+///     Temperature::from_celsius(22.0),
+///     Temperature::from_celsius(20.5),
+///     Temperature::from_celsius(19.0),
+///     Temperature::from_celsius(21.0),
+///     Temperature::from_celsius(18.5),
+///     Temperature::from_celsius(17.0),
+///     Temperature::from_celsius(16.5),
+/// ];
 /// let t_rm = running_mean_outdoor_temperature(&temps, 0.8);
-/// assert!((t_rm - 19.94).abs() < 0.01);
+/// assert!((t_rm.as_celsius() - 19.94).abs() < 0.01);
 /// ```
-pub fn running_mean_outdoor_temperature(temp_array: &[f64], alpha: f64) -> f64 {
+pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) -> Temperature {
     if temp_array.is_empty() {
-        return 0.0;
+        return Temperature::from_celsius(0.0);
     }
 
     let mut sum_weighted = 0.0;
     let mut sum_weights = 0.0;
 
-    for (i, &temp) in temp_array.iter().enumerate() {
+    for (i, temp) in temp_array.iter().enumerate() {
         let weight = pow(alpha, i as f64);
-        sum_weighted += weight * temp;
+        sum_weighted += weight * temp.as_celsius();
         sum_weights += weight;
     }
 
-    sum_weighted / sum_weights
+    Temperature::from_celsius(sum_weighted / sum_weights)
 }
 
 /// Calculate relative air speed which combines average air speed plus body movement
 ///
 /// # Arguments
 ///
-/// * `v` - Air speed measured by sensor [m/s]
+/// * `v` - Air speed measured by sensor (use `Speed::from_meters_per_second()` or similar)
 /// * `met` - Metabolic rate [met]
 ///
 /// # Returns
 ///
-/// Relative air speed [m/s]
+/// Relative air speed
 ///
 /// # Example
 ///
 /// ```
 /// use thermalcomfort::utilities::v_relative;
+/// use thermalcomfort::Speed;
 ///
-/// let v = 0.1; // air speed [m/s]
+/// let v = Speed::from_meters_per_second(0.1);
 /// let met = 1.4; // metabolic rate [met]
 /// let vr = v_relative(v, met);
-/// assert!((vr - 0.22).abs() < 0.01);
+/// assert!((vr.as_meters_per_second() - 0.22).abs() < 0.01);
 /// ```
 #[inline]
-pub fn v_relative(v: f64, met: f64) -> f64 {
-    if met > 1.0 {
+pub fn v_relative(v: Speed, met: f64) -> Speed {
+    let v_ms = v.as_meters_per_second();
+    let vr_ms = if met > 1.0 {
         // Round to 3 decimal places
-        round((v + 0.3 * (met - 1.0)) * 1000.0) / 1000.0
+        round((v_ms + 0.3 * (met - 1.0)) * 1000.0) / 1000.0
     } else {
-        v
-    }
-}
-
-/// Convert temperature from Fahrenheit to Celsius
-#[inline]
-pub fn f_to_c(temp_f: f64) -> f64 {
-    (temp_f - 32.0) * 5.0 / 9.0
-}
-
-/// Convert temperature from Celsius to Fahrenheit
-#[inline]
-pub fn c_to_f(temp_c: f64) -> f64 {
-    (temp_c * 9.0 / 5.0) + 32.0
-}
-
-/// Convert air speed from fps to m/s
-#[inline]
-pub fn fps_to_mps(v_fps: f64) -> f64 {
-    v_fps / 3.281
-}
-
-/// Convert air speed from m/s to fps
-#[inline]
-pub fn mps_to_fps(v_mps: f64) -> f64 {
-    v_mps * 3.281
-}
-
-/// Convert area from sq ft to sq m
-#[inline]
-pub fn sqft_to_sqm(area_sqft: f64) -> f64 {
-    area_sqft / 10.764
-}
-
-/// Convert area from sq m to sq ft
-#[inline]
-pub fn sqm_to_sqft(area_sqm: f64) -> f64 {
-    area_sqm * 10.764
+        v_ms
+    };
+    Speed::from_meters_per_second(vr_ms)
 }
 
 /// Check if value is within valid range, return f64::NAN if not
@@ -236,57 +212,64 @@ pub fn round_to(value: f64, decimals: i32) -> f64 {
     round(value * multiplier) / multiplier
 }
 
-/// Calculate saturation vapor pressure using Antoine equation [Pa]
+/// Calculate saturation vapor pressure using Antoine equation
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure [Pa]
+/// Saturation vapor pressure
 #[inline]
-pub fn p_sat_antoine(tdb: f64) -> f64 {
-    exp(16.6536 - 4030.183 / (tdb + 235.0)) * 1000.0 // Convert kPa to Pa
+pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
+    let tdb_celsius = tdb.as_celsius();
+    let p_pa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0)) * 1000.0; // Convert kPa to Pa
+    Pressure::from_pascals(p_pa)
 }
 
-/// Saturation vapor pressure [torr] using exponential equation
+/// Saturation vapor pressure using exponential equation
 ///
 /// This is used in the two-node Gagge model and related calculations.
+/// Returns pressure in torr units.
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure [torr]
+/// Saturation vapor pressure (torr)
 ///
 /// # Examples
 ///
 /// ```
 /// use thermalcomfort::utilities::p_sat_torr;
+/// use thermalcomfort::Temperature;
 ///
-/// let p = p_sat_torr(25.0);
-/// assert!((p - 23.8).abs() < 0.1);
+/// let p = p_sat_torr(Temperature::from_celsius(25.0));
+/// assert!((p.as_torrs() - 23.8).abs() < 0.1);
 /// ```
 #[inline]
-pub fn p_sat_torr(tdb: f64) -> f64 {
-    exp(18.6686 - 4030.183 / (tdb + 235.0))
+pub fn p_sat_torr(tdb: Temperature) -> Pressure {
+    let tdb_celsius = tdb.as_celsius();
+    let p_torr = exp(18.6686 - 4030.183 / (tdb_celsius + 235.0));
+    // Convert torr to Pa (1 torr = 133.322 Pa)
+    Pressure::from_pascals(p_torr * 133.322)
 }
 
-/// Calculate saturation vapor pressure [Pa]
+/// Calculate saturation vapor pressure
 ///
 /// Uses different formulas for temperatures above and below freezing
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure [Pa]
-pub fn p_sat(tdb: f64) -> f64 {
+/// Saturation vapor pressure
+pub fn p_sat(tdb: Temperature) -> Pressure {
     const C1: f64 = -5674.5359;
     const C2: f64 = 6.3925247;
     const C3: f64 = -0.9677843e-2;
@@ -301,10 +284,10 @@ pub fn p_sat(tdb: f64) -> f64 {
     const C12: f64 = -0.14452093e-7;
     const C13: f64 = 6.5459673;
 
-    let ta_k = tdb + C_TO_K;
+    let ta_k = tdb.as_celsius() + C_TO_K;
     let log_ta_k = log(ta_k);
 
-    if ta_k < C_TO_K {
+    let p_pa = if ta_k < C_TO_K {
         exp(
             C1 / ta_k
                 + C2
@@ -315,7 +298,8 @@ pub fn p_sat(tdb: f64) -> f64 {
         exp(
             C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k,
         )
-    }
+    };
+    Pressure::from_pascals(p_pa)
 }
 
 /// Formula options for body surface area calculation
@@ -348,16 +332,18 @@ impl Default for BsaFormula {
 ///
 /// Body surface area
 #[inline]
-pub fn body_surface_area_dubois(weight: f64, height: f64) -> Area {
-    Area::from_square_meters(0.202 * pow(weight, 0.425) * pow(height, 0.725))
+pub fn body_surface_area_dubois(weight: Mass, height: Length) -> Area {
+    let weight_kg = weight.as_kilograms();
+    let height_m = height.as_meters();
+    Area::from_square_meters(0.202 * pow(weight_kg, 0.425) * pow(height_m, 0.725))
 }
 
 /// Calculate body surface area using various formulas
 ///
 /// # Arguments
 ///
-/// * `weight` - Body weight [kg]
-/// * `height` - Body height [m]
+/// * `weight` - Body weight
+/// * `height` - Body height
 /// * `formula` - Formula to use for calculation
 ///
 /// # Returns
@@ -375,16 +361,23 @@ pub fn body_surface_area_dubois(weight: f64, height: f64) -> Area {
 ///
 /// ```
 /// use thermalcomfort::utilities::{body_surface_area, BsaFormula};
+/// use thermalcomfort::{Mass, Length};
 ///
-/// let bsa = body_surface_area(70.0, 1.75, BsaFormula::DuBois);
+/// let bsa = body_surface_area(
+///     Mass::from_kilograms(70.0),
+///     Length::from_meters(1.75),
+///     BsaFormula::DuBois
+/// );
 /// assert!((bsa.as_square_meters() - 1.844).abs() < 0.01);
 /// ```
-pub fn body_surface_area(weight: f64, height: f64, formula: BsaFormula) -> Area {
+pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> Area {
+    let weight_kg = weight.as_kilograms();
+    let height_m = height.as_meters();
     let area_m2 = match formula {
-        BsaFormula::DuBois => 0.202 * pow(weight, 0.425) * pow(height, 0.725),
-        BsaFormula::Takahira => 0.2042 * pow(weight, 0.425) * pow(height, 0.725),
-        BsaFormula::Fujimoto => 0.1882 * pow(weight, 0.444) * pow(height, 0.663),
-        BsaFormula::Kurazumi => 0.2440 * pow(weight, 0.383) * pow(height, 0.693),
+        BsaFormula::DuBois => 0.202 * pow(weight_kg, 0.425) * pow(height_m, 0.725),
+        BsaFormula::Takahira => 0.2042 * pow(weight_kg, 0.425) * pow(height_m, 0.725),
+        BsaFormula::Fujimoto => 0.1882 * pow(weight_kg, 0.444) * pow(height_m, 0.663),
+        BsaFormula::Kurazumi => 0.2440 * pow(weight_kg, 0.383) * pow(height_m, 0.693),
     };
     Area::from_square_meters(area_m2)
 }
@@ -430,8 +423,8 @@ pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `vr` - Relative air speed [m/s]
-/// * `v_walk` - Walking speed [m/s]
+/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
+/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
 /// * `i_a_static` - Static boundary air layer insulation [clo] (typically 0.7)
 ///
 /// # Returns
@@ -442,39 +435,50 @@ pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_insulation_air_layer;
+/// use thermalcomfort::Speed;
 ///
-/// let i_a_r = clo_insulation_air_layer(0.1, 0.0, 0.7);
+/// let i_a_r = clo_insulation_air_layer(
+///     Speed::from_meters_per_second(0.1),
+///     Speed::from_meters_per_second(0.0),
+///     0.7
+/// );
 /// assert!((i_a_r - 0.719).abs() < 0.01);
 /// ```
 #[inline]
-pub fn clo_insulation_air_layer(vr: f64, v_walk: f64, i_a_static: f64) -> f64 {
+pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: f64) -> f64 {
+    let vr_ms = vr.as_meters_per_second();
+    let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr - 0.15)
-        + 0.069 * pow(vr - 0.15, 2.0)
-        - 0.462 * v_walk
-        + 0.201 * pow(v_walk, 2.0)
+        -0.533 * (vr_ms - 0.15)
+        + 0.069 * pow(vr_ms - 0.15, 2.0)
+        - 0.462 * v_walk_ms
+        + 0.201 * pow(v_walk_ms, 2.0)
     ) * i_a_static
 }
 
 /// Correction factor for nude person - ISO 9920:2007
 #[inline]
-fn correction_nude(vr: f64, v_walk: f64) -> f64 {
+fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
+    let vr_ms = vr.as_meters_per_second();
+    let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr - 0.15)
-        + 0.069 * pow(vr - 0.15, 2.0)
-        - 0.462 * v_walk
-        + 0.201 * pow(v_walk, 2.0)
+        -0.533 * (vr_ms - 0.15)
+        + 0.069 * pow(vr_ms - 0.15, 2.0)
+        - 0.462 * v_walk_ms
+        + 0.201 * pow(v_walk_ms, 2.0)
     )
 }
 
 /// Correction factor for normal clothing - ISO 9920:2007
 #[inline]
-fn correction_normal_clothing(vr: f64, v_walk: f64) -> f64 {
+fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
+    let vr_ms = vr.as_meters_per_second();
+    let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.281 * (vr - 0.15)
-        + 0.044 * pow(vr - 0.15, 2.0)
-        - 0.492 * v_walk
-        + 0.176 * pow(v_walk, 2.0)
+        -0.281 * (vr_ms - 0.15)
+        + 0.044 * pow(vr_ms - 0.15, 2.0)
+        - 0.492 * v_walk_ms
+        + 0.176 * pow(v_walk_ms, 2.0)
     )
 }
 
@@ -492,8 +496,8 @@ fn correction_normal_clothing(vr: f64, v_walk: f64) -> f64 {
 /// # Arguments
 ///
 /// * `i_t` - Total thermal insulation under static conditions [clo]
-/// * `vr` - Relative air speed [m/s]
-/// * `v_walk` - Walking speed [m/s]
+/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
+/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
 /// * `i_a_static` - Static boundary air layer insulation [clo]
 /// * `i_cl` - Intrinsic clothing insulation [clo]
 ///
@@ -505,14 +509,21 @@ fn correction_normal_clothing(vr: f64, v_walk: f64) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_total_insulation;
+/// use thermalcomfort::Speed;
 ///
-/// let i_t_r = clo_total_insulation(1.5, 0.1, 0.0, 0.7, 1.0);
+/// let i_t_r = clo_total_insulation(
+///     1.5,
+///     Speed::from_meters_per_second(0.1),
+///     Speed::from_meters_per_second(0.0),
+///     0.7,
+///     1.0
+/// );
 /// assert!(i_t_r > 0.0);
 /// ```
 pub fn clo_total_insulation(
     i_t: f64,
-    vr: f64,
-    v_walk: f64,
+    vr: Speed,
+    v_walk: Speed,
     i_a_static: f64,
     i_cl: f64,
 ) -> f64 {
@@ -541,7 +552,7 @@ pub fn clo_total_insulation(
 ///
 /// * `clo` - Static clothing insulation [clo]
 /// * `met` - Metabolic rate [met]
-/// * `v` - Air speed [m/s]
+/// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `i_a` - Thermal insulation of boundary air layer [clo] (typically 0.7)
 ///
 /// # Returns
@@ -552,11 +563,12 @@ pub fn clo_total_insulation(
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_dynamic_iso;
+/// use thermalcomfort::Speed;
 ///
-/// let clo_dyn = clo_dynamic_iso(1.0, 1.2, 0.1, 0.7);
+/// let clo_dyn = clo_dynamic_iso(1.0, 1.2, Speed::from_meters_per_second(0.1), 0.7);
 /// assert!(clo_dyn > 0.0 && clo_dyn <= 1.0);
 /// ```
-pub fn clo_dynamic_iso(clo: f64, met: f64, v: f64, i_a: f64) -> f64 {
+pub fn clo_dynamic_iso(clo: f64, met: f64, v: Speed, i_a: f64) -> f64 {
     // Calculate clothing area factor
     let f_cl = clo_area_factor(clo);
 
@@ -565,7 +577,8 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: f64, i_a: f64) -> f64 {
 
     // Calculate walking speed and relative air speed
     let v_r = v_relative(v, met);
-    let v_walk = v_r - v;
+    let v_walk_ms = v_r.as_meters_per_second() - v.as_meters_per_second();
+    let v_walk = Speed::from_meters_per_second(v_walk_ms);
 
     // Calculate total dynamic insulation
     let i_t_r = clo_total_insulation(i_t, v_r, v_walk, i_a, clo);
@@ -585,7 +598,7 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: f64, i_a: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `tout` - Outdoor air temperature at 06:00 a.m. [°C]
+/// * `tout` - Outdoor air temperature at 06:00 a.m. (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
@@ -595,8 +608,9 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: f64, i_a: f64) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_tout;
+/// use thermalcomfort::Temperature;
 ///
-/// let clo = clo_tout(27.0);
+/// let clo = clo_tout(Temperature::from_celsius(27.0));
 /// assert!((clo - 0.46).abs() < 0.01);
 /// ```
 ///
@@ -611,13 +625,14 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: f64, i_a: f64) -> f64 {
 /// - For -5°C ≤ tout < 5°C: clo = 0.818 - 0.0364 * tout
 /// - For 5°C ≤ tout < 26°C: clo = 10^(-0.1635 - 0.0066 * tout)
 /// - For tout ≥ 26°C: clo = 0.46
-pub fn clo_tout(tout: f64) -> f64 {
-    let clo = if tout < -5.0 {
+pub fn clo_tout(tout: Temperature) -> f64 {
+    let tout_celsius = tout.as_celsius();
+    let clo = if tout_celsius < -5.0 {
         1.0
-    } else if tout < 5.0 {
-        0.818 - 0.0364 * tout
-    } else if tout < 26.0 {
-        pow(10.0, -0.1635 - 0.0066 * tout)
+    } else if tout_celsius < 5.0 {
+        0.818 - 0.0364 * tout_celsius
+    } else if tout_celsius < 26.0 {
+        pow(10.0, -0.1635 - 0.0066 * tout_celsius)
     } else {
         0.46
     };
@@ -633,8 +648,8 @@ pub fn clo_tout(tout: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `vr` - Relative air speed [m/s]
-/// * `v_walk` - Walking speed [m/s]
+/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
+/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
 /// * `i_cl` - Intrinsic clothing insulation [clo]
 ///
 /// # Returns
@@ -645,15 +660,20 @@ pub fn clo_tout(tout: f64) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_correction_factor_environment;
+/// use thermalcomfort::Speed;
 ///
-/// let cf = clo_correction_factor_environment(0.3, 0.5, 0.8);
+/// let cf = clo_correction_factor_environment(
+///     Speed::from_meters_per_second(0.3),
+///     Speed::from_meters_per_second(0.5),
+///     0.8
+/// );
 /// assert!(cf > 0.0 && cf <= 1.0);
 /// ```
 ///
 /// # References
 ///
 /// - ISO 9920:2007
-pub fn clo_correction_factor_environment(vr: f64, v_walk: f64, i_cl: f64) -> f64 {
+pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: f64) -> f64 {
     if i_cl == 0.0 {
         return correction_nude(vr, v_walk);
     }
@@ -705,15 +725,14 @@ mod tests {
 
     #[test]
     fn test_v_relative() {
-        assert_eq!(v_relative(0.1, 1.0), 0.1);
-        assert!((v_relative(0.1, 1.4) - 0.22).abs() < 0.001);
-        assert!((v_relative(0.15, 2.0) - 0.45).abs() < 0.001);
-    }
+        let v1 = v_relative(Speed::from_meters_per_second(0.1), 1.0);
+        assert_eq!(v1.as_meters_per_second(), 0.1);
 
-    #[test]
-    fn test_temperature_conversion() {
-        assert!((f_to_c(77.0) - 25.0).abs() < 0.01);
-        assert!((c_to_f(25.0) - 77.0).abs() < 0.01);
+        let v2 = v_relative(Speed::from_meters_per_second(0.1), 1.4);
+        assert!((v2.as_meters_per_second() - 0.22).abs() < 0.001);
+
+        let v3 = v_relative(Speed::from_meters_per_second(0.15), 2.0);
+        assert!((v3.as_meters_per_second() - 0.45).abs() < 0.001);
     }
 
     #[test]

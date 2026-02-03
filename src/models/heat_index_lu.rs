@@ -22,7 +22,7 @@ use measurements::{Temperature, Humidity};
 ///
 /// ```
 /// use thermalcomfort::models::heat_index_lu::heat_index_lu;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let hi = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
 /// assert!((hi - 25.0).abs() < 1.0);

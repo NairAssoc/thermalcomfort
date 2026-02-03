@@ -9,14 +9,14 @@ use crate::models::pmv::{pmv_ppd_iso as pmv_ppd_iso_f64, pmv_ppd_ashrae as pmv_p
 /// Calculate PMV and PPD according to ISO 7730:2005 using type-safe measurements
 ///
 /// This is a type-safe wrapper around `pmv_ppd_iso` that uses the `measurements` crate
-/// for temperature and air speed values.
+/// for temperature, air speed, and humidity values.
 ///
 /// # Arguments
 ///
 /// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `tr` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `rh` - Relative humidity [%]
+/// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
 /// * `met` - Metabolic rate [met]
 /// * `clo` - Clothing insulation [clo]
 /// * `options` - Additional calculation options
@@ -30,18 +30,17 @@ use crate::models::pmv::{pmv_ppd_iso as pmv_ppd_iso_f64, pmv_ppd_ashrae as pmv_p
 /// ```
 /// use thermalcomfort::models::pmv_typed::pmv_ppd_iso_typed;
 /// use thermalcomfort::utilities::v_relative;
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
 /// let tr = Temperature::from_celsius(25.0);
 /// let v = Speed::from_meters_per_second(0.1);
-/// let rh = 50.0;
+/// let rh = Humidity::from_percent(50.0);
 /// let met = 1.4;
 /// let clo = 0.5;
 ///
 /// // Calculate relative air speed
-/// let vr_ms = v_relative(v.as_meters_per_second(), met);
-/// let vr = Speed::from_meters_per_second(vr_ms);
+/// let vr = v_relative(v, met);
 ///
 /// let result = pmv_ppd_iso_typed(tdb, tr, vr, rh, met, clo, Default::default());
 /// ```
@@ -49,19 +48,19 @@ pub fn pmv_ppd_iso_typed(
     tdb: Temperature,
     tr: Temperature,
     vr: Speed,
-    rh: f64,
+    rh: Humidity,
     met: f64,
     clo: f64,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
     // The main function now takes measurement types directly
-    pmv_ppd_iso_f64(tdb, tr, vr, Humidity::from_percent(rh), met, clo, options)
+    pmv_ppd_iso_f64(tdb, tr, vr, rh, met, clo, options)
 }
 
 /// Calculate PMV and PPD according to ASHRAE 55 using type-safe measurements
 ///
 /// This is a type-safe wrapper around `pmv_ppd_ashrae` that uses the `measurements` crate
-/// for temperature and air speed values.
+/// for temperature, air speed, and humidity values.
 ///
 /// # Arguments
 ///
@@ -71,12 +70,12 @@ pub fn pmv_ppd_iso_typed(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_typed::pmv_ppd_ashrae_typed;
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
 /// let tr = Temperature::from_celsius(25.0);
 /// let vr = Speed::from_meters_per_second(0.1);
-/// let rh = 50.0;
+/// let rh = Humidity::from_percent(50.0);
 /// let met = 1.2;
 /// let clo = 0.5;
 ///
@@ -86,26 +85,26 @@ pub fn pmv_ppd_ashrae_typed(
     tdb: Temperature,
     tr: Temperature,
     vr: Speed,
-    rh: f64,
+    rh: Humidity,
     met: f64,
     clo: f64,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
     // The main function now takes measurement types directly
-    pmv_ppd_ashrae_f64(tdb, tr, vr, Humidity::from_percent(rh), met, clo, options)
+    pmv_ppd_ashrae_f64(tdb, tr, vr, rh, met, clo, options)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use measurements::{Temperature, Speed};
+    use crate::{Temperature, Speed, Humidity};
 
     #[test]
     fn test_pmv_ppd_iso_typed() {
         let tdb = Temperature::from_celsius(25.0);
         let tr = Temperature::from_celsius(25.0);
         let vr = Speed::from_meters_per_second(0.1);
-        let rh = 50.0;
+        let rh = Humidity::from_percent(50.0);
         let met = 1.2;
         let clo = 0.5;
 
@@ -124,7 +123,7 @@ mod tests {
 
         let tr = Temperature::from_celsius(25.0);
         let vr = Speed::from_meters_per_second(0.1);
-        let rh = 50.0;
+        let rh = Humidity::from_percent(50.0);
         let met = 1.2;
         let clo = 0.5;
 
@@ -142,7 +141,7 @@ mod tests {
         let tr = Temperature::from_celsius(25.0);
         let vr_mps = Speed::from_meters_per_second(0.1);
         let vr_kmh = Speed::from_kilometers_per_hour(0.1 * 3.6); // 0.1 m/s = 0.36 km/h
-        let rh = 50.0;
+        let rh = Humidity::from_percent(50.0);
         let met = 1.2;
         let clo = 0.5;
 

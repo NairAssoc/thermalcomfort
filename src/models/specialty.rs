@@ -28,7 +28,7 @@ use measurements::{Temperature, Speed, Humidity};
 ///
 /// ```
 /// use thermalcomfort::models::ankle_draft;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let (ppd, acceptable) = ankle_draft(
 ///     Temperature::from_celsius(23.0),
@@ -94,7 +94,7 @@ pub fn ankle_draft(
 ///
 /// ```
 /// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     Temperature::from_celsius(25.0),

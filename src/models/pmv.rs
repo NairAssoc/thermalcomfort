@@ -105,21 +105,21 @@ impl Default for PmvPpdOptions {
 /// ```
 /// use thermalcomfort::models::pmv_ppd_iso;
 /// use thermalcomfort::utilities::v_relative;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
-/// let tdb = 25.0;
-/// let tr = 25.0;
-/// let rh = 50.0;
-/// let v = 0.1;
+/// let tdb = Temperature::from_celsius(25.0);
+/// let tr = Temperature::from_celsius(25.0);
+/// let rh = Humidity::from_percent(50.0);
+/// let v = Speed::from_meters_per_second(0.1);
 /// let met = 1.4;
 /// let clo = 0.5;
 ///
 /// let vr = v_relative(v, met);
 /// let result = pmv_ppd_iso(
-///     Temperature::from_celsius(tdb),
-///     Temperature::from_celsius(tr),
-///     Speed::from_meters_per_second(vr),
-///     Humidity::from_percent(rh),
+///     tdb,
+///     tr,
+///     vr,
+///     rh,
 ///     met,
 ///     clo,
 ///     Default::default()
@@ -494,7 +494,7 @@ mod tests {
 ///
 /// ```
 /// use thermalcomfort::models::pmv_a;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let a_pmv = pmv_a(
 ///     Temperature::from_celsius(25.0),
@@ -558,7 +558,7 @@ pub fn pmv_a(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_e;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let e_pmv = pmv_e(
 ///     Temperature::from_celsius(28.0),
@@ -626,7 +626,7 @@ pub fn pmv_e(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_athb;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let athb_pmv = pmv_athb(
 ///     Temperature::from_celsius(25.0),

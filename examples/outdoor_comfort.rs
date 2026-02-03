@@ -5,30 +5,30 @@
 
 use thermalcomfort::models::{utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
-use measurements::{Temperature, Speed, Humidity};
+use thermalcomfort::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Outdoor Thermal Comfort Assessment ===\n");
 
     // Example 1: Moderate summer day
     println!("--- Example 1: Moderate Summer Day ---");
-    let tdb1 = 28.0;  // dry bulb temperature [°C]
-    let tr1 = 32.0;   // mean radiant temperature (higher due to solar radiation) [°C]
-    let v1 = 1.5;     // wind speed [m/s]
-    let rh1 = 50.0;   // relative humidity [%]
+    let tdb1 = Temperature::from_celsius(28.0);  // dry bulb temperature
+    let tr1 = Temperature::from_celsius(32.0);   // mean radiant temperature (higher due to solar radiation)
+    let v1 = Speed::from_meters_per_second(1.5); // wind speed
+    let rh1 = Humidity::from_percent(50.0);      // relative humidity
 
     println!("Conditions:");
-    println!("  Dry bulb temperature: {:.1}°C", tdb1);
-    println!("  Mean radiant temp:    {:.1}°C (elevated by sun)", tr1);
-    println!("  Wind speed:           {:.1} m/s", v1);
-    println!("  Relative humidity:    {:.0}%\n", rh1);
+    println!("  Dry bulb temperature: {:.1}°C", tdb1.as_celsius());
+    println!("  Mean radiant temp:    {:.1}°C (elevated by sun)", tr1.as_celsius());
+    println!("  Wind speed:           {:.1} m/s", v1.as_meters_per_second());
+    println!("  Relative humidity:    {:.0}%\n", rh1.as_percent());
 
     // UTCI calculation
     let utci_result1 = utci(
-        Temperature::from_celsius(tdb1),
-        Temperature::from_celsius(tr1),
-        Speed::from_meters_per_second(v1),
-        Humidity::from_percent(rh1),
+        tdb1,
+        tr1,
+        v1,
+        rh1,
         Default::default()
     );
 
@@ -38,12 +38,12 @@ fn main() {
 
     // WBGT calculation (outdoor with solar load)
     let twb1 = wet_bulb_temperature(tdb1, rh1);
-    let tg1 = 35.0; // globe temperature (elevated by solar radiation)
+    let tg1 = Temperature::from_celsius(35.0); // globe temperature (elevated by solar radiation)
 
     let wbgt_result1 = wbgt(
-        Temperature::from_celsius(twb1),
-        Temperature::from_celsius(tg1),
-        Some(Temperature::from_celsius(tdb1)),
+        twb1,
+        tg1,
+        Some(tdb1),
         Default::default()
     );
 
@@ -62,22 +62,22 @@ fn main() {
 
     // Example 2: Hot and humid day
     println!("\n\n--- Example 2: Hot and Humid Day ---");
-    let tdb2 = 35.0;
-    let tr2 = 40.0;  // very high radiant temperature
-    let v2 = 0.5;    // low wind
-    let rh2 = 70.0;  // high humidity
+    let tdb2 = Temperature::from_celsius(35.0);
+    let tr2 = Temperature::from_celsius(40.0);  // very high radiant temperature
+    let v2 = Speed::from_meters_per_second(0.5);    // low wind
+    let rh2 = Humidity::from_percent(70.0);  // high humidity
 
     println!("Conditions:");
-    println!("  Dry bulb temperature: {:.1}°C", tdb2);
-    println!("  Mean radiant temp:    {:.1}°C", tr2);
-    println!("  Wind speed:           {:.1} m/s", v2);
-    println!("  Relative humidity:    {:.0}%\n", rh2);
+    println!("  Dry bulb temperature: {:.1}°C", tdb2.as_celsius());
+    println!("  Mean radiant temp:    {:.1}°C", tr2.as_celsius());
+    println!("  Wind speed:           {:.1} m/s", v2.as_meters_per_second());
+    println!("  Relative humidity:    {:.0}%\n", rh2.as_percent());
 
     let utci_result2 = utci(
-        Temperature::from_celsius(tdb2),
-        Temperature::from_celsius(tr2),
-        Speed::from_meters_per_second(v2),
-        Humidity::from_percent(rh2),
+        tdb2,
+        tr2,
+        v2,
+        rh2,
         Default::default()
     );
 
@@ -86,12 +86,12 @@ fn main() {
     println!("  Thermal stress: {}", utci_result2.stress_category.as_str());
 
     let twb2 = wet_bulb_temperature(tdb2, rh2);
-    let tg2 = 42.0;
+    let tg2 = Temperature::from_celsius(42.0);
 
     let wbgt_result2 = wbgt(
-        Temperature::from_celsius(twb2),
-        Temperature::from_celsius(tg2),
-        Some(Temperature::from_celsius(tdb2)),
+        twb2,
+        tg2,
+        Some(tdb2),
         Default::default()
     );
 
@@ -109,22 +109,22 @@ fn main() {
 
     // Example 3: Cold winter day
     println!("\n\n--- Example 3: Cold Winter Day ---");
-    let tdb3 = -5.0;
-    let tr3 = -8.0;  // lower due to cold surfaces
-    let v3 = 3.0;    // wind chill factor
-    let rh3 = 80.0;
+    let tdb3 = Temperature::from_celsius(-5.0);
+    let tr3 = Temperature::from_celsius(-8.0);  // lower due to cold surfaces
+    let v3 = Speed::from_meters_per_second(3.0);    // wind chill factor
+    let rh3 = Humidity::from_percent(80.0);
 
     println!("Conditions:");
-    println!("  Dry bulb temperature: {:.1}°C", tdb3);
-    println!("  Mean radiant temp:    {:.1}°C", tr3);
-    println!("  Wind speed:           {:.1} m/s", v3);
-    println!("  Relative humidity:    {:.0}%\n", rh3);
+    println!("  Dry bulb temperature: {:.1}°C", tdb3.as_celsius());
+    println!("  Mean radiant temp:    {:.1}°C", tr3.as_celsius());
+    println!("  Wind speed:           {:.1} m/s", v3.as_meters_per_second());
+    println!("  Relative humidity:    {:.0}%\n", rh3.as_percent());
 
     let utci_result3 = utci(
-        Temperature::from_celsius(tdb3),
-        Temperature::from_celsius(tr3),
-        Speed::from_meters_per_second(v3),
-        Humidity::from_percent(rh3),
+        tdb3,
+        tr3,
+        v3,
+        rh3,
         Default::default()
     );
 

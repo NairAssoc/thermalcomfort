@@ -129,7 +129,7 @@ impl Default for UtciOptions {
 ///
 /// ```
 /// use thermalcomfort::models::utci::{utci, UtciOptions};
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = utci(
 ///     Temperature::from_celsius(25.0),

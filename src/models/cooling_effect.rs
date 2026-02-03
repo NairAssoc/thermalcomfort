@@ -63,7 +63,7 @@ impl Default for CoolingEffectOptions {
 ///
 /// ```
 /// use thermalcomfort::models::cooling_effect::{cooling_effect, CoolingEffectOptions};
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// // Calculate cooling effect with elevated air speed
 /// let ce = cooling_effect(

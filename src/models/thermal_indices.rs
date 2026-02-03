@@ -26,7 +26,7 @@ use measurements::{Temperature, Speed, Humidity};
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::wci;
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = wci(
 ///     Temperature::from_celsius(-5.0),
@@ -73,7 +73,7 @@ pub fn wci(dry_bulb_temp: Temperature, wind_speed: Speed, round_output: bool) ->
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::wind_chill_temperature;
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = wind_chill_temperature(
 ///     Temperature::from_celsius(-5.0),
@@ -116,7 +116,7 @@ pub fn wind_chill_temperature(dry_bulb_temp: Temperature, wind_speed: Speed, rou
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::humidex;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = humidex(Temperature::from_celsius(25.0), Humidity::from_percent(50.0), true);
 /// assert!((result - 28.2).abs() < 0.2);
@@ -155,11 +155,11 @@ pub fn humidex(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_ou
 /// Humidex value [°C]
 pub fn humidex_masterson(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output: bool) -> f64 {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let rh_percent = relative_humidity.as_percent();
 
-    let t_dp = dew_point_temperature(dry_bulb_celsius, rh_percent);
+    let t_dp = dew_point_temperature(dry_bulb_temp, relative_humidity);
+    let t_dp_celsius = t_dp.as_celsius();
     let vapor_pressure = 6.11 * libm::exp(
-        5417.753 * (1.0 / 273.15 - 1.0 / (t_dp + 273.15))
+        5417.753 * (1.0 / 273.15 - 1.0 / (t_dp_celsius + 273.15))
     );
 
     let mut hi = dry_bulb_celsius + 5.0 / 9.0 * (vapor_pressure - 10.0);
@@ -187,7 +187,7 @@ pub fn humidex_masterson(dry_bulb_temp: Temperature, relative_humidity: Humidity
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::thi;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = thi(Temperature::from_celsius(25.0), Humidity::from_percent(50.0), true);
 /// assert!((result - 71.8).abs() < 0.2);
@@ -223,7 +223,7 @@ pub fn thi(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::discomfort_index;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = discomfort_index(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
 /// assert!((result - 22.1).abs() < 0.1);
@@ -262,7 +262,7 @@ pub fn discomfort_index(dry_bulb_temp: Temperature, relative_humidity: Humidity)
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::heat_index_rothfusz;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = heat_index_rothfusz(Temperature::from_celsius(29.0), Humidity::from_percent(50.0), true, true);
 /// assert!((result - 29.7).abs() < 0.2);
@@ -324,7 +324,7 @@ pub fn heat_index_rothfusz(dry_bulb_temp: Temperature, relative_humidity: Humidi
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::at;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = at(
 ///     Temperature::from_celsius(25.0),
@@ -343,11 +343,11 @@ pub fn heat_index_rothfusz(dry_bulb_temp: Temperature, relative_humidity: Humidi
 pub fn at(dry_bulb_temp: Temperature, relative_humidity: Humidity, wind_speed: Speed, q: Option<f64>, round_output: bool) -> f64 {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let wind_speed_mps = wind_speed.as_meters_per_second();
-    let rh_percent = relative_humidity.as_percent();
 
     // Calculate vapor pressure using psychrometric function
-    let psy_result = psy_ta_rh(dry_bulb_celsius, rh_percent, 101325.0);
-    let p_vap = psy_result.p_vap / 100.0; // Convert to hPa
+    use measurements::Pressure;
+    let psy_result = psy_ta_rh(dry_bulb_temp, relative_humidity, Pressure::from_pascals(101325.0));
+    let p_vap = psy_result.p_vap.as_pascals() / 100.0; // Convert to hPa
 
     // Calculate apparent temperature
     let mut t_at = if let Some(q_val) = q {
@@ -387,7 +387,7 @@ pub fn at(dry_bulb_temp: Temperature, relative_humidity: Humidity, wind_speed: S
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::net;
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = net(
 ///     Temperature::from_celsius(37.0),
@@ -447,7 +447,7 @@ pub fn net(dry_bulb_temp: Temperature, relative_humidity: Humidity, wind_speed: 
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::esi;
-/// use measurements::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = esi(Temperature::from_celsius(30.2), Humidity::from_percent(42.2), 766.0, true);
 /// assert!((result - 26.2).abs() < 0.5);

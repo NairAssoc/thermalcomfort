@@ -76,7 +76,7 @@ pub struct UseFansHeatwavesResult {
 /// ```
 /// use thermalcomfort::models::use_fans_heatwaves::use_fans_heatwaves;
 /// use thermalcomfort::utilities::Posture;
-/// use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity};
 ///
 /// let result = use_fans_heatwaves(
 ///     Temperature::from_celsius(35.0),

@@ -126,7 +126,7 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
-/// use measurements::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = two_nodes_gagge(
 ///     Temperature::from_celsius(25.0),
@@ -153,7 +153,8 @@ pub fn two_nodes_gagge(
     let speed_mps = air_speed.as_meters_per_second();
     let rh_percent = relative_humidity.as_percent();
 
-    let vapor_pressure = rh_percent * p_sat_torr(dry_bulb_celsius) / 100.0;
+    let p_sat_torr_val = p_sat_torr(dry_bulb_temp).as_pascals() / 133.322; // Convert Pa back to torr
+    let vapor_pressure = rh_percent * p_sat_torr_val / 100.0;
 
     gagge_two_nodes_optimized(
         dry_bulb_celsius,

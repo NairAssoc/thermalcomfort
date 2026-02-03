@@ -97,7 +97,7 @@ impl Default for AdaptiveOptions {
 ///
 /// ```
 /// use thermalcomfort::models::adaptive::{adaptive_ashrae, AdaptiveOptions};
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = adaptive_ashrae(
 ///     Temperature::from_celsius(25.0),
@@ -122,10 +122,10 @@ pub fn adaptive_ashrae(
     let speed_mps = air_speed.as_meters_per_second();
 
     // Calculate operative temperature (use_ashrae=true for adaptive models)
-    let to = operative_temperature(dry_bulb_celsius, radiant_celsius, speed_mps, true);
+    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
     // Calculate cooling effect for elevated air speed when to > 25°C
-    let ce = if speed_mps >= 0.6 && to >= 25.0 {
+    let ce = if speed_mps >= 0.6 && to.as_celsius() >= 25.0 {
         if speed_mps < 0.9 {
             1.2
         } else if speed_mps < 1.2 {
@@ -161,8 +161,9 @@ pub fn adaptive_ashrae(
     let tmp_cmf_90_up = t_cmf + 2.5 + ce;
 
     // Check acceptability
-    let acceptability_80 = !t_cmf.is_nan() && to >= tmp_cmf_80_low && to <= tmp_cmf_80_up;
-    let acceptability_90 = !t_cmf.is_nan() && to >= tmp_cmf_90_low && to <= tmp_cmf_90_up;
+    let to_celsius = to.as_celsius();
+    let acceptability_80 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
+    let acceptability_90 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
 
     AdaptiveAshraeResult {
         tmp_cmf: t_cmf,
@@ -203,7 +204,7 @@ pub fn adaptive_ashrae(
 ///
 /// ```
 /// use thermalcomfort::models::adaptive::{adaptive_en, AdaptiveOptions};
-/// use measurements::{Temperature, Speed};
+/// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = adaptive_en(
 ///     Temperature::from_celsius(25.0),
@@ -228,7 +229,7 @@ pub fn adaptive_en(
     let speed_mps = air_speed.as_meters_per_second();
 
     // Calculate operative temperature (use_ashrae=true for adaptive models)
-    let to = operative_temperature(dry_bulb_celsius, radiant_celsius, speed_mps, true);
+    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
     // Comfort temperature based on running mean (EN formula)
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
@@ -256,9 +257,10 @@ pub fn adaptive_en(
     let tmp_cmf_cat_iii_up = t_cmf + 4.0;
 
     // Check acceptability for each category
-    let acceptability_cat_i = !t_cmf.is_nan() && to >= tmp_cmf_cat_i_low && to <= tmp_cmf_cat_i_up;
-    let acceptability_cat_ii = !t_cmf.is_nan() && to >= tmp_cmf_cat_ii_low && to <= tmp_cmf_cat_ii_up;
-    let acceptability_cat_iii = !t_cmf.is_nan() && to >= tmp_cmf_cat_iii_low && to <= tmp_cmf_cat_iii_up;
+    let to_celsius = to.as_celsius();
+    let acceptability_cat_i = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
+    let acceptability_cat_ii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
+    let acceptability_cat_iii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
 
     AdaptiveEnResult {
         tmp_cmf: t_cmf,

@@ -18,22 +18,22 @@
 //! ```
 //! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity};
 //!
-//! let tdb = 25.0; // dry bulb temperature [°C]
-//! let tr = 25.0;  // mean radiant temperature [°C]
-//! let rh = 50.0;  // relative humidity [%]
-//! let v = 0.1;    // air speed [m/s]
+//! let tdb = Temperature::from_celsius(25.0);
+//! let tr = Temperature::from_celsius(25.0);
+//! let rh = Humidity::from_percent(50.0);
+//! let v = Speed::from_meters_per_second(0.1);
 //! let met = 1.4;  // metabolic rate [met]
 //! let clo = 0.5;  // clothing insulation [clo]
 //!
 //! // Calculate relative air speed
 //! let vr = v_relative(v, met);
 //!
-//! // Calculate PMV and PPD using measurement types
+//! // Calculate PMV and PPD
 //! let result = pmv_ppd_iso(
-//!     Temperature::from_celsius(tdb),
-//!     Temperature::from_celsius(tr),
-//!     Speed::from_meters_per_second(vr),
-//!     Humidity::from_percent(rh),
+//!     tdb,
+//!     tr,
+//!     vr,
+//!     rh,
 //!     met,
 //!     clo,
 //!     Default::default()
@@ -53,4 +53,5 @@ pub use models::pmv::{pmv_ppd_iso, PmvPpdResult};
 pub use utilities::v_relative;
 
 // Re-export measurements types for convenience
-pub use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+// Users should import these from thermalcomfort instead of directly from measurements
+pub use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
