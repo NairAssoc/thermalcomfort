@@ -6,6 +6,9 @@ authors = ["Thermal Comfort Contributors"]
 description = "A Rust port of pythermalcomfort for thermal comfort calculations (no_std, WASM-compatible)"
 license = "MIT"
 repository = "https://github.com/NairAssoc/thermalcomfort"
+homepage = "https://github.com/NairAssoc/thermalcomfort"
+documentation = "https://docs.rs/thermalcomfort"
+readme = "README.md"
 keywords = ["thermal", "comfort", "pmv", "hvac", "building"]
 categories = ["science", "mathematics", "wasm", "no-std"]
 
