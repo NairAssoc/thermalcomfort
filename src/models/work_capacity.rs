@@ -1,0 +1,232 @@
+//! Work capacity models for heat stress assessment
+//!
+//! These models estimate the reduction in work capacity due to heat stress,
+//! expressed as a percentage where 100% means work is unaffected by heat
+//! and 0% means no work can be performed.
+
+/// Work intensity levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkIntensity {
+    /// Light work (< 200 kcal/h or ~200W)
+    Light,
+    /// Moderate work (200-350 kcal/h or ~300W)
+    Moderate,
+    /// Heavy work (350-500 kcal/h or ~400W)
+    Heavy,
+}
+
+impl Default for WorkIntensity {
+    fn default() -> Self {
+        WorkIntensity::Heavy
+    }
+}
+
+/// Estimate work capacity based on ISO standards
+///
+/// Estimates work capacity as described by Bröde et al. (2018).
+/// Based on the relationship between WBGT and metabolic rate.
+///
+/// # Arguments
+///
+/// * `wbgt` - Wet Bulb Globe Temperature [°C]
+/// * `met` - Metabolic heat production [W]
+///
+/// # Returns
+///
+/// Work capacity as percentage (0-100%)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::work_capacity::work_capacity_iso;
+///
+/// let capacity = work_capacity_iso(30.0, 300.0);
+/// assert!(capacity >= 0.0 && capacity <= 100.0);
+/// ```
+///
+/// # References
+///
+/// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
+pub fn work_capacity_iso(wbgt: f64, met: f64) -> f64 {
+    let met_rest = 117.0; // Assumed resting metabolic rate
+
+    let wbgt_lim = 34.9 - met / 46.0;
+    let wbgt_lim_rest = 34.9 - met_rest / 46.0;
+
+    let capacity = ((wbgt_lim_rest - wbgt) / (wbgt_lim_rest - wbgt_lim)) * 100.0;
+
+    // Clip to 0-100 range
+    capacity.max(0.0).min(100.0)
+}
+
+/// Estimate work capacity based on NIOSH standards
+///
+/// Estimates work capacity as described by Bröde et al. (2018).
+/// Uses logarithmic relationship with metabolic rate.
+///
+/// # Arguments
+///
+/// * `wbgt` - Wet Bulb Globe Temperature [°C]
+/// * `met` - Metabolic heat production [W]
+///
+/// # Returns
+///
+/// Work capacity as percentage (0-100%)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::work_capacity::work_capacity_niosh;
+///
+/// let capacity = work_capacity_niosh(30.0, 300.0);
+/// assert!(capacity >= 0.0 && capacity <= 100.0);
+/// ```
+///
+/// # References
+///
+/// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
+pub fn work_capacity_niosh(wbgt: f64, met: f64) -> f64 {
+    let met_rest = 117.0; // Assumed resting metabolic rate
+
+    let wbgt_lim = 56.7 - 11.5 * libm::log10(met);
+    let wbgt_lim_rest = 56.7 - 11.5 * libm::log10(met_rest);
+
+    let capacity = ((wbgt_lim_rest - wbgt) / (wbgt_lim_rest - wbgt_lim)) * 100.0;
+
+    // Clip to 0-100 range
+    capacity.max(0.0).min(100.0)
+}
+
+/// Estimate work capacity based on Dunne et al. (2013)
+///
+/// Based on NIOSH safety standards with intensity-specific multipliers.
+///
+/// # Arguments
+///
+/// * `wbgt` - Wet Bulb Globe Temperature [°C]
+/// * `work_intensity` - Intensity of work being performed
+///
+/// # Returns
+///
+/// Work capacity as percentage (0-100%)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::work_capacity::{work_capacity_dunne, WorkIntensity};
+///
+/// let capacity = work_capacity_dunne(30.0, WorkIntensity::Heavy);
+/// assert!(capacity >= 0.0 && capacity <= 100.0);
+/// ```
+///
+/// # References
+///
+/// - Dunne JP, Stouffer RJ, John JG (2013) Nature Climate Change 3(6):563-6
+pub fn work_capacity_dunne(wbgt: f64, work_intensity: WorkIntensity) -> f64 {
+    // Base capacity calculation
+    let wbgt_excess = (wbgt - 25.0).max(0.0);
+    let mut capacity = 100.0 - 25.0 * libm::pow(wbgt_excess, 2.0 / 3.0);
+    capacity = capacity.max(0.0).min(100.0);
+
+    // Apply intensity-specific multiplier
+    let factor = match work_intensity {
+        WorkIntensity::Heavy => 1.0,
+        WorkIntensity::Moderate => 2.0,
+        WorkIntensity::Light => 4.0,
+    };
+
+    (capacity * factor).min(100.0)
+}
+
+/// Estimate work capacity based on HOTHAPS (Kjellstrom et al. 2018)
+///
+/// Uses sigmoid function with intensity-specific parameters.
+/// Note: Capacity never reaches 0% as it assumes at least 10% work is always possible
+/// in short bursts.
+///
+/// # Arguments
+///
+/// * `wbgt` - Wet Bulb Globe Temperature [°C]
+/// * `work_intensity` - Intensity of work being performed
+///
+/// # Returns
+///
+/// Work capacity as percentage (10-100%)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::work_capacity::{work_capacity_hothaps, WorkIntensity};
+///
+/// let capacity = work_capacity_hothaps(30.0, WorkIntensity::Heavy);
+/// assert!(capacity >= 10.0 && capacity <= 100.0);
+/// ```
+///
+/// # References
+///
+/// - Kjellstrom T et al. (2018)
+/// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
+pub fn work_capacity_hothaps(wbgt: f64, work_intensity: WorkIntensity) -> f64 {
+    let (divisor, exponent) = match work_intensity {
+        WorkIntensity::Heavy => (30.94, 16.64),
+        WorkIntensity::Moderate => (32.93, 17.81),
+        WorkIntensity::Light => (34.64, 22.72),
+    };
+
+    let sigmoid = 0.9 / (1.0 + libm::pow(wbgt / divisor, exponent));
+    let capacity = 100.0 * (0.1 + sigmoid);
+
+    capacity.max(0.0).min(100.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_work_capacity_iso() {
+        // Moderate conditions
+        let capacity = work_capacity_iso(30.0, 300.0);
+        assert!(capacity > 0.0 && capacity <= 100.0);
+
+        // Hot conditions - capacity should be lower
+        let capacity_hot = work_capacity_iso(35.0, 300.0);
+        assert!(capacity_hot < capacity);
+    }
+
+    #[test]
+    fn test_work_capacity_niosh() {
+        let capacity = work_capacity_niosh(30.0, 300.0);
+        assert!(capacity > 0.0 && capacity <= 100.0);
+
+        // Higher metabolic rate should reduce capacity limits
+        let capacity_high_met = work_capacity_niosh(30.0, 400.0);
+        assert!(capacity_high_met < capacity);
+    }
+
+    #[test]
+    fn test_work_capacity_dunne() {
+        // Test different intensities
+        let heavy = work_capacity_dunne(30.0, WorkIntensity::Heavy);
+        let moderate = work_capacity_dunne(30.0, WorkIntensity::Moderate);
+        let light = work_capacity_dunne(30.0, WorkIntensity::Light);
+
+        assert!(heavy >= 0.0 && heavy <= 100.0);
+        assert!(light >= moderate && moderate >= heavy);
+
+        // Below 25°C should give 100% capacity
+        let cool = work_capacity_dunne(20.0, WorkIntensity::Heavy);
+        assert!((cool - 100.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_work_capacity_hothaps() {
+        let capacity = work_capacity_hothaps(30.0, WorkIntensity::Heavy);
+        assert!(capacity >= 10.0 && capacity <= 100.0);
+
+        // Light work should have higher capacity
+        let light = work_capacity_hothaps(30.0, WorkIntensity::Light);
+        let heavy = work_capacity_hothaps(30.0, WorkIntensity::Heavy);
+        assert!(light > heavy);
+    }
+}
