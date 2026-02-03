@@ -46,7 +46,6 @@ pub mod constants;
 pub mod models;
 pub mod numerical;
 pub mod psychrometrics;
-pub mod types;
 pub mod utilities;
 
 // Re-export commonly used items

@@ -4,11 +4,6 @@ use crate::constants::*;
 use libm::{exp, pow, log, round};
 pub use measurements::{Temperature, Speed, Pressure, Area};
 
-// Re-export common measurement types for convenience
-pub mod types {
-    pub use measurements::{Temperature, Speed, Pressure, Area};
-}
-
 /// Convert Temperature to Celsius (f64)
 #[inline]
 pub fn temp_to_celsius(temp: Temperature) -> f64 {
