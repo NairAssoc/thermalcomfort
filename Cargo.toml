@@ -1,0 +1,21 @@
+[package]
+name = "thermalcomfort"
+version = "3.8.0"
+edition = "2024"
+authors = ["Thermal Comfort Contributors"]
+description = "A Rust port of pythermalcomfort for thermal comfort calculations (no_std, WASM-compatible)"
+license = "MIT"
+repository = "https://github.com/NairAssoc/thermalcomfort"
+keywords = ["thermal", "comfort", "pmv", "hvac", "building"]
+categories = ["science", "mathematics", "wasm", "no-std"]
+
+[dependencies]
+libm = "0.2"
+measurements = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+approx = "0.5"
+pyo3 = { version = "0.23", features = ["auto-initialize"] }
+
+[features]
+default = []
