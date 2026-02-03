@@ -2,7 +2,7 @@
 //!
 //! This module contains specialized models for specific comfort assessment scenarios.
 
-use crate::models::pmv_ppd_ashrae;
+use crate::models::pmv::pmv_ppd_ashrae;
 use measurements::{Temperature, Speed, Humidity};
 
 /// Calculate percentage dissatisfied due to ankle draft
@@ -12,13 +12,13 @@ use measurements::{Temperature, Speed, Humidity};
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
-/// * `tr` - Mean radiant temperature [°C]
-/// * `vr` - Relative air speed [m/s] (must be < 0.2)
-/// * `rh` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `met` - Metabolic rate [met]
-/// * `clo` - Clothing insulation [clo]
-/// * `v_ankle` - Air speed at 0.1m above floor [m/s]
+/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
+/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
+/// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar, must be < 0.2 m/s)
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
+/// * `metabolic_rate` - Metabolic rate [met]
+/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `ankle_air_speed` - Air speed at 0.1m above floor (use `Speed::from_meters_per_second()` or similar)
 ///
 /// # Returns
 ///
@@ -78,13 +78,13 @@ pub fn ankle_draft(
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
-/// * `tr` - Mean radiant temperature [°C]
-/// * `vr` - Relative air speed [m/s]
-/// * `rh` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `met` - Metabolic rate [met]
-/// * `clo` - Clothing insulation [clo]
-/// * `vertical_tmp_grad` - Vertical temperature gradient between 1.1m and 0.1m [°C]
+/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
+/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
+/// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
+/// * `metabolic_rate` - Metabolic rate [met]
+/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m [°C]
 ///
 /// # Returns
 ///
