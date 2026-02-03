@@ -5,7 +5,7 @@
 
 use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Area, Pressure, Humidity};
 
 /// Result of fan use during heatwaves assessment
 #[derive(Debug, Clone, Copy)]
@@ -54,15 +54,15 @@ pub struct UseFansHeatwavesResult {
 ///
 /// # Arguments
 ///
-/// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: 20-50°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (recommended range: 20-50°C)
-/// * `air_speed` - Air speed (recommended range: 0.1-4.5 m/s)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
+/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
+/// * `air_speed` - Air speed (use `Speed::from_meters_per_second()`, recommended range: 0.1-4.5 m/s)
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met, 0.7-2.0]
 /// * `clothing_insulation` - Clothing insulation [clo, 0-1]
 /// * `wme` - External work [met, default 0]
-/// * `body_surface_area` - Body surface area [m², default 1.8258]
-/// * `p_atm` - Atmospheric pressure [Pa, default 101325]
+/// * `body_surface_area` - Body surface area (use `Area::from_square_meters()`, default 1.8258 m²)
+/// * `p_atm` - Atmospheric pressure (use `Pressure::from_pascals()`, default 101325 Pa)
 /// * `posture` - Body posture
 /// * `max_skin_blood_flow` - Maximum blood flow [kg/h/m², default 80]
 /// * `max_sweating` - Maximum sweat rate [kg/h/m², default 500]
@@ -76,18 +76,18 @@ pub struct UseFansHeatwavesResult {
 /// ```
 /// use thermalcomfort::models::use_fans_heatwaves::use_fans_heatwaves;
 /// use thermalcomfort::utilities::Posture;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Area, Pressure, Humidity};
 ///
 /// let result = use_fans_heatwaves(
 ///     Temperature::from_celsius(35.0),
 ///     Temperature::from_celsius(35.0),
 ///     Speed::from_meters_per_second(1.0),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     0.0,
-///     1.8258,
-///     101325.0,
+///     Area::from_square_meters(1.8258),
+///     Pressure::from_pascals(101325.0),
 ///     Posture::Standing,
 ///     80.0,
 ///     500.0
@@ -98,12 +98,12 @@ pub fn use_fans_heatwaves(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     wme: f64,
-    body_surface_area: f64,
-    p_atm: f64,
+    body_surface_area: Area,
+    p_atm: Pressure,
     posture: Posture,
     max_skin_blood_flow: f64,
     max_sweating: f64,
@@ -165,12 +165,12 @@ mod tests {
             Temperature::from_celsius(35.0),
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             0.0,
-            1.8258,
-            101325.0,
+            Area::from_square_meters(1.8258),
+            Pressure::from_pascals(101325.0),
             Posture::Standing,
             80.0,
             500.0,
@@ -186,12 +186,12 @@ mod tests {
             Temperature::from_celsius(45.0),
             Temperature::from_celsius(45.0),
             Speed::from_meters_per_second(0.5),
-            70.0,
+            Humidity::from_percent(70.0),
             1.8,
             0.3,
             0.0,
-            1.8258,
-            101325.0,
+            Area::from_square_meters(1.8258),
+            Pressure::from_pascals(101325.0),
             Posture::Standing,
             80.0,
             500.0,

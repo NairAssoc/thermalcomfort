@@ -5,7 +5,7 @@
 
 use thermalcomfort::models::{utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Outdoor Thermal Comfort Assessment ===\n");
@@ -28,7 +28,7 @@ fn main() {
         Temperature::from_celsius(tdb1),
         Temperature::from_celsius(tr1),
         Speed::from_meters_per_second(v1),
-        rh1,
+        Humidity::from_percent(rh1),
         Default::default()
     );
 
@@ -77,7 +77,7 @@ fn main() {
         Temperature::from_celsius(tdb2),
         Temperature::from_celsius(tr2),
         Speed::from_meters_per_second(v2),
-        rh2,
+        Humidity::from_percent(rh2),
         Default::default()
     );
 
@@ -124,7 +124,7 @@ fn main() {
         Temperature::from_celsius(tdb3),
         Temperature::from_celsius(tr3),
         Speed::from_meters_per_second(v3),
-        rh3,
+        Humidity::from_percent(rh3),
         Default::default()
     );
 

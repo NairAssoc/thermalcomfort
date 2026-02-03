@@ -116,7 +116,7 @@ thermalcomfort = "3.8.0"
 ### Basic PMV/PPD Calculation
 
 ```rust
-use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed};
+use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity};
 
 fn main() {
     let tdb = 25.0;  // dry bulb temperature [°C]
@@ -134,7 +134,7 @@ fn main() {
         Temperature::from_celsius(tdb),
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
-        rh,
+        Humidity::from_percent(rh),
         met,
         clo,
         Default::default()
@@ -167,7 +167,7 @@ fn main() {
 ### Custom PMV/PPD Options
 
 ```rust
-use thermalcomfort::{pmv_ppd_iso, Temperature, Speed};
+use thermalcomfort::{pmv_ppd_iso, Temperature, Speed, Humidity};
 use thermalcomfort::models::PmvPpdOptions;
 
 fn main() {
@@ -181,7 +181,7 @@ fn main() {
         Temperature::from_celsius(30.0),
         Temperature::from_celsius(30.0),
         Speed::from_meters_per_second(0.1),
-        50.0,
+        Humidity::from_percent(50.0),
         1.2,
         0.5,
         options
@@ -193,7 +193,7 @@ fn main() {
 ### Standard Effective Temperature (SET)
 
 ```rust
-use thermalcomfort::{Temperature, Speed};
+use thermalcomfort::{Temperature, Speed, Humidity};
 use thermalcomfort::models::set_tmp;
 
 fn main() {
@@ -208,7 +208,7 @@ fn main() {
         Temperature::from_celsius(tdb),
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(v),
-        rh,
+        Humidity::from_percent(rh),
         met,
         clo,
         Default::default()
@@ -220,7 +220,7 @@ fn main() {
 ### Cooling Effect
 
 ```rust
-use thermalcomfort::{Temperature, Speed};
+use thermalcomfort::{Temperature, Speed, Humidity};
 use thermalcomfort::models::cooling_effect;
 
 fn main() {
@@ -236,7 +236,7 @@ fn main() {
         Temperature::from_celsius(tdb),
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
-        rh,
+        Humidity::from_percent(rh),
         met,
         clo,
         Default::default()
@@ -248,7 +248,7 @@ fn main() {
 ### UTCI (Universal Thermal Climate Index)
 
 ```rust
-use thermalcomfort::{Temperature, Speed};
+use thermalcomfort::{Temperature, Speed, Humidity};
 use thermalcomfort::models::utci;
 
 fn main() {
@@ -261,7 +261,7 @@ fn main() {
         Temperature::from_celsius(tdb),
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(v),
-        rh,
+        Humidity::from_percent(rh),
         Default::default()
     );
     println!("UTCI: {:.1}°C", result.utci);
@@ -275,14 +275,14 @@ fn main() {
 The measurement types support automatic unit conversions:
 
 ```rust
-use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed};
+use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity};
 
 fn main() {
     // Use any temperature or speed units - automatically converts internally
     let tdb = Temperature::from_fahrenheit(77.0);  // Automatically converts to Celsius
     let tr = Temperature::from_celsius(25.0);
     let v = Speed::from_kilometers_per_hour(0.36); // Automatically converts to m/s
-    let rh = 50.0;
+    let rh = Humidity::from_percent(50.0);
     let met = 1.4;
     let clo = 0.5;
 
@@ -296,9 +296,16 @@ fn main() {
 }
 ```
 
-The measurement types provide:
-- Automatic unit conversion (Fahrenheit ↔ Celsius, km/h ↔ m/s, etc.)
-- Compile-time type checking to prevent unit errors
+The library re-exports the following measurement types for convenience:
+- `Temperature` - Automatic conversion between Fahrenheit, Celsius, Kelvin
+- `Speed` - Automatic conversion between m/s, km/h, mph, etc.
+- `Humidity` - Relative humidity percentage (0-100%)
+- `Area` - Automatic conversion between m², ft², etc. (used for body surface area)
+- `Pressure` - Automatic conversion between Pa, kPa, mmHg, etc. (used for atmospheric pressure)
+
+These types provide:
+- Automatic unit conversion with compile-time type safety
+- Prevention of unit errors through the type system
 - Clear documentation of expected units
 
 ## WASM Support

@@ -2,7 +2,7 @@
 //!
 //! Advanced heat index model based on thermodynamic and thermoregulatory principles.
 
-use measurements::Temperature;
+use measurements::{Temperature, Humidity};
 
 /// Calculate Heat Index using Lu and Romps (2022) model
 ///
@@ -12,7 +12,7 @@ use measurements::Temperature;
 /// # Arguments
 ///
 /// * `dry_bulb_temp` - Dry bulb air temperature
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 ///
 /// # Returns
 ///
@@ -22,19 +22,19 @@ use measurements::Temperature;
 ///
 /// ```
 /// use thermalcomfort::models::heat_index_lu::heat_index_lu;
-/// use measurements::Temperature;
+/// use measurements::{Temperature, Humidity};
 ///
-/// let hi = heat_index_lu(Temperature::from_celsius(25.0), 50.0);
+/// let hi = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
 /// assert!((hi - 25.0).abs() < 1.0);
 /// ```
 ///
 /// # References
 ///
 /// - Lu and Romps (2022)
-pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: f64) -> f64 {
+pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) -> f64 {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let tdb_k = dry_bulb_celsius + 273.15;
-    let rh_frac = relative_humidity / 100.0;
+    let rh_frac = relative_humidity.as_percent() / 100.0;
 
     let hi_k = lu_heat_index_core(tdb_k, rh_frac);
     let hi = hi_k - 273.15;
@@ -343,14 +343,14 @@ mod tests {
 
     #[test]
     fn test_heat_index_lu() {
-        let hi = heat_index_lu(Temperature::from_celsius(25.0), 50.0);
+        let hi = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
         // Should be close to 25.9°C
         assert!(hi > 24.0 && hi < 27.0);
     }
 
     #[test]
     fn test_heat_index_lu_high_temp() {
-        let hi = heat_index_lu(Temperature::from_celsius(35.0), 70.0);
+        let hi = heat_index_lu(Temperature::from_celsius(35.0), Humidity::from_percent(70.0));
         // Should be significantly higher than air temperature
         assert!(hi > 35.0);
     }

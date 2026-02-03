@@ -5,17 +5,17 @@
 
 use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Area, Pressure, Humidity};
 
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetOptions {
     /// External work [met]
     pub wme: f64,
-    /// Body surface area [m²]
-    pub body_surface_area: f64,
-    /// Atmospheric pressure [Pa]
-    pub p_atm: f64,
+    /// Body surface area
+    pub body_surface_area: Area,
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
     /// Body posture
     pub posture: Posture,
     /// Limit inputs to standard applicability ranges
@@ -28,8 +28,8 @@ impl Default for SetOptions {
     fn default() -> Self {
         Self {
             wme: 0.0,
-            body_surface_area: 1.8258,
-            p_atm: 101325.0,
+            body_surface_area: Area::from_square_meters(1.8258),
+            p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
             limit_inputs: true,
             round_output: true,
@@ -50,7 +50,7 @@ impl Default for SetOptions {
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `options` - SET calculation options
@@ -72,13 +72,13 @@ impl Default for SetOptions {
 ///
 /// ```
 /// use thermalcomfort::models::set_tmp::{set_tmp, SetOptions};
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let set = set_tmp(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     Default::default()
@@ -89,7 +89,7 @@ pub fn set_tmp(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     options: SetOptions,
@@ -150,7 +150,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -166,7 +166,7 @@ mod tests {
             Temperature::from_celsius(5.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -178,7 +178,7 @@ mod tests {
             Temperature::from_celsius(45.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -190,7 +190,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             0.5,
             0.5,
             Default::default()
@@ -206,7 +206,7 @@ mod tests {
             Temperature::from_celsius(5.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             options
@@ -224,7 +224,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             options_round
@@ -238,7 +238,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             options_no_round

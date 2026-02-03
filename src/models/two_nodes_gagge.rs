@@ -5,7 +5,7 @@
 
 use crate::utilities::{p_sat_torr, Posture};
 use libm::{exp, fabs as abs, pow};
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Area, Pressure, Humidity};
 
 /// Result from the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,10 +53,10 @@ pub struct GaggeTwoNodesResult {
 pub struct GaggeTwoNodesOptions {
     /// External work [met]
     pub wme: f64,
-    /// Body surface area [m²]
-    pub body_surface_area: f64,
-    /// Atmospheric pressure [Pa]
-    pub p_atm: f64,
+    /// Body surface area
+    pub body_surface_area: Area,
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
     /// Body posture
     pub posture: Posture,
     /// Maximum skin blood flow [kg/h/m²]
@@ -75,8 +75,8 @@ impl Default for GaggeTwoNodesOptions {
     fn default() -> Self {
         Self {
             wme: 0.0,
-            body_surface_area: 1.8258,
-            p_atm: 101325.0,
+            body_surface_area: Area::from_square_meters(1.8258),
+            p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
             max_skin_blood_flow: 90.0,
             round_output: true,
@@ -113,7 +113,7 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `options` - Model options
@@ -126,13 +126,13 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let result = two_nodes_gagge(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     Default::default()
@@ -143,7 +143,7 @@ pub fn two_nodes_gagge(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     options: GaggeTwoNodesOptions,
@@ -151,8 +151,9 @@ pub fn two_nodes_gagge(
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let speed_mps = air_speed.as_meters_per_second();
+    let rh_percent = relative_humidity.as_percent();
 
-    let vapor_pressure = relative_humidity * p_sat_torr(dry_bulb_celsius) / 100.0;
+    let vapor_pressure = rh_percent * p_sat_torr(dry_bulb_celsius) / 100.0;
 
     gagge_two_nodes_optimized(
         dry_bulb_celsius,
@@ -162,8 +163,8 @@ pub fn two_nodes_gagge(
         clothing_insulation,
         vapor_pressure,
         options.wme,
-        options.body_surface_area,
-        options.p_atm,
+        options.body_surface_area.as_square_meters(),
+        options.p_atm.as_pascals(),
         options.posture,
         options.calculate_ce,
         options.max_skin_blood_flow,
@@ -521,7 +522,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -540,7 +541,7 @@ mod tests {
             Temperature::from_celsius(10.0),
             Temperature::from_celsius(10.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.0,
             1.0,
             Default::default()
@@ -557,7 +558,7 @@ mod tests {
             Temperature::from_celsius(35.0),
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()

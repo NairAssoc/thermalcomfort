@@ -6,7 +6,7 @@ use thermalcomfort::models::{
     heat_index_rothfusz, humidex, thi, discomfort_index,
     wci, wind_chill_temperature
 };
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Thermal Stress Indices ===\n");
@@ -22,7 +22,7 @@ fn main() {
     // Heat Index (Rothfusz)
     let hi = heat_index_rothfusz(
         Temperature::from_celsius(hot_temp),
-        hot_rh,
+        Humidity::from_percent(hot_rh),
         true,
         true
     );
@@ -41,7 +41,7 @@ fn main() {
     // Humidex
     let humidex_val = humidex(
         Temperature::from_celsius(hot_temp),
-        hot_rh,
+        Humidity::from_percent(hot_rh),
         true
     );
     println!("\nHumidex (Canadian):");
@@ -59,7 +59,7 @@ fn main() {
     // Temperature-Humidity Index (THI)
     let thi_val = thi(
         Temperature::from_celsius(hot_temp),
-        hot_rh,
+        Humidity::from_percent(hot_rh),
         true
     );
     println!("\nTemperature-Humidity Index:");
@@ -77,7 +77,7 @@ fn main() {
     // Discomfort Index
     let di = discomfort_index(
         Temperature::from_celsius(hot_temp),
-        hot_rh
+        Humidity::from_percent(hot_rh)
     );
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di);
@@ -149,13 +149,13 @@ fn main() {
     for rh in [30.0, 50.0, 70.0, 90.0] {
         let hi = heat_index_rothfusz(
             Temperature::from_celsius(30.0),
-            rh,
+            Humidity::from_percent(rh),
             true,
             true
         );
         let hum = humidex(
             Temperature::from_celsius(30.0),
-            rh,
+            Humidity::from_percent(rh),
             true
         );
 

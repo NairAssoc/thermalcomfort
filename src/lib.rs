@@ -16,7 +16,7 @@
 //! ## Example
 //!
 //! ```
-//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed};
+//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity};
 //!
 //! let tdb = 25.0; // dry bulb temperature [°C]
 //! let tr = 25.0;  // mean radiant temperature [°C]
@@ -33,7 +33,7 @@
 //!     Temperature::from_celsius(tdb),
 //!     Temperature::from_celsius(tr),
 //!     Speed::from_meters_per_second(vr),
-//!     rh,
+//!     Humidity::from_percent(rh),
 //!     met,
 //!     clo,
 //!     Default::default()
@@ -54,4 +54,4 @@ pub use models::pmv::{pmv_ppd_iso, PmvPpdResult};
 pub use utilities::v_relative;
 
 // Re-export measurements types for convenience
-pub use measurements::{Temperature, Speed};
+pub use measurements::{Temperature, Speed, Area, Pressure, Humidity};

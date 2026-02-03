@@ -2,7 +2,7 @@
 
 use thermalcomfort::models::pmv_ppd_iso;
 use thermalcomfort::utilities::v_relative;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 fn main() {
     println!("=== Thermal Comfort PMV/PPD Example ===\n");
@@ -32,7 +32,7 @@ fn main() {
         Temperature::from_celsius(tdb),
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
-        rh,
+        Humidity::from_percent(rh),
         met,
         clo,
         Default::default()

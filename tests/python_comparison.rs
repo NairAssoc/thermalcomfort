@@ -19,7 +19,7 @@ use thermalcomfort::models::{
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::psychrometrics::{psy_ta_rh, wet_bulb_temperature, dew_point_temperature};
 use thermalcomfort::utilities::{v_relative, clo_tout, Posture};
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
@@ -53,7 +53,7 @@ fn test_pmv_ppd_iso_standard_conditions() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -108,7 +108,7 @@ fn test_pmv_ppd_iso_extreme_conditions() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 options
@@ -155,7 +155,7 @@ fn test_pmv_ppd_ashrae() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -356,7 +356,7 @@ fn test_pmv_ppd_iso_outside_limits() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -398,7 +398,7 @@ fn test_pmv_sequential_scenarios() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -442,7 +442,7 @@ fn test_compare_two_nodes_gagge() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -491,7 +491,7 @@ fn test_compare_utci() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
-                rh,
+                Humidity::from_percent(rh),
                 Default::default()
             );
 
@@ -524,7 +524,7 @@ fn test_compare_pmv_a() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 a_coeff,
@@ -559,7 +559,7 @@ fn test_compare_pmv_e() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 e_coeff,
@@ -593,7 +593,7 @@ fn test_compare_pmv_athb() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 Some(clo),
                 Temperature::from_celsius(t_rm)
@@ -627,7 +627,7 @@ fn test_compare_set_tmp() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -660,7 +660,7 @@ fn test_compare_cooling_effect() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -785,7 +785,7 @@ fn test_compare_heat_index_rothfusz() {
 
             let rust_result = heat_index_rothfusz(
                 Temperature::from_celsius(tdb),
-                rh,
+                Humidity::from_percent(rh),
                 true,
                 true
             );
@@ -814,7 +814,7 @@ fn test_compare_heat_index_lu() {
 
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
-            let rust_result = heat_index_lu(Temperature::from_celsius(tdb), rh);
+            let rust_result = heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             // Lu model uses iterative solver, allow larger tolerance
             assert_abs_diff_eq!(rust_result, py_hi, epsilon = 1.0);
@@ -840,7 +840,7 @@ fn test_compare_humidex() {
 
             let py_humidex: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
 
-            let rust_result = humidex(Temperature::from_celsius(tdb), rh, true);
+            let rust_result = humidex(Temperature::from_celsius(tdb), Humidity::from_percent(rh), true);
 
             assert_abs_diff_eq!(rust_result, py_humidex, epsilon = 0.1);
         }
@@ -865,7 +865,7 @@ fn test_compare_thi() {
 
             let py_thi: f64 = py_result.getattr("thi").unwrap().extract().unwrap();
 
-            let rust_result = thi(Temperature::from_celsius(tdb), rh, true);
+            let rust_result = thi(Temperature::from_celsius(tdb), Humidity::from_percent(rh), true);
 
             assert_abs_diff_eq!(rust_result, py_thi, epsilon = 0.1);
         }
@@ -890,7 +890,7 @@ fn test_compare_discomfort_index() {
 
             let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
 
-            let rust_result = discomfort_index(Temperature::from_celsius(tdb), rh);
+            let rust_result = discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             assert_abs_diff_eq!(rust_result, py_di, epsilon = 0.1);
         }
@@ -917,7 +917,7 @@ fn test_compare_at() {
 
             let rust_result = at(
                 Temperature::from_celsius(tdb),
-                rh,
+                Humidity::from_percent(rh),
                 Speed::from_meters_per_second(v),
                 None,
                 true
@@ -948,7 +948,7 @@ fn test_compare_net() {
 
             let rust_result = net(
                 Temperature::from_celsius(tdb),
-                rh,
+                Humidity::from_percent(rh),
                 Speed::from_meters_per_second(v),
                 true
             );
@@ -976,7 +976,7 @@ fn test_compare_esi() {
 
             let py_esi: f64 = py_result.getattr("esi").unwrap().extract().unwrap();
 
-            let rust_result = esi(Temperature::from_celsius(tdb), rh, 0.0, true);
+            let rust_result = esi(Temperature::from_celsius(tdb), Humidity::from_percent(rh), 0.0, true);
 
             assert_abs_diff_eq!(rust_result, py_esi, epsilon = 0.5);
         }
@@ -1181,7 +1181,7 @@ fn test_compare_ankle_draft() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Speed::from_meters_per_second(v_ankle)
@@ -1214,7 +1214,7 @@ fn test_compare_vertical_tmp_grad_ppd() {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 grad
@@ -1319,7 +1319,7 @@ fn test_readme_example_basic_pmv_ppd() {
             Temperature::from_celsius(tdb),
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(vr),
-            rh,
+            Humidity::from_percent(rh),
             met,
             clo,
             Default::default()
@@ -1394,7 +1394,7 @@ fn test_readme_example_custom_pmv_options() {
             Temperature::from_celsius(30.0),
             Temperature::from_celsius(30.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             options
@@ -1429,7 +1429,7 @@ fn test_readme_example_set() {
             Temperature::from_celsius(tdb),
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
-            rh,
+            Humidity::from_percent(rh),
             met,
             clo,
             Default::default()
@@ -1465,7 +1465,7 @@ fn test_readme_example_cooling_effect() {
             Temperature::from_celsius(tdb),
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(vr),
-            rh,
+            Humidity::from_percent(rh),
             met,
             clo,
             Default::default()
@@ -1499,7 +1499,7 @@ fn test_readme_example_utci() {
             Temperature::from_celsius(tdb),
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
-            rh,
+            Humidity::from_percent(rh),
             Default::default()
         );
 

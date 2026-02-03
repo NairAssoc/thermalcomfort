@@ -351,10 +351,10 @@ impl Default for BsaFormula {
 ///
 /// # Returns
 ///
-/// Body surface area [m²]
+/// Body surface area
 #[inline]
-pub fn body_surface_area_dubois(weight: f64, height: f64) -> f64 {
-    0.202 * pow(weight, 0.425) * pow(height, 0.725)
+pub fn body_surface_area_dubois(weight: f64, height: f64) -> Area {
+    Area::from_square_meters(0.202 * pow(weight, 0.425) * pow(height, 0.725))
 }
 
 /// Calculate body surface area using various formulas
@@ -367,7 +367,7 @@ pub fn body_surface_area_dubois(weight: f64, height: f64) -> f64 {
 ///
 /// # Returns
 ///
-/// Body surface area [m²]
+/// Body surface area
 ///
 /// # Formulas
 ///
@@ -382,15 +382,16 @@ pub fn body_surface_area_dubois(weight: f64, height: f64) -> f64 {
 /// use thermalcomfort::utilities::{body_surface_area, BsaFormula};
 ///
 /// let bsa = body_surface_area(70.0, 1.75, BsaFormula::DuBois);
-/// assert!((bsa - 1.844).abs() < 0.01);
+/// assert!((bsa.as_square_meters() - 1.844).abs() < 0.01);
 /// ```
-pub fn body_surface_area(weight: f64, height: f64, formula: BsaFormula) -> f64 {
-    match formula {
+pub fn body_surface_area(weight: f64, height: f64, formula: BsaFormula) -> Area {
+    let area_m2 = match formula {
         BsaFormula::DuBois => 0.202 * pow(weight, 0.425) * pow(height, 0.725),
         BsaFormula::Takahira => 0.2042 * pow(weight, 0.425) * pow(height, 0.725),
         BsaFormula::Fujimoto => 0.1882 * pow(weight, 0.444) * pow(height, 0.663),
         BsaFormula::Kurazumi => 0.2440 * pow(weight, 0.383) * pow(height, 0.693),
-    }
+    };
+    Area::from_square_meters(area_m2)
 }
 
 /// Calculate clothing area factor

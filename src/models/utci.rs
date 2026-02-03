@@ -4,7 +4,7 @@
 //! reference environment, widely used for outdoor thermal comfort assessment.
 
 use libm::{exp, pow};
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 /// UTCI result with stress category
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -111,7 +111,7 @@ impl Default for UtciOptions {
 /// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: -50 to 50°C)
 /// * `mean_radiant_temp` - Mean radiant temperature (recommended range: tdb-70 to tdb+30°C)
 /// * `wind_speed` - Wind speed at 10m above ground (recommended range: 0.5-17 m/s)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `options` - UTCI calculation options
 ///
 /// # Returns
@@ -129,13 +129,13 @@ impl Default for UtciOptions {
 ///
 /// ```
 /// use thermalcomfort::models::utci::{utci, UtciOptions};
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let result = utci(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(1.0),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     Default::default()
 /// );
 /// println!("UTCI: {:.1}°C", result.utci);
@@ -145,12 +145,13 @@ pub fn utci(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     wind_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     options: UtciOptions,
 ) -> UtciResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let wind_speed_mps = wind_speed.as_meters_per_second();
+    let rh_percent = relative_humidity.as_percent();
 
     // Calculate saturation vapor pressure using exponential formula
     let tk = dry_bulb_celsius + 273.15; // air temp in K
@@ -171,7 +172,7 @@ pub fn utci(
     }
     es = exp(es) * 0.01; // convert Pa to hPa
 
-    let eh_pa = es * (relative_humidity / 100.0);
+    let eh_pa = es * (rh_percent / 100.0);
     let delta_t_tr = radiant_celsius - dry_bulb_celsius;
     let pa = eh_pa / 10.0; // convert vapour pressure to kPa
 
@@ -458,7 +459,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(1.0),
-            50.0,
+            Humidity::from_percent(50.0),
             Default::default()
         );
         assert!(result.utci > 20.0 && result.utci < 30.0);
@@ -471,7 +472,7 @@ mod tests {
             Temperature::from_celsius(-10.0),
             Temperature::from_celsius(-10.0),
             Speed::from_meters_per_second(2.0),
-            50.0,
+            Humidity::from_percent(50.0),
             Default::default()
         );
         assert!(result.utci < 0.0);
@@ -487,7 +488,7 @@ mod tests {
             Temperature::from_celsius(35.0),
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
-            50.0,
+            Humidity::from_percent(50.0),
             Default::default()
         );
         assert!(result.utci > 30.0);
@@ -506,7 +507,7 @@ mod tests {
             Temperature::from_celsius(-60.0),
             Temperature::from_celsius(-60.0),
             Speed::from_meters_per_second(1.0),
-            50.0,
+            Humidity::from_percent(50.0),
             Default::default()
         );
         assert!(result.utci.is_nan());
@@ -516,7 +517,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.2),
-            50.0,
+            Humidity::from_percent(50.0),
             Default::default()
         );
         assert!(result.utci.is_nan());
@@ -530,7 +531,7 @@ mod tests {
             Temperature::from_celsius(-60.0),
             Temperature::from_celsius(-60.0),
             Speed::from_meters_per_second(1.0),
-            50.0,
+            Humidity::from_percent(50.0),
             options
         );
         assert!(!result.utci.is_nan());

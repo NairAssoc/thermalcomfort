@@ -6,7 +6,7 @@
 use crate::models::set_tmp::{set_tmp, SetOptions};
 use crate::numerical::brentq;
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Area, Pressure, Humidity};
 
 /// Options for cooling effect calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,10 +15,10 @@ pub struct CoolingEffectOptions {
     pub wme: f64,
     /// Still air threshold [m/s]
     pub still_air_threshold: f64,
-    /// Body surface area [m²]
-    pub body_surface_area: f64,
-    /// Atmospheric pressure [Pa]
-    pub p_atm: f64,
+    /// Body surface area
+    pub body_surface_area: Area,
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
     /// Body posture
     pub posture: Posture,
 }
@@ -28,8 +28,8 @@ impl Default for CoolingEffectOptions {
         Self {
             wme: 0.0,
             still_air_threshold: 0.1,
-            body_surface_area: 1.8258,
-            p_atm: 101325.0,
+            body_surface_area: Area::from_square_meters(1.8258),
+            p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
         }
     }
@@ -49,7 +49,7 @@ impl Default for CoolingEffectOptions {
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `options` - Cooling effect options
@@ -63,14 +63,14 @@ impl Default for CoolingEffectOptions {
 ///
 /// ```
 /// use thermalcomfort::models::cooling_effect::{cooling_effect, CoolingEffectOptions};
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// // Calculate cooling effect with elevated air speed
 /// let ce = cooling_effect(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.5),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     Default::default()
@@ -81,7 +81,7 @@ pub fn cooling_effect(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     options: CoolingEffectOptions,
@@ -147,7 +147,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -159,7 +159,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.05),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -174,7 +174,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.5),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -190,7 +190,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.3),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -199,7 +199,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.8),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -215,7 +215,7 @@ mod tests {
             Temperature::from_celsius(30.0),
             Temperature::from_celsius(30.0),
             Speed::from_meters_per_second(0.5),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()

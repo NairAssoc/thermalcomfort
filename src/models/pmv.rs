@@ -5,7 +5,7 @@
 use crate::constants::*;
 use crate::utilities::{valid_range, round_to};
 use libm::{exp, pow, sqrt, fabs as abs, fmax};
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 /// Result of PMV/PPD calculation
 #[derive(Debug, Clone, Copy)]
@@ -81,7 +81,7 @@ impl Default for PmvPpdOptions {
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `options` - Additional calculation options
@@ -105,7 +105,7 @@ impl Default for PmvPpdOptions {
 /// ```
 /// use thermalcomfort::models::pmv_ppd_iso;
 /// use thermalcomfort::utilities::v_relative;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let tdb = 25.0;
 /// let tr = 25.0;
@@ -119,7 +119,7 @@ impl Default for PmvPpdOptions {
 ///     Temperature::from_celsius(tdb),
 ///     Temperature::from_celsius(tr),
 ///     Speed::from_meters_per_second(vr),
-///     rh,
+///     Humidity::from_percent(rh),
 ///     met,
 ///     clo,
 ///     Default::default()
@@ -130,7 +130,7 @@ pub fn pmv_ppd_iso(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     options: PmvPpdOptions,
@@ -138,6 +138,7 @@ pub fn pmv_ppd_iso(
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let air_speed = relative_air_speed.as_meters_per_second();
+    let rh_percent = relative_humidity.as_percent();
 
     // Check standard compliance if requested
     if options.limit_inputs {
@@ -162,7 +163,7 @@ pub fn pmv_ppd_iso(
         dry_bulb_celsius,
         radiant_celsius,
         air_speed,
-        relative_humidity,
+        rh_percent,
         metabolic_rate,
         clothing_insulation,
         options.wme
@@ -220,7 +221,7 @@ pub fn pmv_ppd_ashrae(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     options: PmvPpdOptions,
@@ -228,6 +229,7 @@ pub fn pmv_ppd_ashrae(
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let air_speed = relative_air_speed.as_meters_per_second();
+    let rh_percent = relative_humidity.as_percent();
 
     // Check ASHRAE standard compliance if requested
     if options.limit_inputs {
@@ -248,7 +250,7 @@ pub fn pmv_ppd_ashrae(
     }
 
     // Calculate PMV (same algorithm as ISO)
-    let pmv = pmv_optimized(dry_bulb_celsius, radiant_celsius, air_speed, relative_humidity, metabolic_rate, clothing_insulation, options.wme);
+    let pmv = pmv_optimized(dry_bulb_celsius, radiant_celsius, air_speed, rh_percent, metabolic_rate, clothing_insulation, options.wme);
 
     // Calculate PPD from PMV
     let ppd = 100.0 - 95.0 * exp(-0.03353 * pow(pmv, 4.0) - 0.2179 * pow(pmv, 2.0));
@@ -377,7 +379,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -395,7 +397,7 @@ mod tests {
             Temperature::from_celsius(5.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Default::default()
@@ -410,7 +412,7 @@ mod tests {
             Temperature::from_celsius(5.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             options
@@ -449,7 +451,7 @@ mod tests {
                 Temperature::from_celsius(tdb),
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
-                rh,
+                Humidity::from_percent(rh),
                 met,
                 clo,
                 Default::default()
@@ -474,7 +476,7 @@ mod tests {
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `a_coefficient` - Adaptive coefficient (λ)
@@ -492,13 +494,13 @@ mod tests {
 ///
 /// ```
 /// use thermalcomfort::models::pmv_a;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let a_pmv = pmv_a(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     0.5,  // adaptive coefficient
@@ -514,7 +516,7 @@ pub fn pmv_a(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     a_coefficient: f64,
@@ -535,7 +537,7 @@ pub fn pmv_a(
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo]
 /// * `e_coefficient` - Expectancy factor
@@ -556,13 +558,13 @@ pub fn pmv_a(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_e;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let e_pmv = pmv_e(
 ///     Temperature::from_celsius(28.0),
 ///     Temperature::from_celsius(28.0),
 ///     Speed::from_meters_per_second(0.2),
-///     60.0,
+///     Humidity::from_percent(60.0),
 ///     1.2,
 ///     0.5,
 ///     0.7,  // expectancy factor
@@ -578,7 +580,7 @@ pub fn pmv_e(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     e_coefficient: f64,
@@ -611,7 +613,7 @@ pub fn pmv_e(
 /// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity [%]
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate [met]
 /// * `clothing_insulation` - Clothing insulation [clo] (if None, calculated from running mean)
 /// * `running_mean_outdoor_temp` - Running mean outdoor temperature (use `Temperature::from_celsius()` or similar)
@@ -624,13 +626,13 @@ pub fn pmv_e(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_athb;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let athb_pmv = pmv_athb(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     Some(0.6),  // clothing insulation
 ///     Temperature::from_celsius(20.0)  // running mean outdoor temp
@@ -645,7 +647,7 @@ pub fn pmv_athb(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: Option<f64>,
     running_mean_outdoor_temp: Temperature,

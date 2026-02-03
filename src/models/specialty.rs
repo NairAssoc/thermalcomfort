@@ -3,7 +3,7 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv_ppd_ashrae;
-use measurements::{Temperature, Speed};
+use measurements::{Temperature, Speed, Humidity};
 
 /// Calculate percentage dissatisfied due to ankle draft
 ///
@@ -15,7 +15,7 @@ use measurements::{Temperature, Speed};
 /// * `tdb` - Dry bulb air temperature [°C]
 /// * `tr` - Mean radiant temperature [°C]
 /// * `vr` - Relative air speed [m/s] (must be < 0.2)
-/// * `rh` - Relative humidity [%]
+/// * `rh` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `met` - Metabolic rate [met]
 /// * `clo` - Clothing insulation [clo]
 /// * `v_ankle` - Air speed at 0.1m above floor [m/s]
@@ -28,13 +28,13 @@ use measurements::{Temperature, Speed};
 ///
 /// ```
 /// use thermalcomfort::models::ankle_draft;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let (ppd, acceptable) = ankle_draft(
 ///     Temperature::from_celsius(23.0),
 ///     Temperature::from_celsius(23.0),
 ///     Speed::from_meters_per_second(0.1),
-///     45.0,
+///     Humidity::from_percent(45.0),
 ///     1.1,
 ///     0.7,
 ///     Speed::from_meters_per_second(0.15)  // ankle draft
@@ -50,7 +50,7 @@ pub fn ankle_draft(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     ankle_air_speed: Speed,
@@ -81,7 +81,7 @@ pub fn ankle_draft(
 /// * `tdb` - Dry bulb air temperature [°C]
 /// * `tr` - Mean radiant temperature [°C]
 /// * `vr` - Relative air speed [m/s]
-/// * `rh` - Relative humidity [%]
+/// * `rh` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `met` - Metabolic rate [met]
 /// * `clo` - Clothing insulation [clo]
 /// * `vertical_tmp_grad` - Vertical temperature gradient between 1.1m and 0.1m [°C]
@@ -94,13 +94,13 @@ pub fn ankle_draft(
 ///
 /// ```
 /// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use measurements::{Temperature, Speed};
+/// use measurements::{Temperature, Speed, Humidity};
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
-///     50.0,
+///     Humidity::from_percent(50.0),
 ///     1.2,
 ///     0.5,
 ///     2.0  // 2°C temperature gradient
@@ -116,7 +116,7 @@ pub fn vertical_tmp_grad_ppd(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
-    relative_humidity: f64,
+    relative_humidity: Humidity,
     metabolic_rate: f64,
     clothing_insulation: f64,
     vertical_temp_gradient: f64,
@@ -188,7 +188,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.2),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             Speed::from_meters_per_second(0.3)
@@ -204,7 +204,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            50.0,
+            Humidity::from_percent(50.0),
             1.2,
             0.5,
             2.0
