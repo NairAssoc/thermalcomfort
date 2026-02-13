@@ -2,6 +2,7 @@
 name = "thermalcomfort"
 version = "3.8.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Thermal Comfort Contributors"]
 description = "A Rust port of pythermalcomfort for thermal comfort calculations (no_std, WASM-compatible)"
 license = "MIT"
