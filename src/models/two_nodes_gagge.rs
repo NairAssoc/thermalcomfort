@@ -1,6 +1,6 @@
 //! Two-node Gagge model of human temperature regulation
 //!
-//! This module implements the Gagge two-node model [Gagge1986] which simulates
+//! This module implements the Gagge two-node model (Gagge1986) which simulates
 //! human thermoregulatory responses and calculates various thermal comfort indices.
 
 use crate::utilities::{Posture, p_sat_torr};
@@ -18,11 +18,11 @@ pub struct GaggeTwoNodesResult {
     pub e_rsw: f64,
     /// Maximum evaporative capacity [W/m²]
     pub e_max: f64,
-    /// Total sensible heat loss [W]
+    /// Total sensible heat loss (W)
     pub q_sensible: f64,
-    /// Total heat loss from skin [W]
+    /// Total heat loss from skin (W)
     pub q_skin: f64,
-    /// Heat loss due to respiration [W]
+    /// Heat loss due to respiration (W)
     pub q_res: f64,
     /// Core temperature [°C]
     pub t_core: f64,
@@ -51,7 +51,7 @@ pub struct GaggeTwoNodesResult {
 /// Options for the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Body surface area
     pub body_surface_area: Area,
@@ -114,8 +114,8 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - Model options
 ///
 /// # Returns

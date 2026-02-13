@@ -10,7 +10,7 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Body surface area
     pub body_surface_area: Area,
@@ -43,7 +43,7 @@ impl Default for SetOptions {
 /// <0.1 m/s air speed, and tr = tdb, in which the total heat loss from the skin
 /// of an imaginary occupant wearing clothing standardized for the activity concerned
 /// is the same as that from a person in the actual environment with actual clothing
-/// and activity level [Gagge1986].
+/// and activity level (Gagge1986).
 ///
 /// # Arguments
 ///
@@ -51,8 +51,8 @@ impl Default for SetOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - SET calculation options
 ///
 /// # Returns
@@ -65,8 +65,8 @@ impl Default for SetOptions {
 /// * 10 < tdb [°C] < 40
 /// * 10 < tr [°C] < 40
 /// * 0 < v [m/s] < 2
-/// * 1 < met [met] < 4
-/// * 0 < clo [clo] < 1.5
+/// * 1 < met (met) < 4
+/// * 0 < clo (clo) < 1.5
 ///
 /// # Examples
 ///

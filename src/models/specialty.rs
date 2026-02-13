@@ -16,8 +16,8 @@ use measurements::{Humidity, Speed, Temperature};
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar, must be < 0.2 m/s)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `ankle_air_speed` - Air speed at 0.1m above floor (use `Speed::from_meters_per_second()` or similar)
 ///
 /// # Returns
@@ -90,8 +90,8 @@ pub fn ankle_draft(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m [°C]
 ///
 /// # Returns
@@ -158,9 +158,9 @@ pub fn vertical_tmp_grad_ppd(
 ///
 /// # Arguments
 ///
-/// * `w` - Width of the window [m]
-/// * `h` - Height of the window [m]
-/// * `d` - Distance between occupant and window [m]
+/// * `w` - Width of the window (m)
+/// * `h` - Height of the window (m)
+/// * `d` - Distance between occupant and window (m)
 ///
 /// # Returns
 ///
@@ -182,8 +182,8 @@ pub fn f_svv(w: f64, h: f64, d: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `sharp` - SHARP altitude [degrees]
-/// * `altitude` - Solar altitude [degrees]
+/// * `sharp` - SHARP altitude (degrees)
+/// * `altitude` - Solar altitude (degrees)
 ///
 /// # Returns
 ///

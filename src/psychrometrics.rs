@@ -160,7 +160,7 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
 /// * `tg` - Globe temperature (use `Temperature::from_celsius()` or similar)
 /// * `tdb` - Air temperature (use `Temperature::from_celsius()` or similar)
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `d` - Globe diameter [m], default 0.15 m
+/// * `d` - Globe diameter (m), default 0.15 m
 /// * `emissivity` - Globe emissivity, default 0.95
 /// * `use_iso` - If true, use ISO formula; if false, use Mixed Convection
 ///

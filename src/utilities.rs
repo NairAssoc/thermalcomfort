@@ -151,7 +151,7 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 /// # Arguments
 ///
 /// * `v` - Air speed measured by sensor (use `Speed::from_meters_per_second()` or similar)
-/// * `met` - Metabolic rate [met]
+/// * `met` - Metabolic rate (met)
 ///
 /// # Returns
 ///
@@ -294,12 +294,12 @@ pub enum BsaFormula {
     Kurazumi,
 }
 
-/// Calculate body surface area using DuBois formula [m²]
+/// Calculate body surface area using DuBois formula (m²)
 ///
 /// # Arguments
 ///
-/// * `weight` - Body weight [kg]
-/// * `height` - Body height [m]
+/// * `weight` - Body weight (kg)
+/// * `height` - Body height (m)
 ///
 /// # Returns
 ///
@@ -359,7 +359,7 @@ pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> A
 ///
 /// # Arguments
 ///
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
@@ -373,12 +373,12 @@ pub fn clo_area_factor(i_cl: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation [clo]
-/// * `met` - Metabolic rate [met]
+/// * `clo` - Static clothing insulation (clo)
+/// * `met` - Metabolic rate (met)
 ///
 /// # Returns
 ///
-/// Dynamic clothing insulation [clo]
+/// Dynamic clothing insulation (clo)
 #[inline]
 pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
     if met > 1.2 {
@@ -398,11 +398,11 @@ pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
 ///
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation [clo] (typically 0.7)
+/// * `i_a_static` - Static boundary air layer insulation (clo) (typically 0.7)
 ///
 /// # Returns
 ///
-/// Boundary air layer insulation [clo]
+/// Boundary air layer insulation (clo)
 ///
 /// # Examples
 ///
@@ -462,15 +462,15 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `i_t` - Total thermal insulation under static conditions [clo]
+/// * `i_t` - Total thermal insulation under static conditions (clo)
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation [clo]
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_a_static` - Static boundary air layer insulation (clo)
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
-/// Total insulation of clothing ensemble [clo]
+/// Total insulation of clothing ensemble (clo)
 ///
 /// # Examples
 ///
@@ -511,14 +511,14 @@ pub fn clo_total_insulation(i_t: f64, vr: Speed, v_walk: Speed, i_a_static: f64,
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation [clo]
-/// * `met` - Metabolic rate [met]
+/// * `clo` - Static clothing insulation (clo)
+/// * `met` - Metabolic rate (met)
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a` - Thermal insulation of boundary air layer [clo] (typically 0.7)
+/// * `i_a` - Thermal insulation of boundary air layer (clo) (typically 0.7)
 ///
 /// # Returns
 ///
-/// Dynamic clothing insulation [clo]
+/// Dynamic clothing insulation (clo)
 ///
 /// # Examples
 ///
@@ -563,7 +563,7 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: Speed, i_a: f64) -> f64 {
 ///
 /// # Returns
 ///
-/// Representative clothing insulation [clo]
+/// Representative clothing insulation (clo)
 ///
 /// # Examples
 ///
@@ -611,7 +611,7 @@ pub fn clo_tout(tout: Temperature) -> f64 {
 ///
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
@@ -656,11 +656,11 @@ pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: f64) ->
 ///
 /// # Arguments
 ///
-/// * `clo_garments` - Slice of clothing insulation values for each garment [clo]
+/// * `clo_garments` - Slice of clothing insulation values for each garment (clo)
 ///
 /// # Returns
 ///
-/// Total intrinsic insulation of ensemble [clo]
+/// Total intrinsic insulation of ensemble (clo)
 ///
 /// # Examples
 ///

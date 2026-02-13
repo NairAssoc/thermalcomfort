@@ -26,7 +26,7 @@ pub enum WorkIntensity {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production [W]
+/// * `met` - Metabolic heat production (W)
 ///
 /// # Returns
 ///
@@ -66,7 +66,7 @@ pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production [W]
+/// * `met` - Metabolic heat production (W)
 ///
 /// # Returns
 ///

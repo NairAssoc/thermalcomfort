@@ -11,7 +11,7 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 /// Options for cooling effect calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoolingEffectOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Still air threshold [m/s]
     pub still_air_threshold: f64,
@@ -50,8 +50,8 @@ impl Default for CoolingEffectOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - Cooling effect options
 ///
 /// # Returns

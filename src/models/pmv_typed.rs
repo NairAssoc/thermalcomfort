@@ -20,8 +20,8 @@ use measurements::{Humidity, Speed, Temperature};
 /// * `tr` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
-/// * `met` - Metabolic rate [met]
-/// * `clo` - Clothing insulation [clo]
+/// * `met` - Metabolic rate (met)
+/// * `clo` - Clothing insulation (clo)
 /// * `options` - Additional calculation options
 ///
 /// # Returns
