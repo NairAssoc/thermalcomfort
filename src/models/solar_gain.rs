@@ -49,6 +49,7 @@ pub struct SolarGainResult {
 /// # References
 ///
 /// - ASHRAE 55-2023 Appendix C
+#[allow(clippy::too_many_arguments)]
 pub fn solar_gain(
     sol_altitude: f64,
     sharp: f64,

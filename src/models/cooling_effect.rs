@@ -138,10 +138,7 @@ pub fn cooling_effect(
 
     // Use Brent's method to find the cooling effect
     // Search in range [0, 40] °C
-    match brentq(function, 0.0, 40.0, Some(0.001), Some(100)) {
-        Ok(ce) => ce,
-        Err(_) => 0.0, // If root finding fails, return 0
-    }
+    brentq(function, 0.0, 40.0, Some(0.001), Some(100)).unwrap_or(0.0)
 }
 
 #[cfg(test)]

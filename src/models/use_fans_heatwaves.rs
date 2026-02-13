@@ -94,6 +94,7 @@ pub struct UseFansHeatwavesResult {
 /// );
 /// assert!(result.e_skin > 0.0);
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn use_fans_heatwaves(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,

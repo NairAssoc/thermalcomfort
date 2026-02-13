@@ -29,27 +29,23 @@ pub fn ms_to_speed(speed_ms: f64) -> Speed {
 }
 
 /// Units for thermal comfort calculations
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Units {
     /// SI (International System of Units)
+    #[default]
     SI,
     /// IP (Imperial Units)
     IP,
-}
-
-impl Default for Units {
-    fn default() -> Self {
-        Units::SI
-    }
 }
 
 /// Body postures for thermal comfort calculations
 ///
 /// Different postures affect the radiative heat transfer coefficient
 /// and body surface area exposed to the environment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Posture {
     /// Standing posture (0.73 radiation area ratio)
+    #[default]
     Standing,
     /// Sitting posture (0.7 radiation area ratio)
     Sitting,
@@ -63,12 +59,6 @@ pub enum Posture {
     Supine,
     /// Crouching posture
     Crouching,
-}
-
-impl Default for Posture {
-    fn default() -> Self {
-        Posture::Standing
-    }
 }
 
 impl Posture {
@@ -87,11 +77,12 @@ impl Posture {
 }
 
 /// Model standards
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Model {
     /// ASHRAE 55-2023
     Ashrae552023,
     /// ISO 7730-2005
+    #[default]
     Iso77302005,
     /// ISO 9920-2007
     Iso99202007,
@@ -99,12 +90,6 @@ pub enum Model {
     Iso79332004,
     /// ISO 7933-2023
     Iso79332023,
-}
-
-impl Default for Model {
-    fn default() -> Self {
-        Model::Iso77302005
-    }
 }
 
 /// Calculate running mean outdoor temperature (prevailing mean)
@@ -115,11 +100,11 @@ impl Default for Model {
 /// # Arguments
 ///
 /// * `temp_array` - Array of daily mean temperatures in descending order
-///                  (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
+///   (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
 /// * `alpha` - Weighting constant between 0 and 1 (default: 0.8)
-///             - EN 16798-1 recommends 0.8
-///             - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
-///             - Use 0.9 for stable climates, 0.6 for variable climates
+///   - EN 16798-1 recommends 0.8
+///   - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
+///   - Use 0.9 for stable climates, 0.6 for variable climates
 ///
 /// # Returns
 ///
@@ -296,9 +281,10 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 }
 
 /// Formula options for body surface area calculation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BsaFormula {
     /// DuBois formula (1916) - most widely used
+    #[default]
     DuBois,
     /// Takahira formula (1925)
     Takahira,
@@ -306,12 +292,6 @@ pub enum BsaFormula {
     Fujimoto,
     /// Kurazumi formula (1994)
     Kurazumi,
-}
-
-impl Default for BsaFormula {
-    fn default() -> Self {
-        BsaFormula::DuBois
-    }
 }
 
 /// Calculate body surface area using DuBois formula [m²]

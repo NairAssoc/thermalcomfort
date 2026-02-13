@@ -100,19 +100,19 @@ pub fn set_tmp(
 
     // Check standard compliance if limit_inputs is true
     if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 40.0 {
+        if !(10.0..=40.0).contains(&dry_bulb_celsius) {
             return f64::NAN;
         }
-        if radiant_celsius < 10.0 || radiant_celsius > 40.0 {
+        if !(10.0..=40.0).contains(&radiant_celsius) {
             return f64::NAN;
         }
-        if speed_mps < 0.0 || speed_mps > 2.0 {
+        if !(0.0..=2.0).contains(&speed_mps) {
             return f64::NAN;
         }
-        if metabolic_rate < 1.0 || metabolic_rate > 4.0 {
+        if !(1.0..=4.0).contains(&metabolic_rate) {
             return f64::NAN;
         }
-        if clothing_insulation < 0.0 || clothing_insulation > 1.5 {
+        if !(0.0..=1.5).contains(&clothing_insulation) {
             return f64::NAN;
         }
     }

@@ -181,13 +181,13 @@ pub fn utci(
 
     // Check validity if requested
     if options.limit_inputs {
-        if dry_bulb_celsius < -50.0 || dry_bulb_celsius > 50.0 {
+        if !(-50.0..=50.0).contains(&dry_bulb_celsius) {
             utci_value = f64::NAN;
         }
-        if delta_t_tr < -30.0 || delta_t_tr > 70.0 {
+        if !(-30.0..=70.0).contains(&delta_t_tr) {
             utci_value = f64::NAN;
         }
-        if wind_speed_mps < 0.5 || wind_speed_mps > 17.0 {
+        if !(0.5..=17.0).contains(&wind_speed_mps) {
             utci_value = f64::NAN;
         }
     }

@@ -42,8 +42,6 @@ pub const STEFAN_BOLTZMANN: f64 = 5.67e-8;
 
 /// Thermal comfort specific units
 pub mod thermal_units {
-    //! Domain-specific thermal comfort units
-
     /// One met (metabolic equivalent) in W/m²
     pub const MET: f64 = 58.15;
 

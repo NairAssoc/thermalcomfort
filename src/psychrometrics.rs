@@ -135,7 +135,7 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
     let tdb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
-    if rh_percent < 0.0 || rh_percent > 100.0 {
+    if !(0.0..=100.0).contains(&rh_percent) {
         return Temperature::from_celsius(f64::NAN);
     }
 
@@ -218,7 +218,7 @@ fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f
 /// Calculate mean radiant temperature using Mixed Convection method
 fn mean_radiant_temperature_mixed(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
     // Check diameter validity
-    if d < 0.04 || d > 0.15 {
+    if !(0.04..=0.15).contains(&d) {
         return f64::NAN;
     }
 

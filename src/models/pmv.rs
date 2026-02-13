@@ -544,6 +544,7 @@ mod tests {
 /// # References
 ///
 /// - Yao R, Li B, Liu J (2009) Indoor Built Environ 18(5):394-411
+#[allow(clippy::too_many_arguments)]
 pub fn pmv_a(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -617,6 +618,7 @@ pub fn pmv_a(
 /// # References
 ///
 /// - Fanger PO, Toftum J (2002) Energy Build 34(2):153-9
+#[allow(clippy::too_many_arguments)]
 pub fn pmv_e(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -727,8 +729,10 @@ pub fn pmv_athb(
     };
 
     // Calculate base PMV with adapted parameters
-    let mut options = PmvPpdOptions::default();
-    options.limit_inputs = false; // ATHB may use values outside standard limits
+    let options = PmvPpdOptions {
+        limit_inputs: false, // ATHB may use values outside standard limits
+        ..Default::default()
+    };
     let pmv_result = pmv_ppd_iso(
         dry_bulb_temp,
         mean_radiant_temp,

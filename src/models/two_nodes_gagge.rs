@@ -227,8 +227,6 @@ fn gagge_two_nodes_optimized(
     let mut e_req = 0.0; // evaporative heat loss required for tmp regulation
     let mut r_ea = 0.0;
     let mut r_ecl = 0.0;
-    let q_res; // heat loss due to respiration
-    let c_res; // convective heat loss respiration
 
     let pressure_in_atmospheres = p_atm / 101325.0;
     let length_time_simulation = 60; // length time simulation in minutes
@@ -251,12 +249,10 @@ fn gagge_two_nodes_optimized(
 
     let w_max = if let Some(wm) = w_max_opt {
         wm
+    } else if clo > 0.0 {
+        0.59 * pow(air_speed, -0.08) // critical skin wettedness clothed
     } else {
-        if clo > 0.0 {
-            0.59 * pow(air_speed, -0.08) // critical skin wettedness clothed
-        } else {
-            0.38 * pow(air_speed, -0.29) // critical skin wettedness naked
-        }
+        0.38 * pow(air_speed, -0.29) // critical skin wettedness naked
     };
 
     // h_cc corrected convective heat transfer coefficient
@@ -277,8 +273,8 @@ fn gagge_two_nodes_optimized(
     let mut t_body = alfa * t_skin + (1.0 - alfa) * t_core; // mean body temperature, °C
 
     // Respiration
-    q_res = 0.0023 * m * (44.0 - vapor_pressure); // latent heat loss due to respiration
-    c_res = 0.0014 * m * (34.0 - tdb); // sensible convective heat loss respiration
+    let q_res = 0.0023 * m * (44.0 - vapor_pressure); // latent heat loss due to respiration
+    let c_res = 0.0014 * m * (34.0 - tdb); // sensible convective heat loss respiration
 
     // Time simulation loop
     while n_simulation < length_time_simulation {
@@ -328,8 +324,8 @@ fn gagge_two_nodes_optimized(
         let tc_cr = 0.97 * (1.0 - alfa) * body_weight; // thermal capacity core
         let d_t_sk = (s_skin * body_surface_area) / (tc_sk * 60.0); // rate of change skin temperature °C per minute
         let d_t_cr = (s_core * body_surface_area) / (tc_cr * 60.0); // rate of change core temperature °C per minute
-        t_skin = t_skin + d_t_sk;
-        t_core = t_core + d_t_cr;
+        t_skin += d_t_sk;
+        t_core += d_t_cr;
         t_body = alfa * t_skin + (1.0 - alfa) * t_core;
 
         // sk_sig thermoregulatory control signal from the skin

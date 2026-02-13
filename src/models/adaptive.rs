@@ -139,18 +139,13 @@ pub fn adaptive_ashrae(
     let mut t_cmf = 0.31 * running_mean_celsius + 17.8;
 
     // Apply input limits if requested
-    if options.limit_inputs {
-        if dry_bulb_celsius < 10.0
-            || dry_bulb_celsius > 40.0
-            || radiant_celsius < 10.0
-            || radiant_celsius > 40.0
-            || speed_mps < 0.0
-            || speed_mps > 2.0
-            || running_mean_celsius < 10.0
-            || running_mean_celsius > 33.5
-        {
-            t_cmf = f64::NAN;
-        }
+    if options.limit_inputs
+        && (!(10.0..=40.0).contains(&dry_bulb_celsius)
+            || !(10.0..=40.0).contains(&radiant_celsius)
+            || !(0.0..=2.0).contains(&speed_mps)
+            || !(10.0..=33.5).contains(&running_mean_celsius))
+    {
+        t_cmf = f64::NAN;
     }
 
     // Round to 1 decimal place
@@ -239,18 +234,13 @@ pub fn adaptive_en(
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
     // Apply input limits if requested
-    if options.limit_inputs {
-        if dry_bulb_celsius < 10.0
-            || dry_bulb_celsius > 30.0
-            || radiant_celsius < 10.0
-            || radiant_celsius > 40.0
-            || speed_mps < 0.0
-            || speed_mps > 2.0
-            || running_mean_celsius < 10.0
-            || running_mean_celsius > 30.0
-        {
-            t_cmf = f64::NAN;
-        }
+    if options.limit_inputs
+        && (!(10.0..=30.0).contains(&dry_bulb_celsius)
+            || !(10.0..=40.0).contains(&radiant_celsius)
+            || !(0.0..=2.0).contains(&speed_mps)
+            || !(10.0..=30.0).contains(&running_mean_celsius))
+    {
+        t_cmf = f64::NAN;
     }
 
     // Round to 1 decimal place
