@@ -3,8 +3,11 @@
 //! This module provides wrappers around the core PMV/PPD functions that use
 //! strongly-typed measurements instead of raw f64 values.
 
-use measurements::{Temperature, Speed, Humidity};
-use crate::models::pmv::{pmv_ppd_iso as pmv_ppd_iso_f64, pmv_ppd_ashrae as pmv_ppd_ashrae_f64, PmvPpdOptions, PmvPpdResult};
+use crate::models::pmv::{
+    PmvPpdOptions, PmvPpdResult, pmv_ppd_ashrae as pmv_ppd_ashrae_f64,
+    pmv_ppd_iso as pmv_ppd_iso_f64,
+};
+use measurements::{Humidity, Speed, Temperature};
 
 /// Calculate PMV and PPD according to ISO 7730:2005 using type-safe measurements
 ///
@@ -97,7 +100,7 @@ pub fn pmv_ppd_ashrae_typed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Temperature, Speed, Humidity};
+    use crate::{Humidity, Speed, Temperature};
 
     #[test]
     fn test_pmv_ppd_iso_typed() {

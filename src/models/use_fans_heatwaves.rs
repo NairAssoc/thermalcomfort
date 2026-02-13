@@ -3,9 +3,9 @@
 //! Estimate if environmental conditions would cause heat strain during heatwaves
 //! when using fans.
 
-use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result of fan use during heatwaves assessment
 #[derive(Debug, Clone, Copy)]
@@ -126,7 +126,7 @@ pub fn use_fans_heatwaves(
         relative_humidity,
         metabolic_rate,
         clothing_insulation,
-        options
+        options,
     );
 
     // Detect heat strain conditions

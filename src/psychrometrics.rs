@@ -2,8 +2,8 @@
 
 use crate::constants::*;
 use crate::utilities::p_sat;
-use libm::{exp, pow, sqrt, atan, log, fabs as abs};
-use measurements::{Temperature, Speed, Humidity, Pressure};
+use libm::{atan, exp, fabs as abs, log, pow, sqrt};
+use measurements::{Humidity, Pressure, Speed, Temperature};
 
 /// Psychrometric values result
 #[derive(Debug, Clone, Copy)]
@@ -216,13 +216,7 @@ fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f
 }
 
 /// Calculate mean radiant temperature using Mixed Convection method
-fn mean_radiant_temperature_mixed(
-    tg: f64,
-    tdb: f64,
-    v: f64,
-    d: f64,
-    emissivity: f64,
-) -> f64 {
+fn mean_radiant_temperature_mixed(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
     // Check diameter validity
     if d < 0.04 || d > 0.15 {
         return f64::NAN;
@@ -242,17 +236,15 @@ fn mean_radiant_temperature_mixed(
     let ra = G * BETA * abs(tg - tdb) * pow(d, 3.0) / NU / ALPHA;
     let re = v * d / NU;
 
-    let nu_natural = 2.0 + (0.589 * pow(ra, 0.25))
-        / pow(1.0 + pow(0.469 / pr, 9.0 / 16.0), 4.0 / 9.0);
+    let nu_natural =
+        2.0 + (0.589 * pow(ra, 0.25)) / pow(1.0 + pow(0.469 / pr, 9.0 / 16.0), 4.0 / 9.0);
 
-    let nu_forced = 2.0
-        + (0.4 * pow(re, 0.5) + 0.06 * pow(re, 2.0 / 3.0)) * pow(pr, 0.4);
+    let nu_forced = 2.0 + (0.4 * pow(re, 0.5) + 0.06 * pow(re, 2.0 / 3.0)) * pow(pr, 0.4);
 
     let nu_combined = pow(pow(nu_forced, n) + pow(nu_natural, n), 1.0 / n);
 
     pow(
-        pow(tg + C_TO_K, 4.0)
-            - ((nu_combined * K_AIR / d) * (-tg + tdb)) / emissivity / o,
+        pow(tg + C_TO_K, 4.0) - ((nu_combined * K_AIR / d) * (-tg + tdb)) / emissivity / o,
         0.25,
     ) - C_TO_K
 }
@@ -269,7 +261,12 @@ fn mean_radiant_temperature_mixed(
 /// # Returns
 ///
 /// Operative temperature
-pub fn operative_temperature(tdb: Temperature, tr: Temperature, v: Speed, use_ashrae: bool) -> Temperature {
+pub fn operative_temperature(
+    tdb: Temperature,
+    tr: Temperature,
+    v: Speed,
+    use_ashrae: bool,
+) -> Temperature {
     let tdb_celsius = tdb.as_celsius();
     let tr_celsius = tr.as_celsius();
     let v_ms = v.as_meters_per_second();
@@ -298,7 +295,7 @@ mod tests {
     fn test_wet_bulb_temperature() {
         let t_wb = wet_bulb_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0)
+            Humidity::from_percent(50.0),
         );
         // Expected value approximately 17.7°C
         assert!((t_wb.as_celsius() - 17.7).abs() < 0.5);
@@ -308,7 +305,7 @@ mod tests {
     fn test_dew_point_temperature() {
         let t_dp = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0)
+            Humidity::from_percent(50.0),
         );
         // Expected value approximately 13.9°C
         assert!((t_dp.as_celsius() - 13.9).abs() < 0.5);
@@ -316,13 +313,13 @@ mod tests {
         // Test invalid RH
         let t_dp_invalid1 = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(-10.0)
+            Humidity::from_percent(-10.0),
         );
         assert!(t_dp_invalid1.as_celsius().is_nan());
 
         let t_dp_invalid2 = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(110.0)
+            Humidity::from_percent(110.0),
         );
         assert!(t_dp_invalid2.as_celsius().is_nan());
     }
@@ -332,7 +329,7 @@ mod tests {
         let result = psy_ta_rh(
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
-            Pressure::from_pascals(101325.0)
+            Pressure::from_pascals(101325.0),
         );
 
         assert!(result.p_sat.as_pascals() > 0.0);
@@ -350,7 +347,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            false
+            false,
         );
         assert!((t_op.as_celsius() - 25.0).abs() < 0.01);
 
@@ -359,7 +356,7 @@ mod tests {
             Temperature::from_celsius(22.0),
             Temperature::from_celsius(26.0),
             Speed::from_meters_per_second(0.1),
-            true
+            true,
         );
         assert!(t_op2.as_celsius() > 22.0 && t_op2.as_celsius() < 26.0);
     }

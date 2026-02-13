@@ -1,8 +1,8 @@
 //! Example using the type-safe API with the measurements crate
 
-use thermalcomfort::models::pmv_typed::{pmv_ppd_iso_typed, pmv_ppd_ashrae_typed};
+use thermalcomfort::models::pmv_typed::{pmv_ppd_ashrae_typed, pmv_ppd_iso_typed};
 use thermalcomfort::utilities::v_relative;
-use thermalcomfort::{Temperature, Speed, Humidity};
+use thermalcomfort::{Humidity, Speed, Temperature};
 
 fn main() {
     println!("=== Type-Safe Thermal Comfort API Example ===\n");
@@ -16,10 +16,16 @@ fn main() {
     let met = 1.4;
     let clo = 0.5;
 
-    println!("  Temperature (F): {:.1}°F = {:.1}°C",
-             tdb_f.as_fahrenheit(), tdb_f.as_celsius());
-    println!("  Air speed: {:.2} km/h = {:.2} m/s",
-             v_kmh.as_kilometers_per_hour(), v_kmh.as_meters_per_second());
+    println!(
+        "  Temperature (F): {:.1}°F = {:.1}°C",
+        tdb_f.as_fahrenheit(),
+        tdb_f.as_celsius()
+    );
+    println!(
+        "  Air speed: {:.2} km/h = {:.2} m/s",
+        v_kmh.as_kilometers_per_hour(),
+        v_kmh.as_meters_per_second()
+    );
 
     // Calculate relative air speed
     let vr = v_relative(v_kmh, met);
@@ -45,7 +51,10 @@ fn main() {
 
     println!("  PMV (using Celsius): {:.2}", result_c.pmv);
     println!("  PMV (using Fahrenheit): {:.2}", result_f.pmv);
-    println!("  Difference: {:.4} (should be ~0)\n", (result_c.pmv - result_f.pmv).abs());
+    println!(
+        "  Difference: {:.4} (should be ~0)\n",
+        (result_c.pmv - result_f.pmv).abs()
+    );
 
     // Example 3: ASHRAE calculation with typed API
     println!("Example 3: ASHRAE 55 with Type Safety");

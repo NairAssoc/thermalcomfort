@@ -4,7 +4,7 @@
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
 use crate::psychrometrics::operative_temperature;
-use measurements::{Temperature, Speed};
+use measurements::{Speed, Temperature};
 
 /// Result from ASHRAE 55 adaptive comfort model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,9 +59,7 @@ pub struct AdaptiveOptions {
 
 impl Default for AdaptiveOptions {
     fn default() -> Self {
-        Self {
-            limit_inputs: true,
-        }
+        Self { limit_inputs: true }
     }
 }
 
@@ -142,10 +140,14 @@ pub fn adaptive_ashrae(
 
     // Apply input limits if requested
     if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 40.0
-            || radiant_celsius < 10.0 || radiant_celsius > 40.0
-            || speed_mps < 0.0 || speed_mps > 2.0
-            || running_mean_celsius < 10.0 || running_mean_celsius > 33.5
+        if dry_bulb_celsius < 10.0
+            || dry_bulb_celsius > 40.0
+            || radiant_celsius < 10.0
+            || radiant_celsius > 40.0
+            || speed_mps < 0.0
+            || speed_mps > 2.0
+            || running_mean_celsius < 10.0
+            || running_mean_celsius > 33.5
         {
             t_cmf = f64::NAN;
         }
@@ -162,8 +164,10 @@ pub fn adaptive_ashrae(
 
     // Check acceptability
     let to_celsius = to.as_celsius();
-    let acceptability_80 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
-    let acceptability_90 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
+    let acceptability_80 =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
+    let acceptability_90 =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
 
     AdaptiveAshraeResult {
         tmp_cmf: t_cmf,
@@ -236,10 +240,14 @@ pub fn adaptive_en(
 
     // Apply input limits if requested
     if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 30.0
-            || radiant_celsius < 10.0 || radiant_celsius > 40.0
-            || speed_mps < 0.0 || speed_mps > 2.0
-            || running_mean_celsius < 10.0 || running_mean_celsius > 30.0
+        if dry_bulb_celsius < 10.0
+            || dry_bulb_celsius > 30.0
+            || radiant_celsius < 10.0
+            || radiant_celsius > 40.0
+            || speed_mps < 0.0
+            || speed_mps > 2.0
+            || running_mean_celsius < 10.0
+            || running_mean_celsius > 30.0
         {
             t_cmf = f64::NAN;
         }
@@ -258,9 +266,12 @@ pub fn adaptive_en(
 
     // Check acceptability for each category
     let to_celsius = to.as_celsius();
-    let acceptability_cat_i = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
-    let acceptability_cat_ii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
-    let acceptability_cat_iii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+    let acceptability_cat_i =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
+    let acceptability_cat_ii =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
+    let acceptability_cat_iii =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
 
     AdaptiveEnResult {
         tmp_cmf: t_cmf,
@@ -287,7 +298,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!((result.tmp_cmf - 24.0).abs() < 0.1);
         assert!(result.acceptability_80);
@@ -302,19 +313,21 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!(result.tmp_cmf.is_nan());
         assert!(!result.acceptability_80);
 
         // Test with limits disabled
-        let options = AdaptiveOptions { limit_inputs: false };
+        let options = AdaptiveOptions {
+            limit_inputs: false,
+        };
         let result = adaptive_ashrae(
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            options
+            options,
         );
         assert!(!result.tmp_cmf.is_nan());
     }
@@ -327,7 +340,7 @@ mod tests {
             Temperature::from_celsius(28.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(1.0),
-            Default::default()
+            Default::default(),
         );
         // Upper limit should be extended by cooling effect
         assert!(result.tmp_cmf_80_up > result.tmp_cmf + 3.5);
@@ -340,7 +353,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!((result.tmp_cmf - 25.4).abs() < 0.1);
         assert!(result.acceptability_cat_ii);
@@ -353,7 +366,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
 
         // Check category bounds are properly ordered
@@ -371,7 +384,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!(result.tmp_cmf.is_nan());
         assert!(!result.acceptability_cat_ii);

@@ -1,8 +1,8 @@
 //! Utility functions for thermal comfort calculations
 
 use crate::constants::*;
-use libm::{exp, pow, log, round};
-pub use measurements::{Temperature, Speed, Pressure, Area, Mass, Length};
+use libm::{exp, log, pow, round};
+pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
 
 /// Convert Temperature to Celsius (f64)
 #[inline]
@@ -288,16 +288,9 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
     let log_ta_k = log(ta_k);
 
     let p_pa = if ta_k < C_TO_K {
-        exp(
-            C1 / ta_k
-                + C2
-                + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k)))
-                + C7 * log_ta_k,
-        )
+        exp(C1 / ta_k + C2 + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k))) + C7 * log_ta_k)
     } else {
-        exp(
-            C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k,
-        )
+        exp(C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k)
     };
     Pressure::from_pascals(p_pa)
 }
@@ -449,10 +442,8 @@ pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: f64) -> f6
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr_ms - 0.15)
-        + 0.069 * pow(vr_ms - 0.15, 2.0)
-        - 0.462 * v_walk_ms
-        + 0.201 * pow(v_walk_ms, 2.0)
+        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
+            + 0.201 * pow(v_walk_ms, 2.0),
     ) * i_a_static
 }
 
@@ -462,10 +453,8 @@ fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr_ms - 0.15)
-        + 0.069 * pow(vr_ms - 0.15, 2.0)
-        - 0.462 * v_walk_ms
-        + 0.201 * pow(v_walk_ms, 2.0)
+        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
+            + 0.201 * pow(v_walk_ms, 2.0),
     )
 }
 
@@ -475,10 +464,8 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.281 * (vr_ms - 0.15)
-        + 0.044 * pow(vr_ms - 0.15, 2.0)
-        - 0.492 * v_walk_ms
-        + 0.176 * pow(v_walk_ms, 2.0)
+        -0.281 * (vr_ms - 0.15) + 0.044 * pow(vr_ms - 0.15, 2.0) - 0.492 * v_walk_ms
+            + 0.176 * pow(v_walk_ms, 2.0),
     )
 }
 
@@ -520,13 +507,7 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 /// );
 /// assert!(i_t_r > 0.0);
 /// ```
-pub fn clo_total_insulation(
-    i_t: f64,
-    vr: Speed,
-    v_walk: Speed,
-    i_a_static: f64,
-    i_cl: f64,
-) -> f64 {
+pub fn clo_total_insulation(i_t: f64, vr: Speed, v_walk: Speed, i_a_static: f64, i_cl: f64) -> f64 {
     // Calculate insulation for different clothing levels
     let nude_insulation = i_a_static * correction_nude(vr, v_walk);
     let normal_insulation = i_t * correction_normal_clothing(vr, v_walk);

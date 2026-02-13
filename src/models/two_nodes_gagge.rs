@@ -3,9 +3,9 @@
 //! This module implements the Gagge two-node model [Gagge1986] which simulates
 //! human thermoregulatory responses and calculates various thermal comfort indices.
 
-use crate::utilities::{p_sat_torr, Posture};
+use crate::utilities::{Posture, p_sat_torr};
 use libm::{exp, fabs as abs, pow};
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result from the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -526,7 +526,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
 
         // Basic sanity checks
@@ -545,7 +545,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.0,
             1.0,
-            Default::default()
+            Default::default(),
         );
 
         // In cold conditions, expect lower SET
@@ -562,7 +562,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
 
         // In hot conditions, expect higher SET and sweating

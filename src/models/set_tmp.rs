@@ -3,9 +3,9 @@
 //! This module provides a wrapper around the two-node Gagge model
 //! to calculate SET values.
 
-use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -130,7 +130,15 @@ pub fn set_tmp(
         calculate_ce: true, // Only calculate SET, not all outputs
     };
 
-    let result = two_nodes_gagge(dry_bulb_temp, mean_radiant_temp, air_speed, relative_humidity, metabolic_rate, clothing_insulation, gagge_options);
+    let result = two_nodes_gagge(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        gagge_options,
+    );
     let set = result.set;
 
     if options.round_output {
@@ -153,7 +161,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set > 20.0 && set < 30.0);
         assert!(!set.is_nan());
@@ -169,7 +177,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -181,7 +189,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -193,7 +201,7 @@ mod tests {
             Humidity::from_percent(50.0),
             0.5,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -209,7 +217,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options
+            options,
         );
         assert!(!set.is_nan());
     }
@@ -227,7 +235,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options_round
+            options_round,
         );
 
         let options_no_round = SetOptions {
@@ -241,7 +249,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options_no_round
+            options_no_round,
         );
 
         // Rounded value should be close to exact value but rounded to 1 decimal

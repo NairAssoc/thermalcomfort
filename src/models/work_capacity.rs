@@ -218,7 +218,8 @@ mod tests {
     fn test_work_capacity_dunne() {
         // Test different intensities
         let heavy = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
-        let moderate = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
+        let moderate =
+            work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
         let light = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Light);
 
         assert!(heavy >= 0.0 && heavy <= 100.0);

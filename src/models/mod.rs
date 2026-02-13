@@ -1,37 +1,39 @@
 //! Thermal comfort models
 
+pub mod adaptive;
+pub mod cooling_effect;
+pub mod heat_index_lu;
 pub mod pmv;
 pub mod pmv_typed;
-pub mod two_nodes_gagge;
 pub mod set_tmp;
-pub mod cooling_effect;
-pub mod utci;
-pub mod adaptive;
-pub mod wbgt;
-pub mod thermal_indices;
-pub mod work_capacity;
-pub mod specialty;
 pub mod solar_gain;
+pub mod specialty;
+pub mod thermal_indices;
+pub mod two_nodes_gagge;
 pub mod use_fans_heatwaves;
-pub mod heat_index_lu;
+pub mod utci;
+pub mod wbgt;
+pub mod work_capacity;
 
 // Re-export commonly used models
-pub use pmv::{pmv_ppd_iso, pmv_ppd_ashrae, pmv_a, pmv_e, pmv_athb, PmvPpdResult};
-pub use two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesResult, GaggeTwoNodesOptions};
-pub use set_tmp::{set_tmp, SetOptions};
-pub use cooling_effect::{cooling_effect, CoolingEffectOptions};
-pub use utci::{utci, UtciResult, UtciOptions, StressCategory};
-pub use adaptive::{adaptive_ashrae, adaptive_en, AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions};
-pub use wbgt::{wbgt, WbgtOptions};
-pub use thermal_indices::{
-    wci, wind_chill_temperature, humidex, humidex_masterson,
-    thi, discomfort_index, heat_index_rothfusz, at, net, esi
+pub use adaptive::{
+    AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions, adaptive_ashrae, adaptive_en,
 };
-pub use work_capacity::{
-    work_capacity_iso, work_capacity_niosh, work_capacity_dunne,
-    work_capacity_hothaps, WorkIntensity
-};
-pub use specialty::{ankle_draft, vertical_tmp_grad_ppd, f_svv, transpose_sharp_altitude};
-pub use solar_gain::{solar_gain, SolarGainResult};
-pub use use_fans_heatwaves::{use_fans_heatwaves, UseFansHeatwavesResult};
+pub use cooling_effect::{CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
+pub use pmv::{PmvPpdResult, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso};
+pub use set_tmp::{SetOptions, set_tmp};
+pub use solar_gain::{SolarGainResult, solar_gain};
+pub use specialty::{ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd};
+pub use thermal_indices::{
+    at, discomfort_index, esi, heat_index_rothfusz, humidex, humidex_masterson, net, thi, wci,
+    wind_chill_temperature,
+};
+pub use two_nodes_gagge::{GaggeTwoNodesOptions, GaggeTwoNodesResult, two_nodes_gagge};
+pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
+pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
+pub use wbgt::{WbgtOptions, wbgt};
+pub use work_capacity::{
+    WorkIntensity, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
+};

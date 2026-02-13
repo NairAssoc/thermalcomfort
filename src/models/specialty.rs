@@ -3,7 +3,7 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv::pmv_ppd_ashrae;
-use measurements::{Temperature, Speed, Humidity};
+use measurements::{Humidity, Speed, Temperature};
 
 /// Calculate percentage dissatisfied due to ankle draft
 ///
@@ -56,8 +56,16 @@ pub fn ankle_draft(
     ankle_air_speed: Speed,
 ) -> (f64, bool) {
     // Calculate PMV value for use in ankle draft equation
-    let pmv_result = pmv_ppd_ashrae(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, metabolic_rate, clothing_insulation, Default::default());
-    let pmv = pmv_result.pmv;  // Use PMV value directly, not TSV enum
+    let pmv_result = pmv_ppd_ashrae(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        Default::default(),
+    );
+    let pmv = pmv_result.pmv; // Use PMV value directly, not TSV enum
 
     let ankle_speed = ankle_air_speed.as_meters_per_second();
 
@@ -122,11 +130,20 @@ pub fn vertical_tmp_grad_ppd(
     vertical_temp_gradient: f64,
 ) -> (f64, bool) {
     // Calculate PMV value for use in vertical temperature gradient equation
-    let pmv_result = pmv_ppd_ashrae(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, metabolic_rate, clothing_insulation, Default::default());
+    let pmv_result = pmv_ppd_ashrae(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        Default::default(),
+    );
     let pmv = pmv_result.pmv;
 
     // PPD calculation for vertical temperature gradient using ASHRAE 55-2023 formula
-    let numerator = libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
+    let numerator =
+        libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
     let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
     let ppd_vtg = libm::round(ppd_vtg * 10.0) / 10.0;
 
@@ -191,7 +208,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Speed::from_meters_per_second(0.3)
+            Speed::from_meters_per_second(0.3),
         );
         assert!(ppd >= 0.0 && ppd <= 100.0);
         // High ankle draft velocity should cause dissatisfaction
@@ -207,7 +224,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            2.0
+            2.0,
         );
         // PPD can be negative for comfortable conditions (formula artifact)
         // but should be within reasonable range

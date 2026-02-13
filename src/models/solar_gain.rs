@@ -201,7 +201,17 @@ mod tests {
 
     #[test]
     fn test_solar_gain_standing() {
-        let result = solar_gain(45.0, 90.0, 600.0, 0.7, 0.6, 0.7, 0.7, Posture::Standing, 0.6);
+        let result = solar_gain(
+            45.0,
+            90.0,
+            600.0,
+            0.7,
+            0.6,
+            0.7,
+            0.7,
+            Posture::Standing,
+            0.6,
+        );
         assert!(result.erf > 0.0);
         assert!(result.delta_mrt > 0.0);
     }

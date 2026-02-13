@@ -123,7 +123,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            Default::default()
+            Default::default(),
         );
         assert!((result - 27.1).abs() < 0.1);
     }
@@ -139,7 +139,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             Some(Temperature::from_celsius(20.0)),
-            options
+            options,
         );
         assert!((result - 25.9).abs() < 0.1);
     }
@@ -154,7 +154,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            options
+            options,
         );
         // 0.7 * 25 + 0.3 * 32 = 17.5 + 9.6 = 27.1
         assert!((result - 27.1).abs() < 0.001);
@@ -171,7 +171,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            options
+            options,
         );
         assert!(result.is_nan());
     }
@@ -188,7 +188,7 @@ mod tests {
             WbgtOptions {
                 with_solar_load: false,
                 round_output: false,
-            }
+            },
         );
         assert!((result - 31.5).abs() < 0.001);
 
@@ -199,8 +199,9 @@ mod tests {
             Some(Temperature::from_celsius(28.0)),
             WbgtOptions {
                 with_solar_load: true,
-            round_output: false,
-        });
+                round_output: false,
+            },
+        );
         assert!((result - 30.8).abs() < 0.001);
     }
 }

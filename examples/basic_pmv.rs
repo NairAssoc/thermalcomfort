@@ -2,45 +2,49 @@
 
 use thermalcomfort::models::pmv_ppd_iso;
 use thermalcomfort::utilities::v_relative;
-use thermalcomfort::{Temperature, Speed, Humidity};
+use thermalcomfort::{Humidity, Speed, Temperature};
 
 fn main() {
     println!("=== Thermal Comfort PMV/PPD Example ===\n");
 
     // Environmental parameters
-    let tdb = Temperature::from_celsius(25.0);  // dry bulb temperature
-    let tr = Temperature::from_celsius(25.0);   // mean radiant temperature
-    let rh = Humidity::from_percent(50.0);      // relative humidity
+    let tdb = Temperature::from_celsius(25.0); // dry bulb temperature
+    let tr = Temperature::from_celsius(25.0); // mean radiant temperature
+    let rh = Humidity::from_percent(50.0); // relative humidity
     let v = Speed::from_meters_per_second(0.1); // air speed
-    let met = 1.4;   // metabolic rate [met]
-    let clo = 0.5;   // clothing insulation [clo]
+    let met = 1.4; // metabolic rate [met]
+    let clo = 0.5; // clothing insulation [clo]
 
     println!("Environmental Conditions:");
     println!("  Temperature (dry bulb): {:.1}°C", tdb.as_celsius());
     println!("  Mean radiant temp:      {:.1}°C", tr.as_celsius());
     println!("  Relative humidity:      {:.0}%", rh.as_percent());
-    println!("  Air speed:              {:.1} m/s", v.as_meters_per_second());
+    println!(
+        "  Air speed:              {:.1} m/s",
+        v.as_meters_per_second()
+    );
     println!("  Metabolic rate:         {:.1} met", met);
     println!("  Clothing insulation:    {:.1} clo", clo);
 
     // Calculate relative air speed (accounts for body movement)
     let vr = v_relative(v, met);
-    println!("\n  Relative air speed:     {:.2} m/s", vr.as_meters_per_second());
-
-    // Calculate PMV and PPD using measurement types
-    let result = pmv_ppd_iso(
-        tdb,
-        tr,
-        vr,
-        rh,
-        met,
-        clo,
-        Default::default()
+    println!(
+        "\n  Relative air speed:     {:.2} m/s",
+        vr.as_meters_per_second()
     );
 
+    // Calculate PMV and PPD using measurement types
+    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+
     println!("\nThermal Comfort Results:");
-    println!("  PMV (Predicted Mean Vote):              {:.2}", result.pmv);
-    println!("  PPD (Predicted % Dissatisfied):         {:.1}%", result.ppd);
+    println!(
+        "  PMV (Predicted Mean Vote):              {:.2}",
+        result.pmv
+    );
+    println!(
+        "  PPD (Predicted % Dissatisfied):         {:.1}%",
+        result.ppd
+    );
     println!("  Thermal Sensation:                      {:?}", result.tsv);
 
     // Interpretation
