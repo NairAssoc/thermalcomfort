@@ -210,7 +210,7 @@ mod tests {
             0.5,
             Speed::from_meters_per_second(0.3),
         );
-        assert!(ppd >= 0.0 && ppd <= 100.0);
+        assert!((0.0..=100.0).contains(&ppd));
         // High ankle draft velocity should cause dissatisfaction
         assert!(!acceptable || ppd <= 20.0);
     }
@@ -228,7 +228,7 @@ mod tests {
         );
         // PPD can be negative for comfortable conditions (formula artifact)
         // but should be within reasonable range
-        assert!(ppd >= -50.0 && ppd <= 100.0);
+        assert!((-50.0..=100.0).contains(&ppd));
     }
 
     #[test]

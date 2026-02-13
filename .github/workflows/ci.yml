@@ -43,11 +43,14 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Install components
+        run: rustup component add rustfmt clippy
 
-      - name: Run doc tests
-        run: cargo test --doc --verbose
+      - name: Run lint checks
+        run: make lint
+
+      - name: Run tests
+        run: make test
 
   python-comparison:
     name: Python Comparison Tests
@@ -66,8 +69,8 @@ jobs:
       - name: Install pythermalcomfort
         run: pip install pythermalcomfort==3.8.0
 
-      - name: Run Python comparison tests
-        run: cargo test --test python_comparison --verbose
+      - name: Run verification (including Python comparison)
+        run: make verify
 
   check:
     name: Check

@@ -91,8 +91,10 @@ fn test_pmv_ppd_iso_extreme_conditions() {
             (22.0, 22.0, 0.2, 50.0, 3.0, 0.5),
         ];
 
-        let mut options = PmvPpdOptions::default();
-        options.limit_inputs = false;
+        let options = PmvPpdOptions {
+            limit_inputs: false,
+            ..Default::default()
+        };
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
             println!(

@@ -373,131 +373,6 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_thermal_sensation_mapping() {
-        assert_eq!(ThermalSensation::from_pmv(-3.0), ThermalSensation::Cold);
-        assert_eq!(ThermalSensation::from_pmv(-2.0), ThermalSensation::Cool);
-        assert_eq!(
-            ThermalSensation::from_pmv(-1.0),
-            ThermalSensation::SlightlyCool
-        );
-        assert_eq!(ThermalSensation::from_pmv(0.0), ThermalSensation::Neutral);
-        assert_eq!(
-            ThermalSensation::from_pmv(1.0),
-            ThermalSensation::SlightlyWarm
-        );
-        assert_eq!(ThermalSensation::from_pmv(2.0), ThermalSensation::Warm);
-        assert_eq!(ThermalSensation::from_pmv(3.0), ThermalSensation::Hot);
-    }
-
-    #[test]
-    fn test_pmv_ppd_iso_basic() {
-        // Example from ISO 7730
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            Default::default(),
-        );
-
-        // Should be approximately neutral comfort
-        assert!(result.pmv.abs() < 0.5);
-        assert!(result.ppd < 10.0);
-    }
-
-    #[test]
-    fn test_pmv_ppd_iso_limits() {
-        // Test with values outside limits
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            Default::default(),
-        );
-        assert!(result.pmv.is_nan());
-        assert!(result.ppd.is_nan());
-
-        // Test with limits disabled
-        let mut options = PmvPpdOptions::default();
-        options.limit_inputs = false;
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            options,
-        );
-        assert!(!result.pmv.is_nan());
-    }
-
-    #[cfg(test)]
-    #[test]
-    fn test_compare_with_python() {
-        use pyo3::prelude::*;
-        use pyo3::types::PyModule;
-
-        Python::with_gil(|py| {
-            // Import pythermalcomfort
-            let pythermal = PyModule::import(py, "pythermalcomfort.models").unwrap();
-
-            // Test case 1: Standard conditions
-            let tdb = 25.0;
-            let tr = 25.0;
-            let vr = 0.22; // v_relative(0.1, 1.4)
-            let rh = 50.0;
-            let met = 1.4;
-            let clo = 0.5;
-
-            // Call Python function
-            let py_result = pythermal
-                .getattr("pmv_ppd_iso")
-                .unwrap()
-                .call1((tdb, tr, vr, rh, met, clo))
-                .unwrap();
-
-            let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
-            let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
-
-            // Call Rust function
-            let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                met,
-                clo,
-                Default::default(),
-            );
-
-            // Compare results (allow small floating point differences)
-            assert!(
-                (rust_result.pmv - py_pmv).abs() < 0.01,
-                "PMV mismatch: Rust={}, Python={}",
-                rust_result.pmv,
-                py_pmv
-            );
-            assert!(
-                (rust_result.ppd - py_ppd).abs() < 0.1,
-                "PPD mismatch: Rust={}, Python={}",
-                rust_result.ppd,
-                py_ppd
-            );
-        });
-    }
-}
-
 /// Calculate Adaptive Predicted Mean Vote (aPMV)
 ///
 /// This index was developed by Yao et al. (2009) and takes into account factors such as
@@ -756,4 +631,130 @@ pub fn pmv_athb(
             - 0.0002909 * l_adapted * met_adapted * running_mean_celsius;
 
     libm::round(athb_pmv * 1000.0) / 1000.0 // Round to 3 decimal places
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_thermal_sensation_mapping() {
+        assert_eq!(ThermalSensation::from_pmv(-3.0), ThermalSensation::Cold);
+        assert_eq!(ThermalSensation::from_pmv(-2.0), ThermalSensation::Cool);
+        assert_eq!(
+            ThermalSensation::from_pmv(-1.0),
+            ThermalSensation::SlightlyCool
+        );
+        assert_eq!(ThermalSensation::from_pmv(0.0), ThermalSensation::Neutral);
+        assert_eq!(
+            ThermalSensation::from_pmv(1.0),
+            ThermalSensation::SlightlyWarm
+        );
+        assert_eq!(ThermalSensation::from_pmv(2.0), ThermalSensation::Warm);
+        assert_eq!(ThermalSensation::from_pmv(3.0), ThermalSensation::Hot);
+    }
+
+    #[test]
+    fn test_pmv_ppd_iso_basic() {
+        // Example from ISO 7730
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            Default::default(),
+        );
+
+        // Should be approximately neutral comfort
+        assert!(result.pmv.abs() < 0.5);
+        assert!(result.ppd < 10.0);
+    }
+
+    #[test]
+    fn test_pmv_ppd_iso_limits() {
+        // Test with values outside limits
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(5.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            Default::default(),
+        );
+        assert!(result.pmv.is_nan());
+        assert!(result.ppd.is_nan());
+
+        // Test with limits disabled
+        let options = PmvPpdOptions {
+            limit_inputs: false,
+            ..Default::default()
+        };
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(5.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            options,
+        );
+        assert!(!result.pmv.is_nan());
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn test_compare_with_python() {
+        use pyo3::prelude::*;
+        use pyo3::types::PyModule;
+
+        Python::with_gil(|py| {
+            // Import pythermalcomfort
+            let pythermal = PyModule::import(py, "pythermalcomfort.models").unwrap();
+
+            // Test case 1: Standard conditions
+            let tdb = 25.0;
+            let tr = 25.0;
+            let vr = 0.22; // v_relative(0.1, 1.4)
+            let rh = 50.0;
+            let met = 1.4;
+            let clo = 0.5;
+
+            // Call Python function
+            let py_result = pythermal
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
+
+            let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
+            let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
+
+            // Call Rust function
+            let rust_result = pmv_ppd_iso(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                met,
+                clo,
+                Default::default(),
+            );
+
+            // Compare results (allow small floating point differences)
+            assert!(
+                (rust_result.pmv - py_pmv).abs() < 0.01,
+                "PMV mismatch: Rust={}, Python={}",
+                rust_result.pmv,
+                py_pmv
+            );
+            assert!(
+                (rust_result.ppd - py_ppd).abs() < 0.1,
+                "PPD mismatch: Rust={}, Python={}",
+                rust_result.ppd,
+                py_ppd
+            );
+        });
+    }
 }

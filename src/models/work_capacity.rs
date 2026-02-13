@@ -217,7 +217,7 @@ mod tests {
             work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
         let light = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Light);
 
-        assert!(heavy >= 0.0 && heavy <= 100.0);
+        assert!((0.0..=100.0).contains(&heavy));
         assert!(light >= moderate && moderate >= heavy);
 
         // Below 25°C should give 100% capacity
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn test_work_capacity_hothaps() {
         let capacity = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
-        assert!(capacity >= 10.0 && capacity <= 100.0);
+        assert!((10.0..=100.0).contains(&capacity));
 
         // Light work should have higher capacity
         let light = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Light);
