@@ -4,7 +4,7 @@
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
 use crate::psychrometrics::operative_temperature;
-use measurements::{Temperature, Speed};
+use measurements::{Speed, Temperature};
 
 /// Result from ASHRAE 55 adaptive comfort model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,9 +59,7 @@ pub struct AdaptiveOptions {
 
 impl Default for AdaptiveOptions {
     fn default() -> Self {
-        Self {
-            limit_inputs: true,
-        }
+        Self { limit_inputs: true }
     }
 }
 
@@ -125,36 +123,48 @@ pub fn adaptive_ashrae(
     let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
     // Calculate cooling effect for elevated air speed when to > 25°C
+    // From ASHRAE 55-2023 Section 5.4.3
+    // Thresholds: 0.6 m/s, 0.9 m/s, 1.2 m/s
+    // Cooling effects: 1.2°C, 1.8°C, 2.2°C respectively
+    // Only applies when operative temperature >= 25°C
     let ce = if speed_mps >= 0.6 && to.as_celsius() >= 25.0 {
         if speed_mps < 0.9 {
-            1.2
+            1.2 // First tier cooling effect
         } else if speed_mps < 1.2 {
-            1.8
+            1.8 // Second tier cooling effect
         } else {
-            2.2
+            2.2 // Third tier cooling effect
         }
     } else {
         0.0
     };
 
-    // Comfort temperature based on running mean
+    // Comfort temperature based on running mean outdoor temperature
+    // ASHRAE 55-2023 adaptive comfort equation:
+    // t_cmf = 0.31 * t_running_mean + 17.8
+    // where 0.31 is the climate adaptation coefficient
+    // and 17.8°C is the base comfort temperature
     let mut t_cmf = 0.31 * running_mean_celsius + 17.8;
 
-    // Apply input limits if requested
-    if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 40.0
-            || radiant_celsius < 10.0 || radiant_celsius > 40.0
-            || speed_mps < 0.0 || speed_mps > 2.0
-            || running_mean_celsius < 10.0 || running_mean_celsius > 33.5
-        {
-            t_cmf = f64::NAN;
-        }
+    // Apply input limits if requested (ASHRAE 55-2023 applicability limits)
+    // Dry bulb and radiant temperature: 10-40°C
+    // Air speed: 0-2 m/s
+    // Running mean outdoor temperature: 10-33.5°C
+    if options.limit_inputs
+        && (!(10.0..=40.0).contains(&dry_bulb_celsius)
+            || !(10.0..=40.0).contains(&radiant_celsius)
+            || !(0.0..=2.0).contains(&speed_mps)
+            || !(10.0..=33.5).contains(&running_mean_celsius))
+    {
+        t_cmf = f64::NAN;
     }
 
     // Round to 1 decimal place
     t_cmf = libm::round(t_cmf * 10.0) / 10.0;
 
-    // Calculate acceptability bounds
+    // Calculate acceptability bounds (ASHRAE 55-2023)
+    // 80% acceptability: ±3.5°C from comfort temperature
+    // 90% acceptability: ±2.5°C from comfort temperature
     let tmp_cmf_80_low = t_cmf - 3.5;
     let tmp_cmf_90_low = t_cmf - 2.5;
     let tmp_cmf_80_up = t_cmf + 3.5 + ce;
@@ -162,8 +172,10 @@ pub fn adaptive_ashrae(
 
     // Check acceptability
     let to_celsius = to.as_celsius();
-    let acceptability_80 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
-    let acceptability_90 = !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
+    let acceptability_80 =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
+    let acceptability_90 =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
 
     AdaptiveAshraeResult {
         tmp_cmf: t_cmf,
@@ -231,24 +243,34 @@ pub fn adaptive_en(
     // Calculate operative temperature (use_ashrae=true for adaptive models)
     let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
-    // Comfort temperature based on running mean (EN formula)
+    // Comfort temperature based on running mean outdoor temperature
+    // EN 16798-1:2019 adaptive comfort equation:
+    // t_cmf = 0.33 * t_running_mean + 18.8
+    // where 0.33 is the climate adaptation coefficient
+    // and 18.8°C is the base comfort temperature
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
-    // Apply input limits if requested
-    if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 30.0
-            || radiant_celsius < 10.0 || radiant_celsius > 40.0
-            || speed_mps < 0.0 || speed_mps > 2.0
-            || running_mean_celsius < 10.0 || running_mean_celsius > 30.0
-        {
-            t_cmf = f64::NAN;
-        }
+    // Apply input limits if requested (EN 16798-1:2019 applicability limits)
+    // Dry bulb temperature: 10-30°C
+    // Mean radiant temperature: 10-40°C
+    // Air speed: 0-2 m/s
+    // Running mean outdoor temperature: 10-30°C
+    if options.limit_inputs
+        && (!(10.0..=30.0).contains(&dry_bulb_celsius)
+            || !(10.0..=40.0).contains(&radiant_celsius)
+            || !(0.0..=2.0).contains(&speed_mps)
+            || !(10.0..=30.0).contains(&running_mean_celsius))
+    {
+        t_cmf = f64::NAN;
     }
 
     // Round to 1 decimal place
     t_cmf = libm::round(t_cmf * 10.0) / 10.0;
 
-    // Calculate category bounds (EN 16798-1)
+    // Calculate category bounds (EN 16798-1:2019)
+    // Category I (high expectation): ±2°C from comfort temperature
+    // Category II (medium expectation): ±3°C from comfort temperature
+    // Category III (moderate expectation): ±4°C from comfort temperature
     let tmp_cmf_cat_i_low = t_cmf - 2.0;
     let tmp_cmf_cat_i_up = t_cmf + 2.0;
     let tmp_cmf_cat_ii_low = t_cmf - 3.0;
@@ -258,9 +280,12 @@ pub fn adaptive_en(
 
     // Check acceptability for each category
     let to_celsius = to.as_celsius();
-    let acceptability_cat_i = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
-    let acceptability_cat_ii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
-    let acceptability_cat_iii = !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+    let acceptability_cat_i =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
+    let acceptability_cat_ii =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
+    let acceptability_cat_iii =
+        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
 
     AdaptiveEnResult {
         tmp_cmf: t_cmf,
@@ -287,7 +312,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!((result.tmp_cmf - 24.0).abs() < 0.1);
         assert!(result.acceptability_80);
@@ -302,19 +327,21 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!(result.tmp_cmf.is_nan());
         assert!(!result.acceptability_80);
 
         // Test with limits disabled
-        let options = AdaptiveOptions { limit_inputs: false };
+        let options = AdaptiveOptions {
+            limit_inputs: false,
+        };
         let result = adaptive_ashrae(
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            options
+            options,
         );
         assert!(!result.tmp_cmf.is_nan());
     }
@@ -327,7 +354,7 @@ mod tests {
             Temperature::from_celsius(28.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(1.0),
-            Default::default()
+            Default::default(),
         );
         // Upper limit should be extended by cooling effect
         assert!(result.tmp_cmf_80_up > result.tmp_cmf + 3.5);
@@ -340,7 +367,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!((result.tmp_cmf - 25.4).abs() < 0.1);
         assert!(result.acceptability_cat_ii);
@@ -353,7 +380,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(20.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
 
         // Check category bounds are properly ordered
@@ -371,7 +398,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(0.1),
-            Default::default()
+            Default::default(),
         );
         assert!(result.tmp_cmf.is_nan());
         assert!(!result.acceptability_cat_ii);

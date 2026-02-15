@@ -1,11 +1,11 @@
 //! Two-node Gagge model of human temperature regulation
 //!
-//! This module implements the Gagge two-node model [Gagge1986] which simulates
+//! This module implements the Gagge two-node model (Gagge1986) which simulates
 //! human thermoregulatory responses and calculates various thermal comfort indices.
 
-use crate::utilities::{p_sat_torr, Posture};
+use crate::utilities::{Posture, p_sat_torr};
 use libm::{exp, fabs as abs, pow};
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result from the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,11 +18,11 @@ pub struct GaggeTwoNodesResult {
     pub e_rsw: f64,
     /// Maximum evaporative capacity [W/m²]
     pub e_max: f64,
-    /// Total sensible heat loss [W]
+    /// Total sensible heat loss (W)
     pub q_sensible: f64,
-    /// Total heat loss from skin [W]
+    /// Total heat loss from skin (W)
     pub q_skin: f64,
-    /// Heat loss due to respiration [W]
+    /// Heat loss due to respiration (W)
     pub q_res: f64,
     /// Core temperature [°C]
     pub t_core: f64,
@@ -51,7 +51,7 @@ pub struct GaggeTwoNodesResult {
 /// Options for the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Body surface area
     pub body_surface_area: Area,
@@ -114,8 +114,8 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - Model options
 ///
 /// # Returns
@@ -227,8 +227,6 @@ fn gagge_two_nodes_optimized(
     let mut e_req = 0.0; // evaporative heat loss required for tmp regulation
     let mut r_ea = 0.0;
     let mut r_ecl = 0.0;
-    let q_res; // heat loss due to respiration
-    let c_res; // convective heat loss respiration
 
     let pressure_in_atmospheres = p_atm / 101325.0;
     let length_time_simulation = 60; // length time simulation in minutes
@@ -251,12 +249,10 @@ fn gagge_two_nodes_optimized(
 
     let w_max = if let Some(wm) = w_max_opt {
         wm
+    } else if clo > 0.0 {
+        0.59 * pow(air_speed, -0.08) // critical skin wettedness clothed
     } else {
-        if clo > 0.0 {
-            0.59 * pow(air_speed, -0.08) // critical skin wettedness clothed
-        } else {
-            0.38 * pow(air_speed, -0.29) // critical skin wettedness naked
-        }
+        0.38 * pow(air_speed, -0.29) // critical skin wettedness naked
     };
 
     // h_cc corrected convective heat transfer coefficient
@@ -277,8 +273,8 @@ fn gagge_two_nodes_optimized(
     let mut t_body = alfa * t_skin + (1.0 - alfa) * t_core; // mean body temperature, °C
 
     // Respiration
-    q_res = 0.0023 * m * (44.0 - vapor_pressure); // latent heat loss due to respiration
-    c_res = 0.0014 * m * (34.0 - tdb); // sensible convective heat loss respiration
+    let q_res = 0.0023 * m * (44.0 - vapor_pressure); // latent heat loss due to respiration
+    let c_res = 0.0014 * m * (34.0 - tdb); // sensible convective heat loss respiration
 
     // Time simulation loop
     while n_simulation < length_time_simulation {
@@ -328,8 +324,8 @@ fn gagge_two_nodes_optimized(
         let tc_cr = 0.97 * (1.0 - alfa) * body_weight; // thermal capacity core
         let d_t_sk = (s_skin * body_surface_area) / (tc_sk * 60.0); // rate of change skin temperature °C per minute
         let d_t_cr = (s_core * body_surface_area) / (tc_cr * 60.0); // rate of change core temperature °C per minute
-        t_skin = t_skin + d_t_sk;
-        t_core = t_core + d_t_cr;
+        t_skin += d_t_sk;
+        t_core += d_t_cr;
         t_body = alfa * t_skin + (1.0 - alfa) * t_core;
 
         // sk_sig thermoregulatory control signal from the skin
@@ -526,7 +522,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
 
         // Basic sanity checks
@@ -545,7 +541,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.0,
             1.0,
-            Default::default()
+            Default::default(),
         );
 
         // In cold conditions, expect lower SET
@@ -562,7 +558,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
 
         // In hot conditions, expect higher SET and sweating

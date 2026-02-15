@@ -7,20 +7,15 @@
 use measurements::Temperature;
 
 /// Work intensity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WorkIntensity {
     /// Light work (< 200 kcal/h or ~200W)
     Light,
     /// Moderate work (200-350 kcal/h or ~300W)
     Moderate,
     /// Heavy work (350-500 kcal/h or ~400W)
+    #[default]
     Heavy,
-}
-
-impl Default for WorkIntensity {
-    fn default() -> Self {
-        WorkIntensity::Heavy
-    }
 }
 
 /// Estimate work capacity based on ISO standards
@@ -31,7 +26,7 @@ impl Default for WorkIntensity {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production [W]
+/// * `met` - Metabolic heat production (W)
 ///
 /// # Returns
 ///
@@ -60,7 +55,7 @@ pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
     let capacity = ((wbgt_lim_rest - wbgt_celsius) / (wbgt_lim_rest - wbgt_lim)) * 100.0;
 
     // Clip to 0-100 range
-    capacity.max(0.0).min(100.0)
+    capacity.clamp(0.0, 100.0)
 }
 
 /// Estimate work capacity based on NIOSH standards
@@ -71,7 +66,7 @@ pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production [W]
+/// * `met` - Metabolic heat production (W)
 ///
 /// # Returns
 ///
@@ -100,7 +95,7 @@ pub fn work_capacity_niosh(wbgt: Temperature, met: f64) -> f64 {
     let capacity = ((wbgt_lim_rest - wbgt_celsius) / (wbgt_lim_rest - wbgt_lim)) * 100.0;
 
     // Clip to 0-100 range
-    capacity.max(0.0).min(100.0)
+    capacity.clamp(0.0, 100.0)
 }
 
 /// Estimate work capacity based on Dunne et al. (2013)
@@ -134,7 +129,7 @@ pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> 
     // Base capacity calculation
     let wbgt_excess = (wbgt_celsius - 25.0).max(0.0);
     let mut capacity = 100.0 - 25.0 * libm::pow(wbgt_excess, 2.0 / 3.0);
-    capacity = capacity.max(0.0).min(100.0);
+    capacity = capacity.clamp(0.0, 100.0);
 
     // Apply intensity-specific multiplier
     let factor = match work_intensity {
@@ -186,7 +181,7 @@ pub fn work_capacity_hothaps(wbgt: Temperature, work_intensity: WorkIntensity) -
     let sigmoid = 0.9 / (1.0 + libm::pow(wbgt_celsius / divisor, exponent));
     let capacity = 100.0 * (0.1 + sigmoid);
 
-    capacity.max(0.0).min(100.0)
+    capacity.clamp(0.0, 100.0)
 }
 
 #[cfg(test)]
@@ -218,10 +213,11 @@ mod tests {
     fn test_work_capacity_dunne() {
         // Test different intensities
         let heavy = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
-        let moderate = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
+        let moderate =
+            work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
         let light = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Light);
 
-        assert!(heavy >= 0.0 && heavy <= 100.0);
+        assert!((0.0..=100.0).contains(&heavy));
         assert!(light >= moderate && moderate >= heavy);
 
         // Below 25°C should give 100% capacity
@@ -232,7 +228,7 @@ mod tests {
     #[test]
     fn test_work_capacity_hothaps() {
         let capacity = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
-        assert!(capacity >= 10.0 && capacity <= 100.0);
+        assert!((10.0..=100.0).contains(&capacity));
 
         // Light work should have higher capacity
         let light = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Light);

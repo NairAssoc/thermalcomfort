@@ -3,14 +3,14 @@
 //! This module provides a wrapper around the two-node Gagge model
 //! to calculate SET values.
 
-use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Body surface area
     pub body_surface_area: Area,
@@ -43,7 +43,7 @@ impl Default for SetOptions {
 /// <0.1 m/s air speed, and tr = tdb, in which the total heat loss from the skin
 /// of an imaginary occupant wearing clothing standardized for the activity concerned
 /// is the same as that from a person in the actual environment with actual clothing
-/// and activity level [Gagge1986].
+/// and activity level (Gagge1986).
 ///
 /// # Arguments
 ///
@@ -51,8 +51,8 @@ impl Default for SetOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - SET calculation options
 ///
 /// # Returns
@@ -65,8 +65,8 @@ impl Default for SetOptions {
 /// * 10 < tdb [°C] < 40
 /// * 10 < tr [°C] < 40
 /// * 0 < v [m/s] < 2
-/// * 1 < met [met] < 4
-/// * 0 < clo [clo] < 1.5
+/// * 1 < met (met) < 4
+/// * 0 < clo (clo) < 1.5
 ///
 /// # Examples
 ///
@@ -100,19 +100,19 @@ pub fn set_tmp(
 
     // Check standard compliance if limit_inputs is true
     if options.limit_inputs {
-        if dry_bulb_celsius < 10.0 || dry_bulb_celsius > 40.0 {
+        if !(10.0..=40.0).contains(&dry_bulb_celsius) {
             return f64::NAN;
         }
-        if radiant_celsius < 10.0 || radiant_celsius > 40.0 {
+        if !(10.0..=40.0).contains(&radiant_celsius) {
             return f64::NAN;
         }
-        if speed_mps < 0.0 || speed_mps > 2.0 {
+        if !(0.0..=2.0).contains(&speed_mps) {
             return f64::NAN;
         }
-        if metabolic_rate < 1.0 || metabolic_rate > 4.0 {
+        if !(1.0..=4.0).contains(&metabolic_rate) {
             return f64::NAN;
         }
-        if clothing_insulation < 0.0 || clothing_insulation > 1.5 {
+        if !(0.0..=1.5).contains(&clothing_insulation) {
             return f64::NAN;
         }
     }
@@ -130,7 +130,15 @@ pub fn set_tmp(
         calculate_ce: true, // Only calculate SET, not all outputs
     };
 
-    let result = two_nodes_gagge(dry_bulb_temp, mean_radiant_temp, air_speed, relative_humidity, metabolic_rate, clothing_insulation, gagge_options);
+    let result = two_nodes_gagge(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        gagge_options,
+    );
     let set = result.set;
 
     if options.round_output {
@@ -153,7 +161,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set > 20.0 && set < 30.0);
         assert!(!set.is_nan());
@@ -169,7 +177,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -181,7 +189,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -193,7 +201,7 @@ mod tests {
             Humidity::from_percent(50.0),
             0.5,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(set.is_nan());
 
@@ -209,7 +217,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options
+            options,
         );
         assert!(!set.is_nan());
     }
@@ -227,7 +235,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options_round
+            options_round,
         );
 
         let options_no_round = SetOptions {
@@ -241,7 +249,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options_no_round
+            options_no_round,
         );
 
         // Rounded value should be close to exact value but rounded to 1 decimal

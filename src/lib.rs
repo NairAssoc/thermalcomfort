@@ -49,7 +49,7 @@ pub mod psychrometrics;
 pub mod utilities;
 
 // Re-export commonly used items
-pub use models::pmv::{pmv_ppd_iso, PmvPpdResult};
+pub use models::pmv::{PmvPpdResult, pmv_ppd_iso};
 pub use utilities::v_relative;
 
 // Re-export measurements types for convenience

@@ -49,6 +49,7 @@ pub struct SolarGainResult {
 /// # References
 ///
 /// - ASHRAE 55-2023 Appendix C
+#[allow(clippy::too_many_arguments)]
 pub fn solar_gain(
     sol_altitude: f64,
     sharp: f64,
@@ -61,10 +62,16 @@ pub fn solar_gain(
     floor_reflectance: f64,
 ) -> SolarGainResult {
     let deg_to_rad = core::f64::consts::PI / 180.0;
+    // Radiative heat transfer coefficient (W/(m²·K))
+    // Typical value for human body in indoor environment
     let hr = 6.0;
+    // Diffuse solar radiation fraction
+    // Assumes diffuse radiation is 20% of direct beam radiation (typical for clear sky)
     let i_diff = 0.2 * sol_radiation_dir;
 
     // Get projected area factor table based on posture
+    // Tables contain empirical f_p values from ASHRAE 55 for different
+    // solar altitudes (rows) and azimuths (columns)
     let fp_table: [[f64; 7]; 13] = match posture {
         Posture::Sitting => [
             [0.29, 0.324, 0.305, 0.303, 0.262, 0.224, 0.177],
@@ -148,7 +155,10 @@ pub fn solar_gain(
     fp += fp22 * (sharp_adj - az1) * (alt_adj - alt1);
     fp /= (az2 - az1) * (alt2 - alt1);
 
-    // Effective fraction of body surface
+    // Effective fraction of body surface for radiation exchange
+    // From ASHRAE 55 (fraction of body surface area exposed to radiation):
+    // Sitting: 0.696 (larger surface area exposed while seated)
+    // Standing: 0.725 (slightly more surface exposed when standing)
     let f_eff = if posture == Posture::Sitting {
         0.696
     } else {
@@ -156,9 +166,12 @@ pub fn solar_gain(
     };
 
     let sw_abs = asw;
+    // Longwave (thermal) absorptivity of clothed human body
+    // 0.95 is typical for most clothing and skin (ASHRAE 55)
     let lw_abs = 0.95;
 
     // Calculate ERF components
+    // 0.5 factor accounts for hemispherical distribution of diffuse radiation
     let e_diff = f_eff * f_svv * 0.5 * sol_transmittance * i_diff;
     let e_direct = f_eff * fp * sol_transmittance * f_bes * sol_radiation_dir;
     let e_reflected = f_eff
@@ -201,7 +214,17 @@ mod tests {
 
     #[test]
     fn test_solar_gain_standing() {
-        let result = solar_gain(45.0, 90.0, 600.0, 0.7, 0.6, 0.7, 0.7, Posture::Standing, 0.6);
+        let result = solar_gain(
+            45.0,
+            90.0,
+            600.0,
+            0.7,
+            0.6,
+            0.7,
+            0.7,
+            Posture::Standing,
+            0.6,
+        );
         assert!(result.erf > 0.0);
         assert!(result.delta_mrt > 0.0);
     }

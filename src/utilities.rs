@@ -1,8 +1,8 @@
 //! Utility functions for thermal comfort calculations
 
 use crate::constants::*;
-use libm::{exp, pow, log, round};
-pub use measurements::{Temperature, Speed, Pressure, Area, Mass, Length};
+use libm::{exp, log, pow, round};
+pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
 
 /// Convert Temperature to Celsius (f64)
 #[inline]
@@ -29,27 +29,23 @@ pub fn ms_to_speed(speed_ms: f64) -> Speed {
 }
 
 /// Units for thermal comfort calculations
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Units {
     /// SI (International System of Units)
+    #[default]
     SI,
     /// IP (Imperial Units)
     IP,
-}
-
-impl Default for Units {
-    fn default() -> Self {
-        Units::SI
-    }
 }
 
 /// Body postures for thermal comfort calculations
 ///
 /// Different postures affect the radiative heat transfer coefficient
 /// and body surface area exposed to the environment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Posture {
     /// Standing posture (0.73 radiation area ratio)
+    #[default]
     Standing,
     /// Sitting posture (0.7 radiation area ratio)
     Sitting,
@@ -63,12 +59,6 @@ pub enum Posture {
     Supine,
     /// Crouching posture
     Crouching,
-}
-
-impl Default for Posture {
-    fn default() -> Self {
-        Posture::Standing
-    }
 }
 
 impl Posture {
@@ -87,11 +77,12 @@ impl Posture {
 }
 
 /// Model standards
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Model {
     /// ASHRAE 55-2023
     Ashrae552023,
     /// ISO 7730-2005
+    #[default]
     Iso77302005,
     /// ISO 9920-2007
     Iso99202007,
@@ -99,12 +90,6 @@ pub enum Model {
     Iso79332004,
     /// ISO 7933-2023
     Iso79332023,
-}
-
-impl Default for Model {
-    fn default() -> Self {
-        Model::Iso77302005
-    }
 }
 
 /// Calculate running mean outdoor temperature (prevailing mean)
@@ -115,11 +100,11 @@ impl Default for Model {
 /// # Arguments
 ///
 /// * `temp_array` - Array of daily mean temperatures in descending order
-///                  (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
+///   (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
 /// * `alpha` - Weighting constant between 0 and 1 (default: 0.8)
-///             - EN 16798-1 recommends 0.8
-///             - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
-///             - Use 0.9 for stable climates, 0.6 for variable climates
+///   - EN 16798-1 recommends 0.8
+///   - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
+///   - Use 0.9 for stable climates, 0.6 for variable climates
 ///
 /// # Returns
 ///
@@ -166,7 +151,7 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 /// # Arguments
 ///
 /// * `v` - Air speed measured by sensor (use `Speed::from_meters_per_second()` or similar)
-/// * `met` - Metabolic rate [met]
+/// * `met` - Metabolic rate (met)
 ///
 /// # Returns
 ///
@@ -187,6 +172,8 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 pub fn v_relative(v: Speed, met: f64) -> Speed {
     let v_ms = v.as_meters_per_second();
     let vr_ms = if met > 1.0 {
+        // Relative air speed accounts for increased air movement from body motion
+        // 0.3 m/s per met above 1.0 (ISO 7730 and ASHRAE 55)
         // Round to 3 decimal places
         round((v_ms + 0.3 * (met - 1.0)) * 1000.0) / 1000.0
     } else {
@@ -288,24 +275,18 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
     let log_ta_k = log(ta_k);
 
     let p_pa = if ta_k < C_TO_K {
-        exp(
-            C1 / ta_k
-                + C2
-                + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k)))
-                + C7 * log_ta_k,
-        )
+        exp(C1 / ta_k + C2 + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k))) + C7 * log_ta_k)
     } else {
-        exp(
-            C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k,
-        )
+        exp(C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k)
     };
     Pressure::from_pascals(p_pa)
 }
 
 /// Formula options for body surface area calculation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BsaFormula {
     /// DuBois formula (1916) - most widely used
+    #[default]
     DuBois,
     /// Takahira formula (1925)
     Takahira,
@@ -315,18 +296,12 @@ pub enum BsaFormula {
     Kurazumi,
 }
 
-impl Default for BsaFormula {
-    fn default() -> Self {
-        BsaFormula::DuBois
-    }
-}
-
-/// Calculate body surface area using DuBois formula [m²]
+/// Calculate body surface area using DuBois formula (m²)
 ///
 /// # Arguments
 ///
-/// * `weight` - Body weight [kg]
-/// * `height` - Body height [m]
+/// * `weight` - Body weight (kg)
+/// * `height` - Body height (m)
 ///
 /// # Returns
 ///
@@ -386,11 +361,15 @@ pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> A
 ///
 /// # Arguments
 ///
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
 /// Clothing area factor
+///
+/// # Source
+/// ISO 9920: f_cl = 1.0 + 0.28 * i_cl
+/// where 0.28 is the empirical coefficient relating clothing insulation to increased surface area
 #[inline]
 pub fn clo_area_factor(i_cl: f64) -> f64 {
     1.0 + 0.28 * i_cl
@@ -400,12 +379,18 @@ pub fn clo_area_factor(i_cl: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation [clo]
-/// * `met` - Metabolic rate [met]
+/// * `clo` - Static clothing insulation (clo)
+/// * `met` - Metabolic rate (met)
 ///
 /// # Returns
 ///
-/// Dynamic clothing insulation [clo]
+/// Dynamic clothing insulation (clo)
+///
+/// # Source
+/// ASHRAE 55: For met > 1.2, clo_dyn = clo * (0.6 + 0.4/met)
+/// - 1.2 met: threshold for walking/active movement
+/// - 0.6: base reduction factor
+/// - 0.4: adjustment factor (accounts for increased ventilation with activity)
 #[inline]
 pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
     if met > 1.2 {
@@ -425,11 +410,11 @@ pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
 ///
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation [clo] (typically 0.7)
+/// * `i_a_static` - Static boundary air layer insulation (clo) (typically 0.7)
 ///
 /// # Returns
 ///
-/// Boundary air layer insulation [clo]
+/// Boundary air layer insulation (clo)
 ///
 /// # Examples
 ///
@@ -449,36 +434,43 @@ pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: f64) -> f6
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr_ms - 0.15)
-        + 0.069 * pow(vr_ms - 0.15, 2.0)
-        - 0.462 * v_walk_ms
-        + 0.201 * pow(v_walk_ms, 2.0)
+        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
+            + 0.201 * pow(v_walk_ms, 2.0),
     ) * i_a_static
 }
 
 /// Correction factor for nude person - ISO 9920:2007
+///
+/// Empirical coefficients from ISO 9920:
+/// - -0.533: linear velocity coefficient
+/// - 0.15 m/s: reference air speed offset
+/// - 0.069: quadratic velocity coefficient
+/// - -0.462: linear walking speed coefficient
+/// - 0.201: quadratic walking speed coefficient
 #[inline]
 fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.533 * (vr_ms - 0.15)
-        + 0.069 * pow(vr_ms - 0.15, 2.0)
-        - 0.462 * v_walk_ms
-        + 0.201 * pow(v_walk_ms, 2.0)
+        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
+            + 0.201 * pow(v_walk_ms, 2.0),
     )
 }
 
 /// Correction factor for normal clothing - ISO 9920:2007
+///
+/// Empirical coefficients from ISO 9920 for clothed persons:
+/// - -0.281: linear velocity coefficient
+/// - 0.15 m/s: reference air speed offset
+/// - 0.044: quadratic velocity coefficient
+/// - -0.492: linear walking speed coefficient
 #[inline]
 fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
-        -0.281 * (vr_ms - 0.15)
-        + 0.044 * pow(vr_ms - 0.15, 2.0)
-        - 0.492 * v_walk_ms
-        + 0.176 * pow(v_walk_ms, 2.0)
+        -0.281 * (vr_ms - 0.15) + 0.044 * pow(vr_ms - 0.15, 2.0) - 0.492 * v_walk_ms
+            + 0.176 * pow(v_walk_ms, 2.0),
     )
 }
 
@@ -495,15 +487,15 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `i_t` - Total thermal insulation under static conditions [clo]
+/// * `i_t` - Total thermal insulation under static conditions (clo)
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation [clo]
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_a_static` - Static boundary air layer insulation (clo)
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
-/// Total insulation of clothing ensemble [clo]
+/// Total insulation of clothing ensemble (clo)
 ///
 /// # Examples
 ///
@@ -520,13 +512,7 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 /// );
 /// assert!(i_t_r > 0.0);
 /// ```
-pub fn clo_total_insulation(
-    i_t: f64,
-    vr: Speed,
-    v_walk: Speed,
-    i_a_static: f64,
-    i_cl: f64,
-) -> f64 {
+pub fn clo_total_insulation(i_t: f64, vr: Speed, v_walk: Speed, i_a_static: f64, i_cl: f64) -> f64 {
     // Calculate insulation for different clothing levels
     let nude_insulation = i_a_static * correction_nude(vr, v_walk);
     let normal_insulation = i_t * correction_normal_clothing(vr, v_walk);
@@ -550,14 +536,14 @@ pub fn clo_total_insulation(
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation [clo]
-/// * `met` - Metabolic rate [met]
+/// * `clo` - Static clothing insulation (clo)
+/// * `met` - Metabolic rate (met)
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a` - Thermal insulation of boundary air layer [clo] (typically 0.7)
+/// * `i_a` - Thermal insulation of boundary air layer (clo) (typically 0.7)
 ///
 /// # Returns
 ///
-/// Dynamic clothing insulation [clo]
+/// Dynamic clothing insulation (clo)
 ///
 /// # Examples
 ///
@@ -602,7 +588,7 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: Speed, i_a: f64) -> f64 {
 ///
 /// # Returns
 ///
-/// Representative clothing insulation [clo]
+/// Representative clothing insulation (clo)
 ///
 /// # Examples
 ///
@@ -650,7 +636,7 @@ pub fn clo_tout(tout: Temperature) -> f64 {
 ///
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_cl` - Intrinsic clothing insulation [clo]
+/// * `i_cl` - Intrinsic clothing insulation (clo)
 ///
 /// # Returns
 ///
@@ -695,11 +681,11 @@ pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: f64) ->
 ///
 /// # Arguments
 ///
-/// * `clo_garments` - Slice of clothing insulation values for each garment [clo]
+/// * `clo_garments` - Slice of clothing insulation values for each garment (clo)
 ///
 /// # Returns
 ///
-/// Total intrinsic insulation of ensemble [clo]
+/// Total intrinsic insulation of ensemble (clo)
 ///
 /// # Examples
 ///

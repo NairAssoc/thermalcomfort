@@ -4,22 +4,19 @@
 //! Python package across a wide range of inputs and edge cases.
 
 use approx::assert_abs_diff_eq;
+use measurements::{Humidity, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
-use thermalcomfort::models::{
-    pmv_ppd_iso, pmv_ppd_ashrae, pmv_a, pmv_e, pmv_athb,
-    two_nodes_gagge, set_tmp, cooling_effect, utci,
-    adaptive_ashrae, adaptive_en, wbgt,
-    heat_index_rothfusz, heat_index_lu, humidex, thi, discomfort_index,
-    at, net, esi, wci, wind_chill_temperature,
-    work_capacity_iso, work_capacity_niosh, work_capacity_dunne, work_capacity_hothaps,
-    ankle_draft, vertical_tmp_grad_ppd, solar_gain,
-    WorkIntensity,
-};
 use thermalcomfort::models::pmv::PmvPpdOptions;
-use thermalcomfort::psychrometrics::{psy_ta_rh, wet_bulb_temperature, dew_point_temperature};
-use thermalcomfort::utilities::{v_relative, clo_tout, Posture};
-use measurements::{Temperature, Speed, Humidity, Pressure};
+use thermalcomfort::models::{
+    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
+    esi, heat_index_lu, heat_index_rothfusz, humidex, net, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, set_tmp, solar_gain, thi, two_nodes_gagge, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
+};
+use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
+use thermalcomfort::utilities::{Posture, clo_tout, v_relative};
 
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
@@ -37,13 +34,17 @@ fn test_pmv_ppd_iso_standard_conditions() {
         ];
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
-            println!("\nTesting: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
-                     tdb, tr, vr, rh, met, clo);
+            println!(
+                "\nTesting: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
+                tdb, tr, vr, rh, met, clo
+            );
 
             // Call Python function
             let py_result = pythermal
-                .getattr("pmv_ppd_iso").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
@@ -56,11 +57,14 @@ fn test_pmv_ppd_iso_standard_conditions() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             println!("  Python - PMV: {:.2}, PPD: {:.1}", py_pmv, py_ppd);
-            println!("  Rust   - PMV: {:.2}, PPD: {:.1}", rust_result.pmv, rust_result.ppd);
+            println!(
+                "  Rust   - PMV: {:.2}, PPD: {:.1}",
+                rust_result.pmv, rust_result.ppd
+            );
 
             // Compare results (allow small floating point differences)
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
@@ -87,18 +91,24 @@ fn test_pmv_ppd_iso_extreme_conditions() {
             (22.0, 22.0, 0.2, 50.0, 3.0, 0.5),
         ];
 
-        let mut options = PmvPpdOptions::default();
-        options.limit_inputs = false;
+        let options = PmvPpdOptions {
+            limit_inputs: false,
+            ..Default::default()
+        };
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
-            println!("\nTesting extreme: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
-                     tdb, tr, vr, rh, met, clo);
+            println!(
+                "\nTesting extreme: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
+                tdb, tr, vr, rh, met, clo
+            );
 
             // Call Python with limit_inputs=False
             let kwargs = [("limit_inputs", false)].into_py_dict(py).unwrap();
             let py_result = pythermal
-                .getattr("pmv_ppd_iso").unwrap()
-                .call((tdb, tr, vr, rh, met, clo), Some(&kwargs)).unwrap();
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo), Some(&kwargs))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
@@ -111,11 +121,14 @@ fn test_pmv_ppd_iso_extreme_conditions() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                options
+                options,
             );
 
             println!("  Python - PMV: {:.2}, PPD: {:.1}", py_pmv, py_ppd);
-            println!("  Rust   - PMV: {:.2}, PPD: {:.1}", rust_result.pmv, rust_result.ppd);
+            println!(
+                "  Rust   - PMV: {:.2}, PPD: {:.1}",
+                rust_result.pmv, rust_result.ppd
+            );
 
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
@@ -139,13 +152,17 @@ fn test_pmv_ppd_ashrae() {
         ];
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
-            println!("\nTesting ASHRAE: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
-                     tdb, tr, vr, rh, met, clo);
+            println!(
+                "\nTesting ASHRAE: tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
+                tdb, tr, vr, rh, met, clo
+            );
 
             // Call Python function
             let py_result = pythermal
-                .getattr("pmv_ppd_ashrae").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+                .getattr("pmv_ppd_ashrae")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
@@ -158,11 +175,14 @@ fn test_pmv_ppd_ashrae() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             println!("  Python - PMV: {:.2}, PPD: {:.1}", py_pmv, py_ppd);
-            println!("  Rust   - PMV: {:.2}, PPD: {:.1}", rust_result.pmv, rust_result.ppd);
+            println!(
+                "  Rust   - PMV: {:.2}, PPD: {:.1}",
+                rust_result.pmv, rust_result.ppd
+            );
 
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
@@ -177,12 +197,12 @@ fn test_v_relative() {
             .expect("Failed to import pythermalcomfort.utilities");
 
         let test_cases = vec![
-            (0.1, 1.0),   // met <= 1.0, should return v
-            (0.1, 1.2),   // low activity
-            (0.1, 1.4),   // medium activity
-            (0.15, 2.0),  // high activity
-            (0.2, 3.0),   // very high activity
-            (0.5, 1.5),   // higher base velocity
+            (0.1, 1.0),  // met <= 1.0, should return v
+            (0.1, 1.2),  // low activity
+            (0.1, 1.4),  // medium activity
+            (0.15, 2.0), // high activity
+            (0.2, 3.0),  // very high activity
+            (0.5, 1.5),  // higher base velocity
         ];
 
         for (v, met) in test_cases {
@@ -190,9 +210,12 @@ fn test_v_relative() {
 
             // Call Python function
             let py_vr: f64 = pythermal_utils
-                .getattr("v_relative").unwrap()
-                .call1((v, met)).unwrap()
-                .extract().unwrap();
+                .getattr("v_relative")
+                .unwrap()
+                .call1((v, met))
+                .unwrap()
+                .extract()
+                .unwrap();
 
             // Call Rust function
             let rust_vr = v_relative(Speed::from_meters_per_second(v), met);
@@ -212,12 +235,12 @@ fn test_wet_bulb_temperature() {
             .expect("Failed to import pythermalcomfort.utilities");
 
         let test_cases = vec![
-            (25.0, 50.0),  // standard conditions
-            (20.0, 60.0),  // cool and humid
-            (30.0, 40.0),  // hot and dry
-            (15.0, 80.0),  // cold and humid
-            (28.0, 30.0),  // hot and dry
-            (10.0, 90.0),  // cold and very humid
+            (25.0, 50.0), // standard conditions
+            (20.0, 60.0), // cool and humid
+            (30.0, 40.0), // hot and dry
+            (15.0, 80.0), // cold and humid
+            (28.0, 30.0), // hot and dry
+            (10.0, 90.0), // cold and very humid
         ];
 
         for (tdb, rh) in test_cases {
@@ -225,15 +248,16 @@ fn test_wet_bulb_temperature() {
 
             // Call Python function
             let py_twb: f64 = pythermal_utils
-                .getattr("wet_bulb_tmp").unwrap()
-                .call1((tdb, rh)).unwrap()
-                .extract().unwrap();
+                .getattr("wet_bulb_tmp")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap()
+                .extract()
+                .unwrap();
 
             // Call Rust function
-            let rust_twb = wet_bulb_temperature(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh)
-            );
+            let rust_twb =
+                wet_bulb_temperature(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             println!("  Python: {:.2}°C", py_twb);
             println!("  Rust:   {:.2}°C", rust_twb.as_celsius());
@@ -262,15 +286,16 @@ fn test_dew_point_temperature() {
 
             // Call Python function
             let py_tdp: f64 = pythermal_utils
-                .getattr("dew_point_tmp").unwrap()
-                .call1((tdb, rh)).unwrap()
-                .extract().unwrap();
+                .getattr("dew_point_tmp")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap()
+                .extract()
+                .unwrap();
 
             // Call Rust function
-            let rust_tdp = dew_point_temperature(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh)
-            );
+            let rust_tdp =
+                dew_point_temperature(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             println!("  Python: {:.2}°C", py_tdp);
             println!("  Rust:   {:.2}°C", rust_tdp.as_celsius());
@@ -294,32 +319,61 @@ fn test_psychrometrics() {
         ];
 
         for (tdb, rh, p_atm) in test_cases {
-            println!("\nTesting psychrometrics: tdb={}, rh={}, p_atm={}", tdb, rh, p_atm);
+            println!(
+                "\nTesting psychrometrics: tdb={}, rh={}, p_atm={}",
+                tdb, rh, p_atm
+            );
 
             // Call Python function
             let py_result = pythermal_utils
-                .getattr("psy_ta_rh").unwrap()
-                .call1((tdb, rh, p_atm)).unwrap();
+                .getattr("psy_ta_rh")
+                .unwrap()
+                .call1((tdb, rh, p_atm))
+                .unwrap();
 
             let py_p_sat: f64 = py_result.getattr("p_sat").unwrap().extract().unwrap();
             let py_p_vap: f64 = py_result.getattr("p_vap").unwrap().extract().unwrap();
             let py_hr: f64 = py_result.getattr("hr").unwrap().extract().unwrap();
-            let py_twb: f64 = py_result.getattr("wet_bulb_tmp").unwrap().extract().unwrap();
-            let py_tdp: f64 = py_result.getattr("dew_point_tmp").unwrap().extract().unwrap();
+            let py_twb: f64 = py_result
+                .getattr("wet_bulb_tmp")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_tdp: f64 = py_result
+                .getattr("dew_point_tmp")
+                .unwrap()
+                .extract()
+                .unwrap();
             let py_h: f64 = py_result.getattr("h").unwrap().extract().unwrap();
 
             // Call Rust function
             let rust_result = psy_ta_rh(
                 Temperature::from_celsius(tdb),
                 Humidity::from_percent(rh),
-                Pressure::from_pascals(p_atm)
+                Pressure::from_pascals(p_atm),
             );
 
-            println!("  p_sat: Python={:.1}, Rust={:.1}", py_p_sat, rust_result.p_sat.as_pascals());
-            println!("  p_vap: Python={:.1}, Rust={:.1}", py_p_vap, rust_result.p_vap.as_pascals());
+            println!(
+                "  p_sat: Python={:.1}, Rust={:.1}",
+                py_p_sat,
+                rust_result.p_sat.as_pascals()
+            );
+            println!(
+                "  p_vap: Python={:.1}, Rust={:.1}",
+                py_p_vap,
+                rust_result.p_vap.as_pascals()
+            );
             println!("  hr: Python={:.5}, Rust={:.5}", py_hr, rust_result.hr);
-            println!("  t_wb: Python={:.2}, Rust={:.2}", py_twb, rust_result.t_wb.as_celsius());
-            println!("  t_dp: Python={:.2}, Rust={:.2}", py_tdp, rust_result.t_dp.as_celsius());
+            println!(
+                "  t_wb: Python={:.2}, Rust={:.2}",
+                py_twb,
+                rust_result.t_wb.as_celsius()
+            );
+            println!(
+                "  t_dp: Python={:.2}, Rust={:.2}",
+                py_tdp,
+                rust_result.t_dp.as_celsius()
+            );
             println!("  h: Python={:.1}, Rust={:.1}", py_h, rust_result.h);
 
             assert_abs_diff_eq!(rust_result.p_sat.as_pascals(), py_p_sat, epsilon = 1.0);
@@ -351,13 +405,17 @@ fn test_pmv_ppd_iso_outside_limits() {
         ];
 
         for (tdb, tr, vr, rh, met, clo, description) in test_cases {
-            println!("\nTesting outside limits ({}): tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
-                     description, tdb, tr, vr, rh, met, clo);
+            println!(
+                "\nTesting outside limits ({}): tdb={}, tr={}, vr={}, rh={}, met={}, clo={}",
+                description, tdb, tr, vr, rh, met, clo
+            );
 
             // Call Python function with limit_inputs=True (default)
             let py_result = pythermal
-                .getattr("pmv_ppd_iso").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
 
@@ -369,15 +427,19 @@ fn test_pmv_ppd_iso_outside_limits() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             println!("  Python PMV is NaN: {}", py_pmv.is_nan());
             println!("  Rust PMV is NaN: {}", rust_result.pmv.is_nan());
 
             // Both should return NaN
-            assert_eq!(py_pmv.is_nan(), rust_result.pmv.is_nan(),
-                "Mismatch in NaN behavior for {}", description);
+            assert_eq!(
+                py_pmv.is_nan(),
+                rust_result.pmv.is_nan(),
+                "Mismatch in NaN behavior for {}",
+                description
+            );
         }
     });
 }
@@ -400,8 +462,10 @@ fn test_pmv_sequential_scenarios() {
 
         for (tdb, tr, vr, rh, met, clo) in scenarios {
             let py_result = pythermal
-                .getattr("pmv_ppd_iso").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let rust_result = pmv_ppd_iso(
@@ -411,7 +475,7 @@ fn test_pmv_sequential_scenarios() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
@@ -434,13 +498,17 @@ fn test_compare_two_nodes_gagge() {
         ];
 
         for (tdb, tr, v, rh, met, clo) in test_cases {
-            println!("\nTesting two_nodes_gagge: tdb={}, tr={}, v={}, rh={}, met={}, clo={}",
-                     tdb, tr, v, rh, met, clo);
+            println!(
+                "\nTesting two_nodes_gagge: tdb={}, tr={}, v={}, rh={}, met={}, clo={}",
+                tdb, tr, v, rh, met, clo
+            );
 
             // Call Python function
             let py_result = pythermal
-                .getattr("two_nodes_gagge").unwrap()
-                .call1((tdb, tr, v, rh, met, clo)).unwrap();
+                .getattr("two_nodes_gagge")
+                .unwrap()
+                .call1((tdb, tr, v, rh, met, clo))
+                .unwrap();
 
             let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
             let py_t_skin: f64 = py_result.getattr("t_skin").unwrap().extract().unwrap();
@@ -455,13 +523,17 @@ fn test_compare_two_nodes_gagge() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
-            println!("  Python - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
-                     py_set, py_t_skin, py_t_core, py_w);
-            println!("  Rust   - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
-                     rust_result.set, rust_result.t_skin, rust_result.t_core, rust_result.w);
+            println!(
+                "  Python - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
+                py_set, py_t_skin, py_t_core, py_w
+            );
+            println!(
+                "  Rust   - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
+                rust_result.set, rust_result.t_skin, rust_result.t_core, rust_result.w
+            );
 
             // Compare results (allow small floating point differences)
             // Note: Two-node model has iterative simulation, so small differences expected
@@ -491,8 +563,10 @@ fn test_compare_utci() {
         for (tdb, tr, v, rh) in test_cases {
             // Call Python function
             let py_result = pythermal
-                .getattr("utci").unwrap()
-                .call1((tdb, tr, v, rh)).unwrap();
+                .getattr("utci")
+                .unwrap()
+                .call1((tdb, tr, v, rh))
+                .unwrap();
 
             let py_utci: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
 
@@ -502,7 +576,7 @@ fn test_compare_utci() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                Default::default()
+                Default::default(),
             );
 
             // Compare results (UTCI polynomial should match very closely)
@@ -525,8 +599,10 @@ fn test_compare_pmv_a() {
 
         for (tdb, tr, vr, rh, met, clo, a_coeff) in test_cases {
             let py_result = pythermal
-                .getattr("pmv_a").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo, a_coeff)).unwrap();
+                .getattr("pmv_a")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo, a_coeff))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("a_pmv").unwrap().extract().unwrap();
 
@@ -538,7 +614,7 @@ fn test_compare_pmv_a() {
                 met,
                 clo,
                 a_coeff,
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.02);
@@ -560,8 +636,10 @@ fn test_compare_pmv_e() {
 
         for (tdb, tr, vr, rh, met, clo, e_coeff) in test_cases {
             let py_result = pythermal
-                .getattr("pmv_e").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo, e_coeff)).unwrap();
+                .getattr("pmv_e")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo, e_coeff))
+                .unwrap();
 
             let py_pmv: f64 = py_result.getattr("e_pmv").unwrap().extract().unwrap();
 
@@ -573,7 +651,7 @@ fn test_compare_pmv_e() {
                 met,
                 clo,
                 e_coeff,
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.02);
@@ -594,8 +672,10 @@ fn test_compare_pmv_athb() {
 
         for (tdb, tr, vr, rh, met, clo, t_rm) in test_cases {
             let py_result = pythermal
-                .getattr("pmv_athb").unwrap()
-                .call1((tdb, tr, vr, rh, met, t_rm, clo)).unwrap();  // Note: Python signature is (tdb, tr, vr, rh, met, t_running_mean, clo)
+                .getattr("pmv_athb")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, t_rm, clo))
+                .unwrap(); // Note: Python signature is (tdb, tr, vr, rh, met, t_running_mean, clo)
 
             let py_pmv: f64 = py_result.getattr("athb_pmv").unwrap().extract().unwrap();
 
@@ -606,7 +686,7 @@ fn test_compare_pmv_athb() {
                 Humidity::from_percent(rh),
                 met,
                 Some(clo),
-                Temperature::from_celsius(t_rm)
+                Temperature::from_celsius(t_rm),
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.05);
@@ -628,8 +708,10 @@ fn test_compare_set_tmp() {
 
         for (tdb, tr, v, rh, met, clo) in test_cases {
             let py_result = pythermal
-                .getattr("set_tmp").unwrap()
-                .call1((tdb, tr, v, rh, met, clo)).unwrap();
+                .getattr("set_tmp")
+                .unwrap()
+                .call1((tdb, tr, v, rh, met, clo))
+                .unwrap();
 
             let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
 
@@ -640,7 +722,7 @@ fn test_compare_set_tmp() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_set, epsilon = 1.5);
@@ -661,8 +743,10 @@ fn test_compare_cooling_effect() {
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
             let py_result = pythermal
-                .getattr("cooling_effect").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+                .getattr("cooling_effect")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
 
             let py_ce: f64 = py_result.getattr("ce").unwrap().extract().unwrap();
 
@@ -673,7 +757,7 @@ fn test_compare_cooling_effect() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_ce, epsilon = 0.15);
@@ -695,8 +779,10 @@ fn test_compare_adaptive_ashrae() {
 
         for (tdb, tr, v, t_running_mean) in test_cases {
             let py_result = pythermal
-                .getattr("adaptive_ashrae").unwrap()
-                .call1((tdb, tr, t_running_mean, v)).unwrap();
+                .getattr("adaptive_ashrae")
+                .unwrap()
+                .call1((tdb, tr, t_running_mean, v))
+                .unwrap();
 
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
 
@@ -705,7 +791,7 @@ fn test_compare_adaptive_ashrae() {
                 Temperature::from_celsius(tr),
                 Temperature::from_celsius(t_running_mean),
                 Speed::from_meters_per_second(v),
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 0.1);
@@ -719,15 +805,14 @@ fn test_compare_adaptive_en() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 25.0, 0.1, 20.0),
-            (28.0, 28.0, 0.3, 25.0),
-        ];
+        let test_cases = vec![(25.0, 25.0, 0.1, 20.0), (28.0, 28.0, 0.3, 25.0)];
 
         for (tdb, tr, v, t_running_mean) in test_cases {
             let py_result = pythermal
-                .getattr("adaptive_en").unwrap()
-                .call1((tdb, tr, t_running_mean, v)).unwrap();
+                .getattr("adaptive_en")
+                .unwrap()
+                .call1((tdb, tr, t_running_mean, v))
+                .unwrap();
 
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
 
@@ -736,7 +821,7 @@ fn test_compare_adaptive_en() {
                 Temperature::from_celsius(tr),
                 Temperature::from_celsius(t_running_mean),
                 Speed::from_meters_per_second(v),
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 0.15);
@@ -750,15 +835,14 @@ fn test_compare_wbgt() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (30.0, 25.0, 35.0),
-            (28.0, 24.0, 32.0),
-        ];
+        let test_cases = vec![(30.0, 25.0, 35.0), (28.0, 24.0, 32.0)];
 
         for (twb, tg, tdb) in test_cases {
             let py_result = pythermal
-                .getattr("wbgt").unwrap()
-                .call1((twb, tg, tdb)).unwrap();
+                .getattr("wbgt")
+                .unwrap()
+                .call1((twb, tg, tdb))
+                .unwrap();
 
             let py_wbgt: f64 = py_result.getattr("wbgt").unwrap().extract().unwrap();
 
@@ -766,7 +850,7 @@ fn test_compare_wbgt() {
                 Temperature::from_celsius(twb),
                 Temperature::from_celsius(tg),
                 Some(Temperature::from_celsius(tdb)),
-                Default::default()
+                Default::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_wbgt, epsilon = 0.1);
@@ -780,16 +864,14 @@ fn test_compare_heat_index_rothfusz() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (30.0, 50.0),
-            (35.0, 60.0),
-            (28.0, 70.0),
-        ];
+        let test_cases = vec![(30.0, 50.0), (35.0, 60.0), (28.0, 70.0)];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
-                .getattr("heat_index_rothfusz").unwrap()
-                .call1((tdb, rh)).unwrap();
+                .getattr("heat_index_rothfusz")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap();
 
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
@@ -797,7 +879,7 @@ fn test_compare_heat_index_rothfusz() {
                 Temperature::from_celsius(tdb),
                 Humidity::from_percent(rh),
                 true,
-                true
+                true,
             );
 
             assert_abs_diff_eq!(rust_result, py_hi, epsilon = 0.5);
@@ -811,20 +893,19 @@ fn test_compare_heat_index_lu() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 50.0),
-            (30.0, 60.0),
-            (28.0, 55.0),
-        ];
+        let test_cases = vec![(25.0, 50.0), (30.0, 60.0), (28.0, 55.0)];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
-                .getattr("heat_index_lu").unwrap()
-                .call1((tdb, rh)).unwrap();
+                .getattr("heat_index_lu")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap();
 
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
-            let rust_result = heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+            let rust_result =
+                heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             // Lu model uses iterative solver, allow larger tolerance
             assert_abs_diff_eq!(rust_result, py_hi, epsilon = 1.0);
@@ -838,19 +919,22 @@ fn test_compare_humidex() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 50.0),
-            (30.0, 60.0),
-        ];
+        let test_cases = vec![(25.0, 50.0), (30.0, 60.0)];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
-                .getattr("humidex").unwrap()
-                .call1((tdb, rh)).unwrap();
+                .getattr("humidex")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap();
 
             let py_humidex: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
 
-            let rust_result = humidex(Temperature::from_celsius(tdb), Humidity::from_percent(rh), true);
+            let rust_result = humidex(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                true,
+            );
 
             assert_abs_diff_eq!(rust_result, py_humidex, epsilon = 0.1);
         }
@@ -863,19 +947,18 @@ fn test_compare_thi() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 50.0),
-            (28.0, 60.0),
-        ];
+        let test_cases = vec![(25.0, 50.0), (28.0, 60.0)];
 
         for (tdb, rh) in test_cases {
-            let py_result = pythermal
-                .getattr("thi").unwrap()
-                .call1((tdb, rh)).unwrap();
+            let py_result = pythermal.getattr("thi").unwrap().call1((tdb, rh)).unwrap();
 
             let py_thi: f64 = py_result.getattr("thi").unwrap().extract().unwrap();
 
-            let rust_result = thi(Temperature::from_celsius(tdb), Humidity::from_percent(rh), true);
+            let rust_result = thi(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                true,
+            );
 
             assert_abs_diff_eq!(rust_result, py_thi, epsilon = 0.1);
         }
@@ -888,19 +971,19 @@ fn test_compare_discomfort_index() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 50.0),
-            (28.0, 60.0),
-        ];
+        let test_cases = vec![(25.0, 50.0), (28.0, 60.0)];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
-                .getattr("discomfort_index").unwrap()
-                .call1((tdb, rh)).unwrap();
+                .getattr("discomfort_index")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap();
 
             let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
 
-            let rust_result = discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+            let rust_result =
+                discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             assert_abs_diff_eq!(rust_result, py_di, epsilon = 0.1);
         }
@@ -913,15 +996,14 @@ fn test_compare_at() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 25.0, 1.0, 50.0),
-            (30.0, 30.0, 0.5, 60.0),
-        ];
+        let test_cases = vec![(25.0, 25.0, 1.0, 50.0), (30.0, 30.0, 0.5, 60.0)];
 
         for (tdb, _tr, v, rh) in test_cases {
             let py_result = pythermal
-                .getattr("at").unwrap()
-                .call1((tdb, rh, v)).unwrap();  // Python signature is at(tdb, rh, v)
+                .getattr("at")
+                .unwrap()
+                .call1((tdb, rh, v))
+                .unwrap(); // Python signature is at(tdb, rh, v)
 
             let py_at: f64 = py_result.getattr("at").unwrap().extract().unwrap();
 
@@ -930,7 +1012,7 @@ fn test_compare_at() {
                 Humidity::from_percent(rh),
                 Speed::from_meters_per_second(v),
                 None,
-                true
+                true,
             );
 
             assert_abs_diff_eq!(rust_result, py_at, epsilon = 0.2);
@@ -944,15 +1026,14 @@ fn test_compare_net() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 25.0, 1.0, 50.0),
-            (30.0, 30.0, 0.5, 60.0),
-        ];
+        let test_cases = vec![(25.0, 25.0, 1.0, 50.0), (30.0, 30.0, 0.5, 60.0)];
 
         for (tdb, _tr, v, rh) in test_cases {
             let py_result = pythermal
-                .getattr("net").unwrap()
-                .call1((tdb, rh, v)).unwrap();
+                .getattr("net")
+                .unwrap()
+                .call1((tdb, rh, v))
+                .unwrap();
 
             let py_net: f64 = py_result.getattr("net").unwrap().extract().unwrap();
 
@@ -960,7 +1041,7 @@ fn test_compare_net() {
                 Temperature::from_celsius(tdb),
                 Humidity::from_percent(rh),
                 Speed::from_meters_per_second(v),
-                true
+                true,
             );
 
             assert_abs_diff_eq!(rust_result, py_net, epsilon = 0.2);
@@ -974,19 +1055,23 @@ fn test_compare_esi() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 50.0),
-            (28.0, 60.0),
-        ];
+        let test_cases = vec![(25.0, 50.0), (28.0, 60.0)];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
-                .getattr("esi").unwrap()
-                .call1((tdb, rh, 0.0)).unwrap();
+                .getattr("esi")
+                .unwrap()
+                .call1((tdb, rh, 0.0))
+                .unwrap();
 
             let py_esi: f64 = py_result.getattr("esi").unwrap().extract().unwrap();
 
-            let rust_result = esi(Temperature::from_celsius(tdb), Humidity::from_percent(rh), 0.0, true);
+            let rust_result = esi(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                0.0,
+                true,
+            );
 
             assert_abs_diff_eq!(rust_result, py_esi, epsilon = 0.5);
         }
@@ -999,23 +1084,17 @@ fn test_compare_wci() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (5.0, 5.0),
-            (-10.0, 10.0),
-            (0.0, 8.0),
-        ];
+        let test_cases = vec![(5.0, 5.0), (-10.0, 10.0), (0.0, 8.0)];
 
         for (tdb, v) in test_cases {
-            let py_result = pythermal
-                .getattr("wci").unwrap()
-                .call1((tdb, v)).unwrap();
+            let py_result = pythermal.getattr("wci").unwrap().call1((tdb, v)).unwrap();
 
             let py_wci: f64 = py_result.getattr("wci").unwrap().extract().unwrap();
 
             let rust_result = wci(
                 Temperature::from_celsius(tdb),
                 Speed::from_meters_per_second(v),
-                true
+                true,
             );
 
             assert_abs_diff_eq!(rust_result, py_wci, epsilon = 10.0);
@@ -1029,23 +1108,21 @@ fn test_compare_wind_chill_temperature() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (5.0, 10.0),
-            (-10.0, 15.0),
-            (0.0, 20.0),
-        ];
+        let test_cases = vec![(5.0, 10.0), (-10.0, 15.0), (0.0, 20.0)];
 
         for (tdb, v) in test_cases {
             let py_result = pythermal
-                .getattr("wind_chill_temperature").unwrap()
-                .call1((tdb, v)).unwrap();
+                .getattr("wind_chill_temperature")
+                .unwrap()
+                .call1((tdb, v))
+                .unwrap();
 
             let py_wct: f64 = py_result.getattr("wct").unwrap().extract().unwrap();
 
             let rust_result = wind_chill_temperature(
                 Temperature::from_celsius(tdb),
-                Speed::from_kilometers_per_hour(v),  // Python expects km/h
-                true
+                Speed::from_kilometers_per_hour(v), // Python expects km/h
+                true,
             );
 
             assert_abs_diff_eq!(rust_result, py_wct, epsilon = 0.5);
@@ -1059,16 +1136,14 @@ fn test_compare_work_capacity_iso() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 300.0),
-            (30.0, 350.0),
-            (35.0, 400.0),
-        ];
+        let test_cases = vec![(25.0, 300.0), (30.0, 350.0), (35.0, 400.0)];
 
         for (wbgt, met) in test_cases {
             let py_result = pythermal
-                .getattr("work_capacity_iso").unwrap()
-                .call1((wbgt, met)).unwrap();
+                .getattr("work_capacity_iso")
+                .unwrap()
+                .call1((wbgt, met))
+                .unwrap();
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
@@ -1085,15 +1160,14 @@ fn test_compare_work_capacity_niosh() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, 300.0),
-            (30.0, 350.0),
-        ];
+        let test_cases = vec![(25.0, 300.0), (30.0, 350.0)];
 
         for (wbgt, met) in test_cases {
             let py_result = pythermal
-                .getattr("work_capacity_niosh").unwrap()
-                .call1((wbgt, met)).unwrap();
+                .getattr("work_capacity_niosh")
+                .unwrap()
+                .call1((wbgt, met))
+                .unwrap();
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
@@ -1110,16 +1184,14 @@ fn test_compare_work_capacity_dunne() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, "Heavy"),
-            (30.0, "Moderate"),
-            (28.0, "Light"),
-        ];
+        let test_cases = vec![(25.0, "Heavy"), (30.0, "Moderate"), (28.0, "Light")];
 
         for (wbgt, intensity_str) in test_cases {
             let py_result = pythermal
-                .getattr("work_capacity_dunne").unwrap()
-                .call1((wbgt, intensity_str)).unwrap();
+                .getattr("work_capacity_dunne")
+                .unwrap()
+                .call1((wbgt, intensity_str))
+                .unwrap();
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
@@ -1143,15 +1215,14 @@ fn test_compare_work_capacity_hothaps() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            (25.0, "Heavy"),
-            (30.0, "Moderate"),
-        ];
+        let test_cases = vec![(25.0, "Heavy"), (30.0, "Moderate")];
 
         for (wbgt, intensity_str) in test_cases {
             let py_result = pythermal
-                .getattr("work_capacity_hothaps").unwrap()
-                .call1((wbgt, intensity_str)).unwrap();
+                .getattr("work_capacity_hothaps")
+                .unwrap()
+                .call1((wbgt, intensity_str))
+                .unwrap();
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
@@ -1176,14 +1247,16 @@ fn test_compare_ankle_draft() {
             .expect("Failed to import pythermalcomfort.models");
 
         let test_cases = vec![
-            (25.0, 25.0, 0.1, 50.0, 1.2, 0.5, 0.15),  // v_ankle must be < 0.2 m/s
+            (25.0, 25.0, 0.1, 50.0, 1.2, 0.5, 0.15), // v_ankle must be < 0.2 m/s
             (23.0, 23.0, 0.1, 45.0, 1.1, 0.7, 0.18),
         ];
 
         for (tdb, tr, vr, rh, met, clo, v_ankle) in test_cases {
             let py_result = pythermal
-                .getattr("ankle_draft").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo, v_ankle)).unwrap();
+                .getattr("ankle_draft")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo, v_ankle))
+                .unwrap();
 
             let py_ppd: f64 = py_result.getattr("ppd_ad").unwrap().extract().unwrap();
 
@@ -1194,7 +1267,7 @@ fn test_compare_ankle_draft() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                Speed::from_meters_per_second(v_ankle)
+                Speed::from_meters_per_second(v_ankle),
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -1215,8 +1288,10 @@ fn test_compare_vertical_tmp_grad_ppd() {
 
         for (tdb, tr, vr, rh, met, clo, grad) in test_cases {
             let py_result = pythermal
-                .getattr("vertical_tmp_grad_ppd").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo, grad)).unwrap();
+                .getattr("vertical_tmp_grad_ppd")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo, grad))
+                .unwrap();
 
             let py_ppd: f64 = py_result.getattr("ppd_vg").unwrap().extract().unwrap();
 
@@ -1227,7 +1302,7 @@ fn test_compare_vertical_tmp_grad_ppd() {
                 Humidity::from_percent(rh),
                 met,
                 clo,
-                grad
+                grad,
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -1246,10 +1321,24 @@ fn test_compare_solar_gain() {
             (45.0, 90.0, 600.0, 0.7, 0.6, 0.7, 0.7, "standing", 0.6),
         ];
 
-        for (alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture_str, floor_refl) in test_cases {
+        for (alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture_str, floor_refl) in
+            test_cases
+        {
             let py_result = pythermal
-                .getattr("solar_gain").unwrap()
-                .call1((alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture_str, floor_refl)).unwrap();
+                .getattr("solar_gain")
+                .unwrap()
+                .call1((
+                    alt,
+                    sharp,
+                    sol_rad,
+                    sol_trans,
+                    f_svv_val,
+                    f_bes,
+                    asw,
+                    posture_str,
+                    floor_refl,
+                ))
+                .unwrap();
 
             let py_erf: f64 = py_result.getattr("erf").unwrap().extract().unwrap();
 
@@ -1259,7 +1348,9 @@ fn test_compare_solar_gain() {
                 _ => Posture::Standing,
             };
 
-            let rust_result = solar_gain(alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture, floor_refl);
+            let rust_result = solar_gain(
+                alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture, floor_refl,
+            );
 
             assert_abs_diff_eq!(rust_result.erf, py_erf, epsilon = 1.0);
         }
@@ -1272,18 +1363,14 @@ fn test_compare_clo_tout() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![
-            27.0,
-            25.0,
-            10.0,
-            -10.0,
-            30.0,
-        ];
+        let test_cases = vec![27.0, 25.0, 10.0, -10.0, 30.0];
 
         for tout in test_cases {
             let py_result = pythermal
-                .getattr("clo_tout").unwrap()
-                .call1((tout,)).unwrap();
+                .getattr("clo_tout")
+                .unwrap()
+                .call1((tout,))
+                .unwrap();
 
             let py_clo: f64 = py_result.getattr("clo_tout").unwrap().extract().unwrap();
 
@@ -1307,20 +1394,22 @@ fn test_readme_example_basic_pmv_ppd() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Example from README: Basic PMV/PPD Calculation
-        let tdb = 25.0;  // dry bulb temperature [°C]
-        let tr = 25.0;   // mean radiant temperature [°C]
-        let rh = 50.0;   // relative humidity [%]
-        let v = 0.1;     // air speed [m/s]
-        let met = 1.4;   // metabolic rate [met]
-        let clo = 0.5;   // clothing insulation [clo]
+        let tdb = 25.0; // dry bulb temperature [°C]
+        let tr = 25.0; // mean radiant temperature [°C]
+        let rh = 50.0; // relative humidity [%]
+        let v = 0.1; // air speed [m/s]
+        let met = 1.4; // metabolic rate [met]
+        let clo = 0.5; // clothing insulation [clo]
 
         // Calculate relative air speed (accounts for body movement)
         let vr = v_relative(Speed::from_meters_per_second(v), met);
 
         // Python calculation
         let py_result = pythermal
-            .getattr("pmv_ppd_iso").unwrap()
-            .call1((tdb, tr, vr.as_meters_per_second(), rh, met, clo)).unwrap();
+            .getattr("pmv_ppd_iso")
+            .unwrap()
+            .call1((tdb, tr, vr.as_meters_per_second(), rh, met, clo))
+            .unwrap();
         let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
         let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
 
@@ -1332,7 +1421,7 @@ fn test_readme_example_basic_pmv_ppd() {
             Humidity::from_percent(rh),
             met,
             clo,
-            Default::default()
+            Default::default(),
         );
 
         // Verify results match README comments: PMV ~0.17, PPD ~5.6%
@@ -1352,22 +1441,32 @@ fn test_readme_example_psychrometric() {
             .expect("Failed to import pythermalcomfort.utilities");
 
         // Example from README: Psychrometric Calculations
-        let tdb = 25.0;  // dry bulb temperature [°C]
-        let rh = 50.0;   // relative humidity [%]
-        let p_atm = 101325.0;  // atmospheric pressure [Pa]
+        let tdb = 25.0; // dry bulb temperature [°C]
+        let rh = 50.0; // relative humidity [%]
+        let p_atm = 101325.0; // atmospheric pressure [Pa]
 
         // Python calculation
         let py_result = pyutil
-            .getattr("psy_ta_rh").unwrap()
-            .call1((tdb, rh, p_atm)).unwrap();
-        let py_t_wb: f64 = py_result.getattr("wet_bulb_tmp").unwrap().extract().unwrap();
-        let py_t_dp: f64 = py_result.getattr("dew_point_tmp").unwrap().extract().unwrap();
+            .getattr("psy_ta_rh")
+            .unwrap()
+            .call1((tdb, rh, p_atm))
+            .unwrap();
+        let py_t_wb: f64 = py_result
+            .getattr("wet_bulb_tmp")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let py_t_dp: f64 = py_result
+            .getattr("dew_point_tmp")
+            .unwrap()
+            .extract()
+            .unwrap();
 
         // Rust calculation
         let psychro = psy_ta_rh(
             Temperature::from_celsius(tdb),
             Humidity::from_percent(rh),
-            Pressure::from_pascals(p_atm)
+            Pressure::from_pascals(p_atm),
         );
 
         // Verify results match
@@ -1375,8 +1474,14 @@ fn test_readme_example_psychrometric() {
         assert_abs_diff_eq!(psychro.t_dp.as_celsius(), py_t_dp, epsilon = 0.1);
 
         // Check that results are close to documented values
-        assert!((psychro.t_wb.as_celsius() - 17.7).abs() < 0.5, "Wet bulb temp should be ~17.7°C");
-        assert!((psychro.t_dp.as_celsius() - 13.9).abs() < 0.5, "Dew point should be ~13.9°C");
+        assert!(
+            (psychro.t_wb.as_celsius() - 17.7).abs() < 0.5,
+            "Wet bulb temp should be ~17.7°C"
+        );
+        assert!(
+            (psychro.t_dp.as_celsius() - 13.9).abs() < 0.5,
+            "Dew point should be ~13.9°C"
+        );
     });
 }
 
@@ -1388,19 +1493,18 @@ fn test_readme_example_custom_pmv_options() {
 
         // Example from README: Custom PMV/PPD Options
         let options = PmvPpdOptions {
-            wme: 0.0,              // external work [met]
-            limit_inputs: false,   // don't limit to standard ranges
-            round_output: true,    // round output values
+            wme: 0.0,            // external work [met]
+            limit_inputs: false, // don't limit to standard ranges
+            round_output: true,  // round output values
         };
 
         // Python calculation with same options
         let kwargs = [("limit_inputs", false)].into_py_dict(py).unwrap();
         let py_result = pythermal
-            .getattr("pmv_ppd_iso").unwrap()
-            .call(
-                (30.0, 30.0, 0.1, 50.0, 1.2, 0.5),
-                Some(&kwargs)
-            ).unwrap();
+            .getattr("pmv_ppd_iso")
+            .unwrap()
+            .call((30.0, 30.0, 0.1, 50.0, 1.2, 0.5), Some(&kwargs))
+            .unwrap();
         let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
 
         // Rust calculation with measurement types
@@ -1411,7 +1515,7 @@ fn test_readme_example_custom_pmv_options() {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            options
+            options,
         );
 
         assert_abs_diff_eq!(result.pmv, py_pmv, epsilon = 0.02);
@@ -1425,17 +1529,19 @@ fn test_readme_example_set() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Example from README: Standard Effective Temperature (SET)
-        let tdb = 25.0;  // dry bulb temperature [°C]
-        let tr = 25.0;   // mean radiant temperature [°C]
-        let v = 0.3;     // air speed [m/s]
-        let rh = 50.0;   // relative humidity [%]
-        let met = 1.2;   // metabolic rate [met]
-        let clo = 0.5;   // clothing insulation [clo]
+        let tdb = 25.0; // dry bulb temperature [°C]
+        let tr = 25.0; // mean radiant temperature [°C]
+        let v = 0.3; // air speed [m/s]
+        let rh = 50.0; // relative humidity [%]
+        let met = 1.2; // metabolic rate [met]
+        let clo = 0.5; // clothing insulation [clo]
 
         // Python calculation
         let py_result = pythermal
-            .getattr("set_tmp").unwrap()
-            .call1((tdb, tr, v, rh, met, clo)).unwrap();
+            .getattr("set_tmp")
+            .unwrap()
+            .call1((tdb, tr, v, rh, met, clo))
+            .unwrap();
         let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
 
         // Rust calculation with measurement types
@@ -1446,7 +1552,7 @@ fn test_readme_example_set() {
             Humidity::from_percent(rh),
             met,
             clo,
-            Default::default()
+            Default::default(),
         );
 
         // SET has some numerical differences due to iterative solvers
@@ -1461,17 +1567,19 @@ fn test_readme_example_cooling_effect() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Example from README: Cooling Effect
-        let tdb = 28.0;  // dry bulb temperature [°C]
-        let tr = 28.0;   // mean radiant temperature [°C]
-        let vr = 0.8;    // relative air speed [m/s]
-        let rh = 50.0;   // relative humidity [%]
-        let met = 1.2;   // metabolic rate [met]
-        let clo = 0.5;   // clothing insulation [clo]
+        let tdb = 28.0; // dry bulb temperature [°C]
+        let tr = 28.0; // mean radiant temperature [°C]
+        let vr = 0.8; // relative air speed [m/s]
+        let rh = 50.0; // relative humidity [%]
+        let met = 1.2; // metabolic rate [met]
+        let clo = 0.5; // clothing insulation [clo]
 
         // Python calculation
         let py_result = pythermal
-            .getattr("cooling_effect").unwrap()
-            .call1((tdb, tr, vr, rh, met, clo)).unwrap();
+            .getattr("cooling_effect")
+            .unwrap()
+            .call1((tdb, tr, vr, rh, met, clo))
+            .unwrap();
         let py_ce: f64 = py_result.getattr("ce").unwrap().extract().unwrap();
 
         // Rust calculation with measurement types
@@ -1482,7 +1590,7 @@ fn test_readme_example_cooling_effect() {
             Humidity::from_percent(rh),
             met,
             clo,
-            Default::default()
+            Default::default(),
         );
 
         assert_abs_diff_eq!(ce, py_ce, epsilon = 0.15);
@@ -1496,17 +1604,23 @@ fn test_readme_example_utci() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Example from README: UTCI (Universal Thermal Climate Index)
-        let tdb = 25.0;  // dry bulb temperature [°C]
-        let tr = 27.0;   // mean radiant temperature [°C]
-        let v = 1.0;     // wind speed at 10m [m/s]
-        let rh = 50.0;   // relative humidity [%]
+        let tdb = 25.0; // dry bulb temperature [°C]
+        let tr = 27.0; // mean radiant temperature [°C]
+        let v = 1.0; // wind speed at 10m [m/s]
+        let rh = 50.0; // relative humidity [%]
 
         // Python calculation
         let py_result = pythermal
-            .getattr("utci").unwrap()
-            .call1((tdb, tr, v, rh)).unwrap();
+            .getattr("utci")
+            .unwrap()
+            .call1((tdb, tr, v, rh))
+            .unwrap();
         let py_utci: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
-        let py_stress: String = py_result.getattr("stress_category").unwrap().extract().unwrap();
+        let py_stress: String = py_result
+            .getattr("stress_category")
+            .unwrap()
+            .extract()
+            .unwrap();
 
         // Rust calculation with measurement types
         let result = utci(
@@ -1514,7 +1628,7 @@ fn test_readme_example_utci() {
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
             Humidity::from_percent(rh),
-            Default::default()
+            Default::default(),
         );
 
         assert_abs_diff_eq!(result.utci, py_utci, epsilon = 0.15);

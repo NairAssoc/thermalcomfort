@@ -2,7 +2,7 @@
 //!
 //! Advanced heat index model based on thermodynamic and thermoregulatory principles.
 
-use measurements::{Temperature, Humidity};
+use measurements::{Humidity, Temperature};
 
 /// Calculate Heat Index using Lu and Romps (2022) model
 ///
@@ -95,9 +95,7 @@ fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
         }
     };
 
-    let latent_heat_vap = |t: f64| -> f64 {
-        E0V + (CVV - CVL) * (t - T_C_K) + RGASV * t
-    };
+    let latent_heat_vap = |t: f64| -> f64 { E0V + (CVV - CVL) * (t - T_C_K) + RGASV * t };
 
     let p_cr = PHI_SALT * pv_star(T_CR);
     let lat_heat = latent_heat_vap(310.0);
@@ -218,7 +216,9 @@ fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
             (2, phi, rf, rs, d_tc_dt)
         } else {
             // Region IV,V,VI
-            let flux3 = Q - qv(ta, pa) - (T_CR - ta) / ra_un(T_CR, ta)
+            let flux3 = Q
+                - qv(ta, pa)
+                - (T_CR - ta) / ra_un(T_CR, ta)
                 - (PHI_SALT * pv_star(T_CR) - pa) / ZA_UN;
 
             if flux3 < 0.0 {
@@ -226,7 +226,8 @@ fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
                 let ts_new = solve(
                     &|ts: f64| -> f64 {
                         let rs_local = (T_CR - ts) / (Q - qv(ta, pa));
-                        (ts - ta) / ra_un(ts, ta) + (p_cr - pa) / (zs(rs_local) + ZA_UN) - (Q - qv(ta, pa))
+                        (ts - ta) / ra_un(ts, ta) + (p_cr - pa) / (zs(rs_local) + ZA_UN)
+                            - (Q - qv(ta, pa))
                     },
                     0.0,
                     T_CR,
@@ -240,7 +241,8 @@ fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
                     // Region V
                     let ts_final = solve(
                         &|ts: f64| -> f64 {
-                            (ts - ta) / ra_un(ts, ta) + (PHI_SALT * pv_star(ts) - pa) / ZA_UN - (Q - qv(ta, pa))
+                            (ts - ta) / ra_un(ts, ta) + (PHI_SALT * pv_star(ts) - pa) / ZA_UN
+                                - (Q - qv(ta, pa))
                         },
                         0.0,
                         T_CR,
@@ -343,14 +345,20 @@ mod tests {
 
     #[test]
     fn test_heat_index_lu() {
-        let hi = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
+        let hi = heat_index_lu(
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
+        );
         // Should be close to 25.9°C
         assert!(hi > 24.0 && hi < 27.0);
     }
 
     #[test]
     fn test_heat_index_lu_high_temp() {
-        let hi = heat_index_lu(Temperature::from_celsius(35.0), Humidity::from_percent(70.0));
+        let hi = heat_index_lu(
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(70.0),
+        );
         // Should be significantly higher than air temperature
         assert!(hi > 35.0);
     }

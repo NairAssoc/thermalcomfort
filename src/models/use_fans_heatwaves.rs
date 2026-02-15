@@ -3,24 +3,24 @@
 //! Estimate if environmental conditions would cause heat strain during heatwaves
 //! when using fans.
 
-use crate::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result of fan use during heatwaves assessment
 #[derive(Debug, Clone, Copy)]
 pub struct UseFansHeatwavesResult {
-    /// Heat loss from skin [W]
+    /// Heat loss from skin (W)
     pub e_skin: f64,
-    /// Heat loss from regulatory sweating [W]
+    /// Heat loss from regulatory sweating (W)
     pub e_rsw: f64,
-    /// Maximum evaporative capacity [W]
+    /// Maximum evaporative capacity (W)
     pub e_max: f64,
-    /// Sensible heat loss [W]
+    /// Sensible heat loss (W)
     pub q_sensible: f64,
-    /// Total heat loss from skin [W]
+    /// Total heat loss from skin (W)
     pub q_skin: f64,
-    /// Heat loss by respiration [W]
+    /// Heat loss by respiration (W)
     pub q_res: f64,
     /// Core temperature [°C]
     pub t_core: f64,
@@ -94,6 +94,7 @@ pub struct UseFansHeatwavesResult {
 /// );
 /// assert!(result.e_skin > 0.0);
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn use_fans_heatwaves(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -126,7 +127,7 @@ pub fn use_fans_heatwaves(
         relative_humidity,
         metabolic_rate,
         clothing_insulation,
-        options
+        options,
     );
 
     // Detect heat strain conditions

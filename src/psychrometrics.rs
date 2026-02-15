@@ -2,8 +2,8 @@
 
 use crate::constants::*;
 use crate::utilities::p_sat;
-use libm::{exp, pow, sqrt, atan, log, fabs as abs};
-use measurements::{Temperature, Speed, Humidity, Pressure};
+use libm::{atan, exp, fabs as abs, log, pow, sqrt};
+use measurements::{Humidity, Pressure, Speed, Temperature};
 
 /// Psychrometric values result
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +56,9 @@ pub fn psy_ta_rh(tdb: Temperature, rh: Humidity, p_atm: Pressure) -> Psychrometr
 
     let p_vap_pa = rh_percent / 100.0 * p_sat_pa;
     let p_vap = Pressure::from_pascals(p_vap_pa);
+    // Humidity ratio calculation using psychrometric constant
+    // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
+    // Source: ASHRAE Fundamentals
     let hr = 0.62198 * p_vap_pa / (p_atm_pa - p_vap_pa);
     let t_dp = dew_point_temperature(tdb, rh);
     let t_wb = wet_bulb_temperature(tdb, rh);
@@ -104,10 +107,20 @@ pub fn enthalpy_air(tdb: Temperature, hr: f64) -> f64 {
 ///
 /// Stull, R., 2011: Wet-Bulb Temperature from Relative Humidity and Air Temperature.
 /// J. Appl. Meteor. Climatol., 50, 2267–2269
+///
+/// All constants (0.151977, 8.313659, 1.676331, 0.00391838, 1.5, 0.023101, 4.686035)
+/// are empirical coefficients from Stull's polynomial approximation
 #[inline]
 pub fn wet_bulb_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
     let tdb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
+    // Stull equation empirical coefficients:
+    // 0.151977, 8.313659: RH scaling factors
+    // 1.676331: RH offset term
+    // 0.00391838: higher-order RH coefficient
+    // 1.5: RH power exponent
+    // 0.023101: RH interaction coefficient
+    // 4.686035: constant offset term
     let t_wb_celsius = tdb_celsius * atan(0.151977 * pow(rh_percent + 8.313659, 0.5))
         + atan(tdb_celsius + rh_percent)
         - atan(rh_percent - 1.676331)
@@ -131,21 +144,28 @@ pub fn wet_bulb_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
 ///
 /// World Meteorological Organization, 2024: Guide to Instruments and
 /// Methods of Observation (WMO-No. 8)
+///
+/// Uses the Magnus-Tetens formula with constants:
+/// - 6.112 hPa: reference saturation vapor pressure at 0°C
+/// - 17.62: empirical coefficient (unitless)
+/// - 243.12°C: empirical temperature coefficient
 pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
     let tdb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
-    if rh_percent < 0.0 || rh_percent > 100.0 {
+    if !(0.0..=100.0).contains(&rh_percent) {
         return Temperature::from_celsius(f64::NAN);
     }
 
-    // Saturation vapor pressure in hPa
+    // Saturation vapor pressure in hPa using Magnus formula
+    // 6.112 hPa = reference vapor pressure at 0°C
+    // 17.62 and 243.12 = Magnus formula empirical constants
     let e_w = 6.112 * exp((17.62 * tdb_celsius) / (243.12 + tdb_celsius));
 
     // Actual vapor pressure in hPa
     let e_s = (rh_percent / 100.0) * e_w;
 
-    // Dew point temperature
+    // Dew point temperature (inverse Magnus formula)
     let t_dp_celsius = 243.12 * log(e_s / 6.112) / (17.62 - log(e_s / 6.112));
     Temperature::from_celsius(t_dp_celsius)
 }
@@ -160,7 +180,7 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
 /// * `tg` - Globe temperature (use `Temperature::from_celsius()` or similar)
 /// * `tdb` - Air temperature (use `Temperature::from_celsius()` or similar)
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `d` - Globe diameter [m], default 0.15 m
+/// * `d` - Globe diameter (m), default 0.15 m
 /// * `emissivity` - Globe emissivity, default 0.95
 /// * `use_iso` - If true, use ISO formula; if false, use Mixed Convection
 ///
@@ -202,8 +222,16 @@ fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f
     let tg_k = tg + C_TO_K;
     let tdb_k = tdb + C_TO_K;
 
-    // Heat transfer coefficients
+    // Heat transfer coefficients (ISO 7726:1998)
+    // Natural convection: h_n = 1.4 * (ΔT/d)^0.25
+    // - 1.4 W/(m²·K): natural convection coefficient
+    // - 0.25: exponent for natural convection correlation
     let h_n = 1.4 * pow(abs(tg_k - tdb_k) / d, 0.25); // natural convection
+
+    // Forced convection: h_f = 6.3 * v^0.6 / d^0.4
+    // - 6.3 W/(m²·K): forced convection coefficient
+    // - 0.6: velocity exponent
+    // - 0.4: diameter exponent
     let h_f = 6.3 * pow(v, 0.6) / pow(d, 0.4); // forced convection
 
     // Use maximum of the two
@@ -216,15 +244,9 @@ fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f
 }
 
 /// Calculate mean radiant temperature using Mixed Convection method
-fn mean_radiant_temperature_mixed(
-    tg: f64,
-    tdb: f64,
-    v: f64,
-    d: f64,
-    emissivity: f64,
-) -> f64 {
+fn mean_radiant_temperature_mixed(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
     // Check diameter validity
-    if d < 0.04 || d > 0.15 {
+    if !(0.04..=0.15).contains(&d) {
         return f64::NAN;
     }
 
@@ -242,17 +264,15 @@ fn mean_radiant_temperature_mixed(
     let ra = G * BETA * abs(tg - tdb) * pow(d, 3.0) / NU / ALPHA;
     let re = v * d / NU;
 
-    let nu_natural = 2.0 + (0.589 * pow(ra, 0.25))
-        / pow(1.0 + pow(0.469 / pr, 9.0 / 16.0), 4.0 / 9.0);
+    let nu_natural =
+        2.0 + (0.589 * pow(ra, 0.25)) / pow(1.0 + pow(0.469 / pr, 9.0 / 16.0), 4.0 / 9.0);
 
-    let nu_forced = 2.0
-        + (0.4 * pow(re, 0.5) + 0.06 * pow(re, 2.0 / 3.0)) * pow(pr, 0.4);
+    let nu_forced = 2.0 + (0.4 * pow(re, 0.5) + 0.06 * pow(re, 2.0 / 3.0)) * pow(pr, 0.4);
 
     let nu_combined = pow(pow(nu_forced, n) + pow(nu_natural, n), 1.0 / n);
 
     pow(
-        pow(tg + C_TO_K, 4.0)
-            - ((nu_combined * K_AIR / d) * (-tg + tdb)) / emissivity / o,
+        pow(tg + C_TO_K, 4.0) - ((nu_combined * K_AIR / d) * (-tg + tdb)) / emissivity / o,
         0.25,
     ) - C_TO_K
 }
@@ -269,12 +289,22 @@ fn mean_radiant_temperature_mixed(
 /// # Returns
 ///
 /// Operative temperature
-pub fn operative_temperature(tdb: Temperature, tr: Temperature, v: Speed, use_ashrae: bool) -> Temperature {
+pub fn operative_temperature(
+    tdb: Temperature,
+    tr: Temperature,
+    v: Speed,
+    use_ashrae: bool,
+) -> Temperature {
     let tdb_celsius = tdb.as_celsius();
     let tr_celsius = tr.as_celsius();
     let v_ms = v.as_meters_per_second();
 
     let to_celsius = if use_ashrae {
+        // ASHRAE 55 method with speed-dependent weighting factor
+        // Thresholds and weights:
+        // v < 0.2 m/s: a = 0.5 (equal weighting of air and radiant temp)
+        // 0.2 ≤ v < 0.6 m/s: a = 0.6 (slightly favor air temperature)
+        // v ≥ 0.6 m/s: a = 0.7 (favor air temperature more at higher speeds)
         let a = if v_ms < 0.2 {
             0.5
         } else if v_ms < 0.6 {
@@ -284,7 +314,8 @@ pub fn operative_temperature(tdb: Temperature, tr: Temperature, v: Speed, use_as
         };
         a * tdb_celsius + (1.0 - a) * tr_celsius
     } else {
-        // ISO method
+        // ISO 7730 method
+        // 10.0 = velocity scaling factor for convective heat transfer
         (tdb_celsius * sqrt(10.0 * v_ms) + tr_celsius) / (1.0 + sqrt(10.0 * v_ms))
     };
     Temperature::from_celsius(to_celsius)
@@ -298,7 +329,7 @@ mod tests {
     fn test_wet_bulb_temperature() {
         let t_wb = wet_bulb_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0)
+            Humidity::from_percent(50.0),
         );
         // Expected value approximately 17.7°C
         assert!((t_wb.as_celsius() - 17.7).abs() < 0.5);
@@ -308,7 +339,7 @@ mod tests {
     fn test_dew_point_temperature() {
         let t_dp = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0)
+            Humidity::from_percent(50.0),
         );
         // Expected value approximately 13.9°C
         assert!((t_dp.as_celsius() - 13.9).abs() < 0.5);
@@ -316,13 +347,13 @@ mod tests {
         // Test invalid RH
         let t_dp_invalid1 = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(-10.0)
+            Humidity::from_percent(-10.0),
         );
         assert!(t_dp_invalid1.as_celsius().is_nan());
 
         let t_dp_invalid2 = dew_point_temperature(
             Temperature::from_celsius(25.0),
-            Humidity::from_percent(110.0)
+            Humidity::from_percent(110.0),
         );
         assert!(t_dp_invalid2.as_celsius().is_nan());
     }
@@ -332,7 +363,7 @@ mod tests {
         let result = psy_ta_rh(
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
-            Pressure::from_pascals(101325.0)
+            Pressure::from_pascals(101325.0),
         );
 
         assert!(result.p_sat.as_pascals() > 0.0);
@@ -350,7 +381,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
-            false
+            false,
         );
         assert!((t_op.as_celsius() - 25.0).abs() < 0.01);
 
@@ -359,7 +390,7 @@ mod tests {
             Temperature::from_celsius(22.0),
             Temperature::from_celsius(26.0),
             Speed::from_meters_per_second(0.1),
-            true
+            true,
         );
         assert!(t_op2.as_celsius() > 22.0 && t_op2.as_celsius() < 26.0);
     }

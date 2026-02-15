@@ -3,7 +3,7 @@
 //! This module provides numerical algorithms used in thermal comfort calculations,
 //! particularly root-finding methods.
 
-use libm::{fabs as abs, copysign};
+use libm::{copysign, fabs as abs};
 
 /// Error type for root-finding methods
 #[derive(Debug, Clone, Copy, PartialEq)]

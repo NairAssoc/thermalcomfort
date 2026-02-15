@@ -3,9 +3,9 @@
 //! Implementation of thermal comfort models according to ISO 7730 and ASHRAE 55 standards
 
 use crate::constants::*;
-use crate::utilities::{valid_range, round_to};
-use libm::{exp, pow, sqrt, fabs as abs, fmax};
-use measurements::{Temperature, Speed, Humidity};
+use crate::utilities::{round_to, valid_range};
+use libm::{exp, fabs as abs, fmax, pow, sqrt};
+use measurements::{Humidity, Speed, Temperature};
 
 /// Result of PMV/PPD calculation
 #[derive(Debug, Clone, Copy)]
@@ -52,7 +52,7 @@ impl ThermalSensation {
 /// PMV/PPD calculation options
 #[derive(Debug, Clone, Copy)]
 pub struct PmvPpdOptions {
-    /// External work [met], default 0.0
+    /// External work (met), default 0.0
     pub wme: f64,
     /// Limit inputs to standard compliance ranges
     pub limit_inputs: bool,
@@ -82,8 +82,8 @@ impl Default for PmvPpdOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - Additional calculation options
 ///
 /// # Returns
@@ -96,8 +96,8 @@ impl Default for PmvPpdOptions {
 /// - 10 < tdb [°C] < 30
 /// - 10 < tr [°C] < 40
 /// - 0 < vr [m/s] < 1
-/// - 0.8 < met [met] < 4
-/// - 0 < clo [clo] < 2
+/// - 0.8 < met (met) < 4
+/// - 0 < clo (clo) < 2
 /// - -2 < PMV < 2
 ///
 /// # Example
@@ -148,8 +148,12 @@ pub fn pmv_ppd_iso(
         let metabolic_valid = valid_range(metabolic_rate, 0.8, 4.0);
         let clothing_valid = valid_range(clothing_insulation, 0.0, 2.0);
 
-        if dry_bulb_valid.is_nan() || radiant_valid.is_nan() || speed_valid.is_nan()
-            || metabolic_valid.is_nan() || clothing_valid.is_nan() {
+        if dry_bulb_valid.is_nan()
+            || radiant_valid.is_nan()
+            || speed_valid.is_nan()
+            || metabolic_valid.is_nan()
+            || clothing_valid.is_nan()
+        {
             return PmvPpdResult {
                 pmv: f64::NAN,
                 ppd: f64::NAN,
@@ -166,7 +170,7 @@ pub fn pmv_ppd_iso(
         rh_percent,
         metabolic_rate,
         clothing_insulation,
-        options.wme
+        options.wme,
     );
 
     // Check PMV range if limiting inputs
@@ -184,7 +188,12 @@ pub fn pmv_ppd_iso(
         pmv
     };
 
-    // Calculate PPD from PMV
+    // Calculate PPD (Predicted Percentage of Dissatisfied) from PMV
+    // PPD equation from Fanger's model (ISO 7730):
+    // PPD = 100 - 95 * exp(-0.03353 * PMV^4 - 0.2179 * PMV^2)
+    // Constants: 95.0 = percentage scale factor
+    //           0.03353 = quartic term coefficient
+    //           0.2179 = quadratic term coefficient
     let ppd = 100.0 - 95.0 * exp(-0.03353 * pow(pmv_final, 4.0) - 0.2179 * pow(pmv_final, 2.0));
 
     // Round if requested
@@ -215,8 +224,8 @@ pub fn pmv_ppd_iso(
 /// - 10 < tdb [°C] < 40
 /// - 10 < tr [°C] < 40
 /// - 0 < vr [m/s] < 2
-/// - 1.0 < met [met] < 4
-/// - 0 < clo [clo] < 1.5
+/// - 1.0 < met (met) < 4
+/// - 0 < clo (clo) < 1.5
 pub fn pmv_ppd_ashrae(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -239,8 +248,12 @@ pub fn pmv_ppd_ashrae(
         let metabolic_valid = valid_range(metabolic_rate, 1.0, 4.0);
         let clothing_valid = valid_range(clothing_insulation, 0.0, 1.5);
 
-        if dry_bulb_valid.is_nan() || radiant_valid.is_nan() || speed_valid.is_nan()
-            || metabolic_valid.is_nan() || clothing_valid.is_nan() {
+        if dry_bulb_valid.is_nan()
+            || radiant_valid.is_nan()
+            || speed_valid.is_nan()
+            || metabolic_valid.is_nan()
+            || clothing_valid.is_nan()
+        {
             return PmvPpdResult {
                 pmv: f64::NAN,
                 ppd: f64::NAN,
@@ -250,7 +263,15 @@ pub fn pmv_ppd_ashrae(
     }
 
     // Calculate PMV (same algorithm as ISO)
-    let pmv = pmv_optimized(dry_bulb_celsius, radiant_celsius, air_speed, rh_percent, metabolic_rate, clothing_insulation, options.wme);
+    let pmv = pmv_optimized(
+        dry_bulb_celsius,
+        radiant_celsius,
+        air_speed,
+        rh_percent,
+        metabolic_rate,
+        clothing_insulation,
+        options.wme,
+    );
 
     // Calculate PPD from PMV
     let ppd = 100.0 - 95.0 * exp(-0.03353 * pow(pmv, 4.0) - 0.2179 * pow(pmv, 2.0));
@@ -273,11 +294,20 @@ pub fn pmv_ppd_ashrae(
 ///
 /// This is the core PMV calculation from Fanger's model,
 /// ported from the numba-optimized Python version
+///
+/// # Sources
+/// The constants used in this calculation come from:
+/// - ISO 7730:2005 - Ergonomics of the thermal environment
+/// - Fanger, P.O. (1970) - Thermal Comfort
+/// - ASHRAE Standard 55 - Thermal Environmental Conditions for Human Occupancy
 fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f64) -> f64 {
-    // Calculate partial vapor pressure
+    // Calculate partial vapor pressure using Antoine equation
+    // Constants: 16.6536, 4030.183, 235.0 are from the simplified Antoine equation
+    // for water vapor pressure calculation
     let pa = rh * 10.0 * exp(16.6536 - 4030.183 / (tdb + 235.0));
 
     // Thermal insulation of clothing [m²K/W]
+    // 0.155 = 1 clo in m²K/W (ISO 7730)
     let icl = 0.155 * clo;
 
     // Metabolic rate [W/m²]
@@ -289,7 +319,9 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     // Internal heat production
     let mw = m - w;
 
-    // Clothing area factor
+    // Clothing area factor (Fanger's model, ISO 7730)
+    // For low insulation (icl <= 0.078): fcl = 1.0 + 1.29 * icl
+    // For higher insulation: fcl = 1.05 + 0.645 * icl
     let fcl = if icl <= 0.078 {
         1.0 + 1.29 * icl
     } else {
@@ -297,30 +329,41 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     };
 
     // Heat transfer coefficient by forced convection
+    // 12.1 W/(m²·K) coefficient from ISO 7730 convection formula
     let hcf = 12.1 * sqrt(vr);
     let mut hc = hcf;
 
+    // Convert to Kelvin (using 273.0 as simplification of 273.15)
     let taa = tdb + 273.0;
     let tra = tr + 273.0;
+    // Initial clothing surface temperature estimate
+    // 35.5°C is approximate skin temperature, 3.5 and 0.1 are thermal resistance factors
     let tcla = taa + (35.5 - tdb) / (3.5 * icl + 0.1);
 
+    // Pre-computed factors for iterative calculation
     let p1 = icl * fcl;
-    let p2 = p1 * 3.96;
+    let p2 = p1 * 3.96; // 3.96 is radiation coefficient (related to Stefan-Boltzmann)
     let p3 = p1 * 100.0;
     let p4 = p1 * taa;
+    // 308.7 K (35.55°C) is approximate mean skin temperature
+    // 0.028 is metabolic heat coefficient from Fanger's model
     let p5 = 308.7 - 0.028 * mw + p2 * pow(tra / 100.0, 4.0);
 
     let mut xn = tcla / 100.0;
     let mut xf = tcla / 50.0;
+    // Convergence tolerance for iterative clothing temperature calculation
     let eps = 0.00015;
 
     let mut n = 0;
     while abs(xn - xf) > eps {
         xf = (xf + xn) / 2.0;
+        // Natural convection coefficient: 2.38 W/(m²·K^1.25) and exponent 0.25
+        // from natural convection heat transfer correlation
         let hcn = 2.38 * pow(abs(100.0 * xf - taa), 0.25);
         hc = fmax(hcn, hcf);
         xn = (p5 + p4 * hc - p2 * pow(xf, 4.0)) / (100.0 + p3 * hc);
         n += 1;
+        // Maximum 150 iterations to prevent infinite loops
         if n > 150 {
             // Max iterations exceeded, return NaN
             return f64::NAN;
@@ -329,11 +372,18 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 
     let tcl = 100.0 * xn - 273.0;
 
-    // Heat losses
-    // Heat loss diff through skin
+    // Heat losses (all from Fanger's thermal comfort model, ISO 7730)
+
+    // Heat loss by diffusion through skin
+    // 3.05 = permeability coefficient [W/(m²·kPa)]
+    // 0.001 = unit conversion factor
+    // 5733 = vapor pressure constant [Pa]
+    // 6.99 = metabolic rate coefficient
     let hl1 = 3.05 * 0.001 * (5733.0 - 6.99 * mw - pa);
 
-    // Heat loss by sweating
+    // Heat loss by sweating (regulatory sweating)
+    // 0.42 = sweating efficiency coefficient [W/(m²) per W/(m²)]
+    // Only occurs when metabolic rate exceeds 1 met (58.15 W/m²)
     let hl2 = if mw > MET_TO_W_M2 {
         0.42 * (mw - MET_TO_W_M2)
     } else {
@@ -341,129 +391,31 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     };
 
     // Latent respiration heat loss
+    // 1.7 = respiratory coefficient
+    // 0.00001 = unit conversion factor
+    // 5867 = vapor pressure constant for exhaled air [Pa]
     let hl3 = 1.7 * 0.00001 * m * (5867.0 - pa);
 
     // Dry respiration heat loss
+    // 0.0014 = respiration heat coefficient [W/(m²·K) per W/m²]
+    // 34°C = approximate exhaled air temperature
     let hl4 = 0.0014 * m * (34.0 - tdb);
 
     // Heat loss by radiation
+    // 3.96 = radiation heat transfer coefficient [W/(m²·K⁴)]
+    // (related to Stefan-Boltzmann constant × emissivity)
     let hl5 = 3.96 * fcl * (pow(xn, 4.0) - pow(tra / 100.0, 4.0));
 
     // Heat loss by convection
     let hl6 = fcl * hc * (tcl - tdb);
 
-    // PMV calculation
+    // PMV calculation using thermal sensation coefficient
+    // 0.303 = base thermal sensation coefficient
+    // 0.036 = metabolic rate adjustment exponent (1/[W/m²])
+    // 0.028 = minimum thermal sensation coefficient
+    // These coefficients relate the heat balance to thermal sensation votes
     let ts = 0.303 * exp(-0.036 * m) + 0.028;
     ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_thermal_sensation_mapping() {
-        assert_eq!(ThermalSensation::from_pmv(-3.0), ThermalSensation::Cold);
-        assert_eq!(ThermalSensation::from_pmv(-2.0), ThermalSensation::Cool);
-        assert_eq!(ThermalSensation::from_pmv(-1.0), ThermalSensation::SlightlyCool);
-        assert_eq!(ThermalSensation::from_pmv(0.0), ThermalSensation::Neutral);
-        assert_eq!(ThermalSensation::from_pmv(1.0), ThermalSensation::SlightlyWarm);
-        assert_eq!(ThermalSensation::from_pmv(2.0), ThermalSensation::Warm);
-        assert_eq!(ThermalSensation::from_pmv(3.0), ThermalSensation::Hot);
-    }
-
-    #[test]
-    fn test_pmv_ppd_iso_basic() {
-        // Example from ISO 7730
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            Default::default()
-        );
-
-        // Should be approximately neutral comfort
-        assert!(result.pmv.abs() < 0.5);
-        assert!(result.ppd < 10.0);
-    }
-
-    #[test]
-    fn test_pmv_ppd_iso_limits() {
-        // Test with values outside limits
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            Default::default()
-        );
-        assert!(result.pmv.is_nan());
-        assert!(result.ppd.is_nan());
-
-        // Test with limits disabled
-        let mut options = PmvPpdOptions::default();
-        options.limit_inputs = false;
-        let result = pmv_ppd_iso(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            options
-        );
-        assert!(!result.pmv.is_nan());
-    }
-
-    #[cfg(test)]
-    #[test]
-    fn test_compare_with_python() {
-        use pyo3::prelude::*;
-        use pyo3::types::PyModule;
-
-        Python::with_gil(|py| {
-            // Import pythermalcomfort
-            let pythermal = PyModule::import(py, "pythermalcomfort.models").unwrap();
-
-            // Test case 1: Standard conditions
-            let tdb = 25.0;
-            let tr = 25.0;
-            let vr = 0.22; // v_relative(0.1, 1.4)
-            let rh = 50.0;
-            let met = 1.4;
-            let clo = 0.5;
-
-            // Call Python function
-            let py_result = pythermal
-                .getattr("pmv_ppd_iso").unwrap()
-                .call1((tdb, tr, vr, rh, met, clo)).unwrap();
-
-            let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
-            let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
-
-            // Call Rust function
-            let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                met,
-                clo,
-                Default::default()
-            );
-
-            // Compare results (allow small floating point differences)
-            assert!((rust_result.pmv - py_pmv).abs() < 0.01,
-                "PMV mismatch: Rust={}, Python={}", rust_result.pmv, py_pmv);
-            assert!((rust_result.ppd - py_ppd).abs() < 0.1,
-                "PPD mismatch: Rust={}, Python={}", rust_result.ppd, py_ppd);
-        });
-    }
 }
 
 /// Calculate Adaptive Predicted Mean Vote (aPMV)
@@ -477,8 +429,8 @@ mod tests {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `a_coefficient` - Adaptive coefficient (λ)
 /// * `options` - PMV calculation options
 ///
@@ -512,6 +464,7 @@ mod tests {
 /// # References
 ///
 /// - Yao R, Li B, Liu J (2009) Indoor Built Environ 18(5):394-411
+#[allow(clippy::too_many_arguments)]
 pub fn pmv_a(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -522,7 +475,16 @@ pub fn pmv_a(
     a_coefficient: f64,
     options: PmvPpdOptions,
 ) -> f64 {
-    let pmv = pmv_ppd_iso(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, metabolic_rate, clothing_insulation, options).pmv;
+    let pmv = pmv_ppd_iso(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        options,
+    )
+    .pmv;
     let a_pmv = pmv / (1.0 + a_coefficient * pmv);
     libm::round(a_pmv * 100.0) / 100.0 // Round to 2 decimal places
 }
@@ -538,8 +500,8 @@ pub fn pmv_a(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `e_coefficient` - Expectancy factor
 /// * `options` - PMV calculation options
 ///
@@ -576,6 +538,7 @@ pub fn pmv_a(
 /// # References
 ///
 /// - Fanger PO, Toftum J (2002) Energy Build 34(2):153-9
+#[allow(clippy::too_many_arguments)]
 pub fn pmv_e(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -587,7 +550,16 @@ pub fn pmv_e(
     options: PmvPpdOptions,
 ) -> f64 {
     // First PMV calculation
-    let pmv1 = pmv_ppd_iso(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, metabolic_rate, clothing_insulation, options).pmv;
+    let pmv1 = pmv_ppd_iso(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        options,
+    )
+    .pmv;
 
     // Adjust metabolic rate if warm (PMV > 0)
     let met_adjusted = if pmv1 > 0.0 {
@@ -597,7 +569,16 @@ pub fn pmv_e(
     };
 
     // Recalculate PMV with adjusted metabolic rate
-    let pmv2 = pmv_ppd_iso(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, met_adjusted, clothing_insulation, options).pmv;
+    let pmv2 = pmv_ppd_iso(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        met_adjusted,
+        clothing_insulation,
+        options,
+    )
+    .pmv;
 
     let e_pmv = pmv2 * e_coefficient;
     libm::round(e_pmv * 100.0) / 100.0 // Round to 2 decimal places
@@ -614,8 +595,8 @@ pub fn pmv_e(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo] (if None, calculated from running mean)
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo) (if None, calculated from running mean)
 /// * `running_mean_outdoor_temp` - Running mean outdoor temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
@@ -663,27 +644,162 @@ pub fn pmv_athb(
     } else {
         // Behavioral adaptation: calculate clothing from conditions
         let exponent = -0.17168 - 0.000485 * running_mean_celsius + 0.08176 * met_adapted
-                      - 0.00527 * running_mean_celsius * met_adapted;
+            - 0.00527 * running_mean_celsius * met_adapted;
         libm::pow(10.0, exponent)
     };
 
     // Calculate base PMV with adapted parameters
-    let mut options = PmvPpdOptions::default();
-    options.limit_inputs = false; // ATHB may use values outside standard limits
-    let pmv_result = pmv_ppd_iso(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, met_adapted, clo_adapted, options).pmv;
+    let options = PmvPpdOptions {
+        limit_inputs: false, // ATHB may use values outside standard limits
+        ..Default::default()
+    };
+    let pmv_result = pmv_ppd_iso(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        met_adapted,
+        clo_adapted,
+        options,
+    )
+    .pmv;
 
     // Calculate thermal sensation coefficient
     let ts = 0.303 * libm::exp(-0.036 * met_adapted * 58.2) + 0.028;
     let l_adapted = pmv_result / ts;
 
     // Calculate ATHB PMV
-    let athb_pmv = 1.484
-        + 0.0276 * l_adapted
-        - 0.9602 * met_adapted
-        - 0.0342 * running_mean_celsius
-        + 0.0002264 * l_adapted * running_mean_celsius
-        + 0.018696 * met_adapted * running_mean_celsius
-        - 0.0002909 * l_adapted * met_adapted * running_mean_celsius;
+    let athb_pmv =
+        1.484 + 0.0276 * l_adapted - 0.9602 * met_adapted - 0.0342 * running_mean_celsius
+            + 0.0002264 * l_adapted * running_mean_celsius
+            + 0.018696 * met_adapted * running_mean_celsius
+            - 0.0002909 * l_adapted * met_adapted * running_mean_celsius;
 
     libm::round(athb_pmv * 1000.0) / 1000.0 // Round to 3 decimal places
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_thermal_sensation_mapping() {
+        assert_eq!(ThermalSensation::from_pmv(-3.0), ThermalSensation::Cold);
+        assert_eq!(ThermalSensation::from_pmv(-2.0), ThermalSensation::Cool);
+        assert_eq!(
+            ThermalSensation::from_pmv(-1.0),
+            ThermalSensation::SlightlyCool
+        );
+        assert_eq!(ThermalSensation::from_pmv(0.0), ThermalSensation::Neutral);
+        assert_eq!(
+            ThermalSensation::from_pmv(1.0),
+            ThermalSensation::SlightlyWarm
+        );
+        assert_eq!(ThermalSensation::from_pmv(2.0), ThermalSensation::Warm);
+        assert_eq!(ThermalSensation::from_pmv(3.0), ThermalSensation::Hot);
+    }
+
+    #[test]
+    fn test_pmv_ppd_iso_basic() {
+        // Example from ISO 7730
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            Default::default(),
+        );
+
+        // Should be approximately neutral comfort
+        assert!(result.pmv.abs() < 0.5);
+        assert!(result.ppd < 10.0);
+    }
+
+    #[test]
+    fn test_pmv_ppd_iso_limits() {
+        // Test with values outside limits
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(5.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            Default::default(),
+        );
+        assert!(result.pmv.is_nan());
+        assert!(result.ppd.is_nan());
+
+        // Test with limits disabled
+        let options = PmvPpdOptions {
+            limit_inputs: false,
+            ..Default::default()
+        };
+        let result = pmv_ppd_iso(
+            Temperature::from_celsius(5.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            1.2,
+            0.5,
+            options,
+        );
+        assert!(!result.pmv.is_nan());
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn test_compare_with_python() {
+        use pyo3::prelude::*;
+        use pyo3::types::PyModule;
+
+        Python::with_gil(|py| {
+            // Import pythermalcomfort
+            let pythermal = PyModule::import(py, "pythermalcomfort.models").unwrap();
+
+            // Test case 1: Standard conditions
+            let tdb = 25.0;
+            let tr = 25.0;
+            let vr = 0.22; // v_relative(0.1, 1.4)
+            let rh = 50.0;
+            let met = 1.4;
+            let clo = 0.5;
+
+            // Call Python function
+            let py_result = pythermal
+                .getattr("pmv_ppd_iso")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo))
+                .unwrap();
+
+            let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
+            let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
+
+            // Call Rust function
+            let rust_result = pmv_ppd_iso(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                met,
+                clo,
+                Default::default(),
+            );
+
+            // Compare results (allow small floating point differences)
+            assert!(
+                (rust_result.pmv - py_pmv).abs() < 0.01,
+                "PMV mismatch: Rust={}, Python={}",
+                rust_result.pmv,
+                py_pmv
+            );
+            assert!(
+                (rust_result.ppd - py_ppd).abs() < 0.1,
+                "PPD mismatch: Rust={}, Python={}",
+                rust_result.ppd,
+                py_ppd
+            );
+        });
+    }
 }

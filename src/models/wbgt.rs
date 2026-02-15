@@ -97,6 +97,10 @@ pub fn wbgt(
     }
 
     // Calculate WBGT based on solar load condition
+    // WBGT formulas from ISO 7243 and ACGIH:
+    // - Outdoors (with solar load): WBGT = 0.7*Twb + 0.2*Tg + 0.1*Tdb
+    // - Indoors (no solar load): WBGT = 0.7*Twb + 0.3*Tg
+    // Coefficients represent weighting of each temperature component
     let mut wbgt_value = if options.with_solar_load {
         let dry_bulb_celsius = dry_bulb_celsius_opt.unwrap();
         0.7 * wet_bulb_celsius + 0.2 * globe_celsius + 0.1 * dry_bulb_celsius
@@ -123,7 +127,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            Default::default()
+            Default::default(),
         );
         assert!((result - 27.1).abs() < 0.1);
     }
@@ -139,7 +143,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             Some(Temperature::from_celsius(20.0)),
-            options
+            options,
         );
         assert!((result - 25.9).abs() < 0.1);
     }
@@ -154,7 +158,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            options
+            options,
         );
         // 0.7 * 25 + 0.3 * 32 = 17.5 + 9.6 = 27.1
         assert!((result - 27.1).abs() < 0.001);
@@ -171,7 +175,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Temperature::from_celsius(32.0),
             None,
-            options
+            options,
         );
         assert!(result.is_nan());
     }
@@ -188,7 +192,7 @@ mod tests {
             WbgtOptions {
                 with_solar_load: false,
                 round_output: false,
-            }
+            },
         );
         assert!((result - 31.5).abs() < 0.001);
 
@@ -199,8 +203,9 @@ mod tests {
             Some(Temperature::from_celsius(28.0)),
             WbgtOptions {
                 with_solar_load: true,
-            round_output: false,
-        });
+                round_output: false,
+            },
+        );
         assert!((result - 30.8).abs() < 0.001);
     }
 }

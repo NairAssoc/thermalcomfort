@@ -3,15 +3,15 @@
 //! This module calculates the cooling effect when air speed is elevated above
 //! the still air threshold (0.1 m/s).
 
-use crate::models::set_tmp::{set_tmp, SetOptions};
+use crate::models::set_tmp::{SetOptions, set_tmp};
 use crate::numerical::brentq;
 use crate::utilities::Posture;
-use measurements::{Temperature, Speed, Area, Pressure, Humidity};
+use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for cooling effect calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoolingEffectOptions {
-    /// External work [met]
+    /// External work (met)
     pub wme: f64,
     /// Still air threshold [m/s]
     pub still_air_threshold: f64,
@@ -50,8 +50,8 @@ impl Default for CoolingEffectOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met]
-/// * `clothing_insulation` - Clothing insulation [clo]
+/// * `metabolic_rate` - Metabolic rate (met)
+/// * `clothing_insulation` - Clothing insulation (clo)
 /// * `options` - Cooling effect options
 ///
 /// # Returns
@@ -100,10 +100,18 @@ pub fn cooling_effect(
         p_atm: options.p_atm,
         posture: options.posture,
         limit_inputs: false, // Don't limit inputs for cooling effect calculation
-        round_output: false,  // Need exact values for root finding
+        round_output: false, // Need exact values for root finding
     };
 
-    let initial_set = set_tmp(dry_bulb_temp, mean_radiant_temp, relative_air_speed, relative_humidity, metabolic_rate, clothing_insulation, set_options);
+    let initial_set = set_tmp(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        relative_air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+        set_options,
+    );
 
     // If SET calculation failed, return 0
     if initial_set.is_nan() {
@@ -130,10 +138,7 @@ pub fn cooling_effect(
 
     // Use Brent's method to find the cooling effect
     // Search in range [0, 40] °C
-    match brentq(function, 0.0, 40.0, Some(0.001), Some(100)) {
-        Ok(ce) => ce,
-        Err(_) => 0.0, // If root finding fails, return 0
-    }
+    brentq(function, 0.0, 40.0, Some(0.001), Some(100)).unwrap_or(0.0)
 }
 
 #[cfg(test)]
@@ -150,7 +155,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert_eq!(ce, 0.0);
 
@@ -162,7 +167,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert_eq!(ce, 0.0);
     }
@@ -177,7 +182,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(ce > 0.0);
         assert!(ce < 5.0); // Reasonable range for cooling effect
@@ -193,7 +198,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         let ce2 = cooling_effect(
             Temperature::from_celsius(25.0),
@@ -202,7 +207,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
 
         assert!(ce2 > ce1);
@@ -218,7 +223,7 @@ mod tests {
             Humidity::from_percent(50.0),
             1.2,
             0.5,
-            Default::default()
+            Default::default(),
         );
         assert!(ce > 0.0);
     }
