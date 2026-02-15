@@ -5,6 +5,7 @@ pub mod cooling_effect;
 pub mod heat_index_lu;
 pub mod pmv;
 pub mod pmv_typed;
+pub mod ridge_regression;
 pub mod set_tmp;
 pub mod solar_gain;
 pub mod specialty;
@@ -25,6 +26,10 @@ pub use adaptive::{
 pub use cooling_effect::{CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
 pub use pmv::{PmvPpdResult, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso};
+pub use ridge_regression::{
+    PredictedBodyTemperatures, RidgeRegressionOptions, Sex as RidgeSex,
+    ridge_regression_predict_t_re_t_sk,
+};
 pub use set_tmp::{SetOptions, set_tmp};
 pub use solar_gain::{SolarGainResult, solar_gain};
 pub use specialty::{ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd};

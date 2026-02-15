@@ -9,15 +9,16 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, humidex, net, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
-    pmv_ppd_iso, set_tmp, solar_gain, thi, two_nodes_gagge, two_nodes_gagge_sleep, utci,
-    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
-    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    RidgeSex, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect,
+    discomfort_index, esi, heat_index_lu, heat_index_rothfusz, humidex, net, pmv_a, pmv_athb,
+    pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain,
+    thi, two_nodes_gagge, two_nodes_gagge_sleep, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
-    antoine, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, clo_individual_garment,
+    CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
     clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, v_relative,
 };
 
@@ -1821,7 +1822,9 @@ fn test_clo_tout_comparison() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Test across full temperature range
-        let test_temps = vec![-10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 26.0, 27.0, 30.0];
+        let test_temps = vec![
+            -10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 26.0, 27.0, 30.0,
+        ];
 
         for tout in test_temps {
             // Call Python function
@@ -1877,5 +1880,94 @@ fn test_antoine_comparison() {
             // Should match exactly as this is the same formula
             assert_abs_diff_eq!(rust_result, py_result, epsilon = 0.000001);
         }
+    });
+}
+
+#[test]
+fn test_ridge_regression_comparison() {
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // Test case: Male, 60 years old, hot environment
+        let kwargs = [
+            ("sex", "male".into_py(py)),
+            ("age", 60.into_py(py)),
+            ("height", 1.8.into_py(py)),
+            ("weight", 75.into_py(py)),
+            ("tdb", 35.into_py(py)),
+            ("rh", 60.into_py(py)),
+            ("duration", 60.into_py(py)),
+        ]
+        .into_py_dict(py)
+        .unwrap();
+
+        let py_result = pythermal
+            .getattr("ridge_regression_predict_t_re_t_sk")
+            .unwrap()
+            .call((), Some(&kwargs))
+            .unwrap();
+
+        let py_t_re: Vec<f64> = py_result
+            .getattr("t_re")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let py_t_sk: Vec<f64> = py_result
+            .getattr("t_sk")
+            .unwrap()
+            .extract()
+            .unwrap();
+
+        // Call Rust function
+        let rust_result = ridge_regression_predict_t_re_t_sk(
+            RidgeSex::Male,
+            60.0,
+            1.8,
+            75.0,
+            Temperature::from_celsius(35.0),
+            60.0,
+            60,
+            Default::default(),
+        );
+
+        println!("Duration: {} minutes", rust_result.t_re.len());
+        println!(
+            "Final temps - Python: t_re={:.2}, t_sk={:.2}",
+            py_t_re.last().unwrap(),
+            py_t_sk.last().unwrap()
+        );
+        println!(
+            "Final temps - Rust: t_re={:.2}, t_sk={:.2}",
+            rust_result.t_re.last().unwrap(),
+            rust_result.t_sk.last().unwrap()
+        );
+
+        // Check lengths match
+        assert_eq!(rust_result.t_re.len(), 60);
+        assert_eq!(rust_result.t_sk.len(), 60);
+        assert_eq!(rust_result.t_re.len(), py_t_re.len());
+        assert_eq!(rust_result.t_sk.len(), py_t_sk.len());
+
+        // Compare a few time points
+        // Initial (minute 0)
+        assert_abs_diff_eq!(rust_result.t_re[0], py_t_re[0], epsilon = 0.01);
+        assert_abs_diff_eq!(rust_result.t_sk[0], py_t_sk[0], epsilon = 0.01);
+
+        // Middle (minute 30)
+        assert_abs_diff_eq!(rust_result.t_re[30], py_t_re[30], epsilon = 0.01);
+        assert_abs_diff_eq!(rust_result.t_sk[30], py_t_sk[30], epsilon = 0.01);
+
+        // Final (minute 59)
+        assert_abs_diff_eq!(
+            *rust_result.t_re.last().unwrap(),
+            *py_t_re.last().unwrap(),
+            epsilon = 0.01
+        );
+        assert_abs_diff_eq!(
+            *rust_result.t_sk.last().unwrap(),
+            *py_t_sk.last().unwrap(),
+            epsilon = 0.01
+        );
     });
 }

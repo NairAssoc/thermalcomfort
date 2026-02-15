@@ -10,7 +10,7 @@ This library is `no_std` compatible and can run in WASM environments, making it 
 
 ## Implementation Status
 
-**33/37 core models implemented (89%)** from pythermalcomfort v3.8.0
+**34/37 core models implemented (92%)** from pythermalcomfort v3.8.0
 **All utility functions and clothing databases implemented (100%)**
 
 ### Implemented Models ✅
@@ -24,19 +24,19 @@ All core thermal comfort models, heat/cold stress indices, psychrometric functio
 - **Heat stress**: Heat Index (Rothfusz, Lu & Romps), Humidex, THI, Discomfort Index, AT, NET, ESI, Work Capacity models, Use Fans Heatwaves
 - **Cold stress**: Wind Chill Index, Wind Chill Temperature
 - **Specialty models**: Solar gain, Ankle draft, Vertical temperature gradient
+- **Predictive models**: Ridge Regression for body temperature prediction (Forbes et al. 2025)
 - **Utilities**: All psychrometric functions, all clothing insulation functions, clo_tout, clothing databases (9 typical ensembles, 56 individual garments)
 
 ### Partially Implemented
 
 - **Two-nodes Gagge sleep**: Simplified steady-state version implemented. Full time-series simulation available in Python pythermalcomfort.
 
-### Not Implemented (4 complex models)
+### Not Implemented (3 complex models)
 
 The following models are not yet implemented due to their complexity (averaging 600+ lines each):
 
 - **PHS**: Predicted Heat Strain ISO 7933 (715 lines)
 - **PET Steady**: Physiological Equivalent Temperature (493 lines)
-- **Ridge Regression**: ML-based rectal/skin temperature prediction (467 lines)
 - **Two-nodes Gagge JI**: Ji variant for older individuals (453 lines)
 
 These models can be added in future releases if needed.
