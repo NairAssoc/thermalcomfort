@@ -342,7 +342,7 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 
     // Pre-computed factors for iterative calculation
     let p1 = icl * fcl;
-    let p2 = p1 * 3.96;  // 3.96 is radiation coefficient (related to Stefan-Boltzmann)
+    let p2 = p1 * 3.96; // 3.96 is radiation coefficient (related to Stefan-Boltzmann)
     let p3 = p1 * 100.0;
     let p4 = p1 * taa;
     // 308.7 K (35.55°C) is approximate mean skin temperature

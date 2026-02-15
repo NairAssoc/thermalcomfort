@@ -129,11 +129,11 @@ pub fn adaptive_ashrae(
     // Only applies when operative temperature >= 25°C
     let ce = if speed_mps >= 0.6 && to.as_celsius() >= 25.0 {
         if speed_mps < 0.9 {
-            1.2  // First tier cooling effect
+            1.2 // First tier cooling effect
         } else if speed_mps < 1.2 {
-            1.8  // Second tier cooling effect
+            1.8 // Second tier cooling effect
         } else {
-            2.2  // Third tier cooling effect
+            2.2 // Third tier cooling effect
         }
     } else {
         0.0
