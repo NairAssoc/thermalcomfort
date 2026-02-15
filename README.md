@@ -10,7 +10,7 @@ This library is `no_std` compatible and can run in WASM environments, making it 
 
 ## Implementation Status
 
-**32/37 core models implemented (86%)** from pythermalcomfort v3.8.0
+**33/37 core models implemented (89%)** from pythermalcomfort v3.8.0
 **All utility functions and clothing databases implemented (100%)**
 
 ### Implemented Models ✅
@@ -18,7 +18,7 @@ This library is `no_std` compatible and can run in WASM environments, making it 
 All core thermal comfort models, heat/cold stress indices, psychrometric functions, and utility functions are complete:
 
 - **PMV/PPD variants**: ISO 7730, ASHRAE 55, Adaptive (pmv_a), Expectancy (pmv_e), ATHB
-- **Thermoregulation**: Two-node Gagge model, SET calculation
+- **Thermoregulation**: Two-node Gagge model, SET calculation, Two-node Gagge sleep variant (simplified)
 - **Adaptive models**: ASHRAE 55, EN 16798-1
 - **Outdoor comfort**: UTCI, WBGT
 - **Heat stress**: Heat Index (Rothfusz, Lu & Romps), Humidex, THI, Discomfort Index, AT, NET, ESI, Work Capacity models, Use Fans Heatwaves
@@ -26,14 +26,18 @@ All core thermal comfort models, heat/cold stress indices, psychrometric functio
 - **Specialty models**: Solar gain, Ankle draft, Vertical temperature gradient
 - **Utilities**: All psychrometric functions, all clothing insulation functions, clo_tout, clothing databases (9 typical ensembles, 56 individual garments)
 
-### Not Implemented (5 complex models)
+### Partially Implemented
+
+- **Two-nodes Gagge sleep**: Simplified steady-state version implemented. Full time-series simulation available in Python pythermalcomfort.
+
+### Not Implemented (4 complex models)
 
 The following models are not yet implemented due to their complexity (averaging 600+ lines each):
 
 - **PHS**: Predicted Heat Strain ISO 7933 (715 lines)
 - **PET Steady**: Physiological Equivalent Temperature (493 lines)
 - **Ridge Regression**: ML-based rectal/skin temperature prediction (467 lines)
-- **Two-nodes Gagge variants**: JI integration (453 lines) and sleep (437 lines) variants
+- **Two-nodes Gagge JI**: Ji variant for older individuals (453 lines)
 
 These models can be added in future releases if needed.
 

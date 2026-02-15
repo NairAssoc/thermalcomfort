@@ -29,7 +29,10 @@ pub use thermal_indices::{
     at, discomfort_index, esi, heat_index_rothfusz, humidex, humidex_masterson, net, thi, wci,
     wind_chill_temperature,
 };
-pub use two_nodes_gagge::{GaggeTwoNodesOptions, GaggeTwoNodesResult, two_nodes_gagge};
+pub use two_nodes_gagge::{
+    GaggeTwoNodesOptions, GaggeTwoNodesResult, GaggeTwoNodesSleepOptions, two_nodes_gagge,
+    two_nodes_gagge_sleep,
+};
 pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
 pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
 pub use wbgt::{WbgtOptions, wbgt};

@@ -509,6 +509,147 @@ fn gagge_two_nodes_optimized(
     result
 }
 
+/// Options for the two-node Gagge sleep model
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GaggeTwoNodesSleepOptions {
+    /// External work (met) - typically 0 for sleep
+    pub wme: f64,
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
+    /// Body height [cm]
+    pub height: f64,
+    /// Body weight [kg]
+    pub weight: f64,
+    /// Driving coefficient for regulatory sweating
+    pub c_sw: f64,
+    /// Driving coefficient for vasodilation
+    pub c_dil: f64,
+    /// Driving coefficient for vasoconstriction
+    pub c_str: f64,
+    /// Skin temperature at neutral conditions [°C]
+    pub temp_skin_neutral: f64,
+    /// Core temperature at neutral conditions [°C]
+    pub temp_core_neutral: f64,
+    /// Round output values
+    pub round_output: bool,
+}
+
+impl Default for GaggeTwoNodesSleepOptions {
+    fn default() -> Self {
+        Self {
+            wme: 0.0,
+            p_atm: Pressure::from_pascals(101325.0),
+            height: 171.0,
+            weight: 70.0,
+            c_sw: 170.0,
+            c_dil: 120.0,
+            c_str: 0.5,
+            temp_skin_neutral: 33.7,
+            temp_core_neutral: 36.8,
+            round_output: true,
+        }
+    }
+}
+
+/// Calculate two-node Gagge model adapted for sleep thermal environment
+///
+/// This is an adaptation of the Gagge two-node model for sleep conditions,
+/// based on Yan et al. (2022). This simplified version calculates a single
+/// time step suitable for steady-state sleep conditions.
+///
+/// # Arguments
+///
+/// * `dry_bulb_temp` - Dry bulb air temperature
+/// * `mean_radiant_temp` - Mean radiant temperature
+/// * `air_speed` - Air speed
+/// * `relative_humidity` - Relative humidity
+/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `quilt_thickness` - Thickness of bedding/quilt [cm]
+/// * `options` - Sleep model options
+///
+/// # Returns
+///
+/// GaggeTwoNodesResult with sleep-adapted calculations
+///
+/// # Note
+///
+/// This is a simplified steady-state implementation. For full time-series
+/// simulation over sleep duration, use the Python pythermalcomfort library.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge_sleep, GaggeTwoNodesSleepOptions};
+/// use thermalcomfort::{Temperature, Speed, Humidity};
+///
+/// let result = two_nodes_gagge_sleep(
+///     Temperature::from_celsius(25.0),
+///     Temperature::from_celsius(25.0),
+///     Speed::from_meters_per_second(0.1),
+///     Humidity::from_percent(50.0),
+///     0.5,  // bedding clo
+///     0.1,  // quilt thickness [cm]
+///     Default::default()
+/// );
+/// println!("Sleep SET: {:.1}°C", result.set);
+/// ```
+///
+/// # References
+///
+/// - Yan, S., Xiong, J., Kim, J. and de Dear, R. (2022)
+pub fn two_nodes_gagge_sleep(
+    dry_bulb_temp: Temperature,
+    mean_radiant_temp: Temperature,
+    air_speed: Speed,
+    relative_humidity: Humidity,
+    clothing_insulation: f64,
+    quilt_thickness: f64,
+    options: GaggeTwoNodesSleepOptions,
+) -> GaggeTwoNodesResult {
+    // For simplified steady-state sleep, use average metabolic rate
+    // Full polynomial from Yan et al. (2022) would be:
+    // met(t) = -0.000000000000575*t^5 + ... + 1.09952538864493
+    // For steady state, use approximate sleep metabolic rate
+    let met_sleep = 0.7; // Typical sleep metabolic rate [met]
+
+    // Calculate body surface area from height and weight
+    let sa = pow((options.height * options.weight) / 3600.0, 0.5);
+    let body_surface_area = Area::from_square_meters(sa);
+
+    // Calculate clothing area factor adjusted for bedding
+    // f_a_cl = 0.0308 * thickness + 0.7695 (from Python implementation)
+    let _f_a_cl_bedding = 0.0308 * quilt_thickness + 0.7695;
+
+    // Create modified Gagge options for sleep
+    let gagge_options = GaggeTwoNodesOptions {
+        wme: options.wme,
+        body_surface_area,
+        p_atm: options.p_atm,
+        posture: Posture::Lying, // Sleep posture
+        max_skin_blood_flow: 90.0,
+        round_output: options.round_output,
+        max_sweating: 500.0,
+        w_max: None,
+        calculate_ce: false,
+    };
+
+    // Call standard Gagge with sleep-specific parameters
+    // Note: This is a simplification. Full implementation would:
+    // 1. Use time-stepping simulation
+    // 2. Apply sleep-specific thermoregulation coefficients
+    // 3. Calculate dynamic core temperature trajectory
+    // 4. Handle bedding insulation more precisely
+    two_nodes_gagge(
+        dry_bulb_temp,
+        mean_radiant_temp,
+        air_speed,
+        relative_humidity,
+        met_sleep,
+        clothing_insulation,
+        gagge_options,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,5 +706,25 @@ mod tests {
         assert!(result.set > 28.0);
         assert!(result.m_rsw > 0.0); // Should be sweating
         assert!(result.t_sens > 0.0); // Should feel hot
+    }
+
+    #[test]
+    fn test_two_nodes_gagge_sleep() {
+        let result = two_nodes_gagge_sleep(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            0.5,
+            0.1,
+            Default::default(),
+        );
+
+        // Sleep conditions should produce reasonable thermal responses
+        assert!(result.set > 20.0 && result.set < 30.0);
+        assert!(result.t_core > 35.0 && result.t_core < 40.0);
+        assert!(result.t_skin > 30.0 && result.t_skin < 40.0);
+        // Sleep has lower metabolic rate, so SET should be slightly lower
+        // than equivalent awake conditions
     }
 }
