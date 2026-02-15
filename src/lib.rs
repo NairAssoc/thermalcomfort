@@ -50,7 +50,13 @@ pub mod utilities;
 
 // Re-export commonly used items
 pub use models::pmv::{PmvPpdResult, pmv_ppd_iso};
-pub use utilities::v_relative;
+pub use utilities::{
+    v_relative,
+    CLO_INDIVIDUAL_GARMENTS,
+    CLO_TYPICAL_ENSEMBLES,
+    clo_individual_garment,
+    clo_typical_ensemble,
+};
 
 // Re-export measurements types for convenience
 // Users should import these from thermalcomfort instead of directly from measurements

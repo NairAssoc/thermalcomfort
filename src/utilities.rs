@@ -705,6 +705,145 @@ pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[f64]) -> f64 {
     sum * 0.835 + 0.161
 }
 
+/// Typical clothing ensembles with predefined insulation values
+///
+/// These represent common clothing combinations based on ASHRAE 55 and ISO 9920.
+/// Each tuple contains (ensemble_name, insulation_clo).
+pub const CLO_TYPICAL_ENSEMBLES: &[(&str, f64)] = &[
+    ("Walking shorts, short-sleeve shirt", 0.36),
+    ("Typical summer indoor clothing", 0.5),
+    ("Knee-length skirt, short-sleeve shirt, sandals, underwear", 0.54),
+    ("Trousers, short-sleeve shirt, socks, shoes, underwear", 0.57),
+    ("Trousers, long-sleeve shirt", 0.61),
+    ("Knee-length skirt, long-sleeve shirt, full slip", 0.67),
+    ("Sweat pants, long-sleeve sweatshirt", 0.74),
+    ("Jacket, Trousers, long-sleeve shirt", 0.96),
+    ("Typical winter indoor clothing", 1.0),
+];
+
+/// Individual garment insulation values
+///
+/// Insulation values for individual clothing items based on ISO 9920:2009.
+/// Each tuple contains (garment_name, insulation_clo).
+pub const CLO_INDIVIDUAL_GARMENTS: &[(&str, f64)] = &[
+    ("Metal chair", 0.0),
+    ("Bra", 0.01),
+    ("Wooden stool", 0.01),
+    ("Ankle socks", 0.02),
+    ("Shoes or sandals", 0.02),
+    ("Slippers", 0.03),
+    ("Panty hose", 0.02),
+    ("Calf length socks", 0.03),
+    ("Women's underwear", 0.03),
+    ("Men's underwear", 0.04),
+    ("Knee socks (thick)", 0.06),
+    ("Short shorts", 0.06),
+    ("Walking shorts", 0.08),
+    ("T-shirt", 0.08),
+    ("Standard office chair", 0.1),
+    ("Executive chair", 0.15),
+    ("Boots", 0.1),
+    ("Sleeveless scoop-neck blouse", 0.12),
+    ("Half slip", 0.14),
+    ("Long underwear bottoms", 0.15),
+    ("Full slip", 0.16),
+    ("Short-sleeve knit shirt", 0.17),
+    ("Sleeveless vest (thin)", 0.1),
+    ("Sleeveless vest (thick)", 0.17),
+    ("Sleeveless short gown (thin)", 0.18),
+    ("Short-sleeve dress shirt", 0.19),
+    ("Sleeveless long gown (thin)", 0.2),
+    ("Long underwear top", 0.2),
+    ("Thick skirt", 0.23),
+    ("Long-sleeve dress shirt", 0.25),
+    ("Long-sleeve flannel shirt", 0.34),
+    ("Long-sleeve sweat shirt", 0.34),
+    ("Short-sleeve hospital gown", 0.31),
+    ("Short-sleeve short robe (thin)", 0.34),
+    ("Short-sleeve pajamas", 0.42),
+    ("Long-sleeve long gown", 0.46),
+    ("Long-sleeve short wrap robe (thick)", 0.48),
+    ("Long-sleeve pajamas (thick)", 0.57),
+    ("Long-sleeve long wrap robe (thick)", 0.69),
+    ("Thin trousers", 0.15),
+    ("Thick trousers", 0.24),
+    ("Sweatpants", 0.28),
+    ("Overalls", 0.3),
+    ("Coveralls", 0.49),
+    ("Thin skirt", 0.14),
+    ("Long-sleeve shirt dress (thin)", 0.33),
+    ("Long-sleeve shirt dress (thick)", 0.47),
+    ("Short-sleeve shirt dress", 0.29),
+    ("Sleeveless, scoop-neck shirt (thin)", 0.23),
+    ("Sleeveless, scoop-neck shirt (thick)", 0.27),
+    ("Long sleeve shirt (thin)", 0.25),
+    ("Long sleeve shirt (thick)", 0.36),
+    ("Single-breasted coat (thin)", 0.36),
+    ("Single-breasted coat (thick)", 0.44),
+    ("Double-breasted coat (thin)", 0.42),
+    ("Double-breasted coat (thick)", 0.48),
+];
+
+/// Look up clothing insulation value for a typical ensemble
+///
+/// Returns the insulation value in clo for a typical clothing ensemble.
+///
+/// # Arguments
+///
+/// * `ensemble_name` - Name of the clothing ensemble (case-sensitive)
+///
+/// # Returns
+///
+/// Some(clo) if the ensemble is found, None otherwise
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::utilities::clo_typical_ensemble;
+///
+/// let clo = clo_typical_ensemble("Typical summer indoor clothing");
+/// assert_eq!(clo, Some(0.5));
+///
+/// let not_found = clo_typical_ensemble("Unknown ensemble");
+/// assert_eq!(not_found, None);
+/// ```
+pub fn clo_typical_ensemble(ensemble_name: &str) -> Option<f64> {
+    CLO_TYPICAL_ENSEMBLES
+        .iter()
+        .find(|(name, _)| *name == ensemble_name)
+        .map(|(_, clo)| *clo)
+}
+
+/// Look up clothing insulation value for an individual garment
+///
+/// Returns the insulation value in clo for an individual garment.
+///
+/// # Arguments
+///
+/// * `garment_name` - Name of the garment (case-sensitive)
+///
+/// # Returns
+///
+/// Some(clo) if the garment is found, None otherwise
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::utilities::clo_individual_garment;
+///
+/// let clo = clo_individual_garment("Long-sleeve dress shirt");
+/// assert_eq!(clo, Some(0.25));
+///
+/// let not_found = clo_individual_garment("Unknown garment");
+/// assert_eq!(not_found, None);
+/// ```
+pub fn clo_individual_garment(garment_name: &str) -> Option<f64> {
+    CLO_INDIVIDUAL_GARMENTS
+        .iter()
+        .find(|(name, _)| *name == garment_name)
+        .map(|(_, clo)| *clo)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,5 +871,42 @@ mod tests {
     fn test_clo_area_factor() {
         assert!((clo_area_factor(0.5) - 1.14).abs() < 0.01);
         assert!((clo_area_factor(1.0) - 1.28).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_clo_typical_ensemble() {
+        // Test valid lookups
+        assert_eq!(clo_typical_ensemble("Typical summer indoor clothing"), Some(0.5));
+        assert_eq!(clo_typical_ensemble("Typical winter indoor clothing"), Some(1.0));
+        assert_eq!(clo_typical_ensemble("Walking shorts, short-sleeve shirt"), Some(0.36));
+
+        // Test invalid lookup
+        assert_eq!(clo_typical_ensemble("Non-existent ensemble"), None);
+    }
+
+    #[test]
+    fn test_clo_individual_garment() {
+        // Test valid lookups
+        assert_eq!(clo_individual_garment("Long-sleeve dress shirt"), Some(0.25));
+        assert_eq!(clo_individual_garment("Thick trousers"), Some(0.24));
+        assert_eq!(clo_individual_garment("T-shirt"), Some(0.08));
+
+        // Test invalid lookup
+        assert_eq!(clo_individual_garment("Non-existent garment"), None);
+    }
+
+    #[test]
+    fn test_clo_intrinsic_insulation_ensemble() {
+        // Test with typical garments - shirt + pants + underwear
+        let garments = [0.25, 0.24, 0.04]; // Long-sleeve shirt, thick trousers, underwear
+        let total = clo_intrinsic_insulation_ensemble(&garments);
+        // Formula: sum * 0.835 + 0.161 = 0.53 * 0.835 + 0.161 = 0.604
+        assert!((total - 0.604).abs() < 0.01);
+
+        // Test with single garment
+        let single = [0.5];
+        let total_single = clo_intrinsic_insulation_ensemble(&single);
+        // Formula: 0.5 * 0.835 + 0.161 = 0.579
+        assert!((total_single - 0.579).abs() < 0.01);
     }
 }

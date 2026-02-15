@@ -10,7 +10,8 @@ This library is `no_std` compatible and can run in WASM environments, making it 
 
 ## Implementation Status
 
-**31/37 models implemented (84%)** from pythermalcomfort v3.8.0
+**32/37 core models implemented (86%)** from pythermalcomfort v3.8.0
+**All utility functions and clothing databases implemented (100%)**
 
 ### Implemented Models ✅
 
@@ -23,13 +24,12 @@ All core thermal comfort models, heat/cold stress indices, psychrometric functio
 - **Heat stress**: Heat Index (Rothfusz, Lu & Romps), Humidex, THI, Discomfort Index, AT, NET, ESI, Work Capacity models, Use Fans Heatwaves
 - **Cold stress**: Wind Chill Index, Wind Chill Temperature
 - **Specialty models**: Solar gain, Ankle draft, Vertical temperature gradient
-- **Utilities**: All psychrometric functions, all clothing insulation functions, clo_tout
+- **Utilities**: All psychrometric functions, all clothing insulation functions, clo_tout, clothing databases (9 typical ensembles, 56 individual garments)
 
-### Not Implemented (6 complex models)
+### Not Implemented (5 complex models)
 
 The following models are not yet implemented due to their complexity (averaging 600+ lines each):
 
-- **JOS3**: Class-based 3-node thermoregulation model (1650 lines)
 - **PHS**: Predicted Heat Strain ISO 7933 (715 lines)
 - **PET Steady**: Physiological Equivalent Temperature (493 lines)
 - **Ridge Regression**: ML-based rectal/skin temperature prediction (467 lines)
@@ -93,6 +93,10 @@ These models can be added in future releases if needed.
 - Clothing area factor
 - Total insulation of clothing ensemble
 - Boundary air layer insulation
+- **Clothing databases**:
+  - 9 typical ensembles (e.g., "Typical summer indoor clothing" → 0.5 clo)
+  - 56 individual garments (e.g., "Long-sleeve dress shirt" → 0.25 clo)
+  - Intrinsic insulation calculation from garment lists
 
 ### Utility Functions
 
@@ -187,6 +191,29 @@ fn main() {
         options
     );
     println!("PMV: {:.2}", result.pmv);
+}
+```
+
+### Clothing Insulation Lookups
+
+```rust
+use thermalcomfort::{clo_typical_ensemble, clo_individual_garment};
+use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
+
+fn main() {
+    // Look up typical ensemble
+    let summer_clo = clo_typical_ensemble("Typical summer indoor clothing").unwrap();
+    println!("Summer clothing: {} clo", summer_clo); // 0.5 clo
+
+    // Look up individual garments
+    let shirt = clo_individual_garment("Long-sleeve dress shirt").unwrap();
+    let pants = clo_individual_garment("Thick trousers").unwrap();
+    let underwear = clo_individual_garment("Men's underwear").unwrap();
+
+    // Calculate total ensemble insulation
+    let garments = [shirt, pants, underwear];
+    let total_clo = clo_intrinsic_insulation_ensemble(&garments);
+    println!("Total ensemble: {:.2} clo", total_clo); // ~0.60 clo
 }
 ```
 
