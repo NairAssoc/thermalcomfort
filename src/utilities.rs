@@ -207,12 +207,39 @@ pub fn round_to(value: f64, decimals: i32) -> f64 {
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure
+/// Saturation vapor pressure [Pa]
 #[inline]
 pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
     let tdb_celsius = tdb.as_celsius();
     let p_pa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0)) * 1000.0; // Convert kPa to Pa
     Pressure::from_pascals(p_pa)
+}
+
+/// Calculate saturation vapor pressure using Antoine equation [kPa]
+///
+/// This is an alias for p_sat_antoine that returns the value in kPa
+/// to match the Python pythermalcomfort.utilities.antoine function.
+///
+/// # Arguments
+///
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
+///
+/// # Returns
+///
+/// Saturation vapor pressure [kPa]
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::utilities::antoine;
+/// use thermalcomfort::Temperature;
+///
+/// let p_kpa = antoine(Temperature::from_celsius(25.0));
+/// assert!((p_kpa - 3.167).abs() < 0.01); // ~3.167 kPa at 25°C
+/// ```
+#[inline]
+pub fn antoine(tdb: Temperature) -> f64 {
+    p_sat_antoine(tdb).as_pascals() / 1000.0 // Convert Pa to kPa
 }
 
 /// Saturation vapor pressure using exponential equation
@@ -712,8 +739,14 @@ pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[f64]) -> f64 {
 pub const CLO_TYPICAL_ENSEMBLES: &[(&str, f64)] = &[
     ("Walking shorts, short-sleeve shirt", 0.36),
     ("Typical summer indoor clothing", 0.5),
-    ("Knee-length skirt, short-sleeve shirt, sandals, underwear", 0.54),
-    ("Trousers, short-sleeve shirt, socks, shoes, underwear", 0.57),
+    (
+        "Knee-length skirt, short-sleeve shirt, sandals, underwear",
+        0.54,
+    ),
+    (
+        "Trousers, short-sleeve shirt, socks, shoes, underwear",
+        0.57,
+    ),
     ("Trousers, long-sleeve shirt", 0.61),
     ("Knee-length skirt, long-sleeve shirt, full slip", 0.67),
     ("Sweat pants, long-sleeve sweatshirt", 0.74),
@@ -876,9 +909,18 @@ mod tests {
     #[test]
     fn test_clo_typical_ensemble() {
         // Test valid lookups
-        assert_eq!(clo_typical_ensemble("Typical summer indoor clothing"), Some(0.5));
-        assert_eq!(clo_typical_ensemble("Typical winter indoor clothing"), Some(1.0));
-        assert_eq!(clo_typical_ensemble("Walking shorts, short-sleeve shirt"), Some(0.36));
+        assert_eq!(
+            clo_typical_ensemble("Typical summer indoor clothing"),
+            Some(0.5)
+        );
+        assert_eq!(
+            clo_typical_ensemble("Typical winter indoor clothing"),
+            Some(1.0)
+        );
+        assert_eq!(
+            clo_typical_ensemble("Walking shorts, short-sleeve shirt"),
+            Some(0.36)
+        );
 
         // Test invalid lookup
         assert_eq!(clo_typical_ensemble("Non-existent ensemble"), None);
@@ -887,7 +929,10 @@ mod tests {
     #[test]
     fn test_clo_individual_garment() {
         // Test valid lookups
-        assert_eq!(clo_individual_garment("Long-sleeve dress shirt"), Some(0.25));
+        assert_eq!(
+            clo_individual_garment("Long-sleeve dress shirt"),
+            Some(0.25)
+        );
         assert_eq!(clo_individual_garment("Thick trousers"), Some(0.24));
         assert_eq!(clo_individual_garment("T-shirt"), Some(0.08));
 
@@ -908,5 +953,17 @@ mod tests {
         let total_single = clo_intrinsic_insulation_ensemble(&single);
         // Formula: 0.5 * 0.835 + 0.161 = 0.579
         assert!((total_single - 0.579).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_antoine() {
+        // Test antoine function returns kPa
+        let p_kpa = antoine(Temperature::from_celsius(25.0));
+        // At 25°C, saturated vapor pressure is ~3.167 kPa
+        assert!((p_kpa - 3.167).abs() < 0.01);
+
+        let p_kpa_0 = antoine(Temperature::from_celsius(0.0));
+        // At 0°C, saturated vapor pressure is ~0.609 kPa
+        assert!((p_kpa_0 - 0.609).abs() < 0.01);
     }
 }

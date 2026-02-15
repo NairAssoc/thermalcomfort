@@ -15,6 +15,9 @@ pub mod utci;
 pub mod wbgt;
 pub mod work_capacity;
 
+// Re-export utilities that are also exposed as models in Python
+pub use crate::utilities::clo_tout;
+
 // Re-export commonly used models
 pub use adaptive::{
     AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions, adaptive_ashrae, adaptive_en,

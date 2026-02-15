@@ -17,8 +17,8 @@ use thermalcomfort::models::{
 };
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
-    Posture, clo_individual_garment, clo_intrinsic_insulation_ensemble, clo_tout,
-    clo_typical_ensemble, v_relative, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES,
+    antoine, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, clo_individual_garment,
+    clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, v_relative,
 };
 
 #[test]
@@ -1652,16 +1652,17 @@ fn test_clothing_typical_ensembles() {
             .expect("Failed to import pythermalcomfort.utilities");
 
         // Get Python's typical ensembles dictionary
-        let ensembles_obj = pythermal
-            .getattr("clo_typical_ensembles")
-            .unwrap();
-        let py_ensembles = ensembles_obj
-            .downcast::<pyo3::types::PyDict>()
-            .unwrap();
+        let ensembles_obj = pythermal.getattr("clo_typical_ensembles").unwrap();
+        let py_ensembles = ensembles_obj.downcast::<pyo3::types::PyDict>().unwrap();
 
         // Test all ensembles match
         for (name, clo) in CLO_TYPICAL_ENSEMBLES.iter() {
-            let py_value: f64 = py_ensembles.get_item(name).unwrap().unwrap().extract().unwrap();
+            let py_value: f64 = py_ensembles
+                .get_item(name)
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
             let rust_value = clo_typical_ensemble(name).unwrap();
 
             println!(
@@ -1689,16 +1690,17 @@ fn test_clothing_individual_garments() {
             .expect("Failed to import pythermalcomfort.utilities");
 
         // Get Python's individual garments dictionary
-        let garments_obj = pythermal
-            .getattr("clo_individual_garments")
-            .unwrap();
-        let py_garments = garments_obj
-            .downcast::<pyo3::types::PyDict>()
-            .unwrap();
+        let garments_obj = pythermal.getattr("clo_individual_garments").unwrap();
+        let py_garments = garments_obj.downcast::<pyo3::types::PyDict>().unwrap();
 
         // Test all garments match
         for (name, clo) in CLO_INDIVIDUAL_GARMENTS.iter() {
-            let py_value: f64 = py_garments.get_item(name).unwrap().unwrap().extract().unwrap();
+            let py_value: f64 = py_garments
+                .get_item(name)
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
             let rust_value = clo_individual_garment(name).unwrap();
 
             assert_abs_diff_eq!(rust_value, py_value, epsilon = 0.01);
@@ -1723,8 +1725,8 @@ fn test_clo_intrinsic_insulation_ensemble_comparison() {
         // Test cases with different garment combinations
         let test_cases = vec![
             vec![0.25, 0.24, 0.04], // shirt, pants, underwear
-            vec![0.5],               // single garment
-            vec![0.1, 0.15, 0.2],    // light ensemble
+            vec![0.5],              // single garment
+            vec![0.1, 0.15, 0.2],   // light ensemble
             vec![0.36, 0.44, 0.06], // heavier ensemble
         ];
 
@@ -1808,6 +1810,72 @@ fn test_two_nodes_gagge_sleep_comparison() {
             assert_abs_diff_eq!(rust_result.set, py_set, epsilon = 2.0);
             assert_abs_diff_eq!(rust_result.t_core, py_t_core, epsilon = 1.5);
             assert_abs_diff_eq!(rust_result.t_skin, py_t_skin, epsilon = 1.5);
+        }
+    });
+}
+
+#[test]
+fn test_clo_tout_comparison() {
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // Test across full temperature range
+        let test_temps = vec![-10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 26.0, 27.0, 30.0];
+
+        for tout in test_temps {
+            // Call Python function
+            let py_result = pythermal
+                .getattr("clo_tout")
+                .unwrap()
+                .call1((tout,))
+                .unwrap();
+
+            let py_clo: f64 = py_result.getattr("clo_tout").unwrap().extract().unwrap();
+
+            // Call Rust function
+            let rust_clo = clo_tout(Temperature::from_celsius(tout));
+
+            println!(
+                "Tout: {:.1}°C - Python: {:.2} clo, Rust: {:.2} clo",
+                tout, py_clo, rust_clo
+            );
+
+            // Should match exactly as this is a simple lookup formula
+            assert_abs_diff_eq!(rust_clo, py_clo, epsilon = 0.01);
+        }
+    });
+}
+
+#[test]
+fn test_antoine_comparison() {
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        // Test across temperature range
+        let test_temps = vec![0.0, 10.0, 20.0, 25.0, 30.0, 40.0];
+
+        for t in test_temps {
+            // Call Python function
+            let py_result: f64 = pythermal
+                .getattr("antoine")
+                .unwrap()
+                .call1((t,))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            // Call Rust function
+            let rust_result = antoine(Temperature::from_celsius(t));
+
+            println!(
+                "T: {:.1}°C - Python: {:.6} kPa, Rust: {:.6} kPa",
+                t, py_result, rust_result
+            );
+
+            // Should match exactly as this is the same formula
+            assert_abs_diff_eq!(rust_result, py_result, epsilon = 0.000001);
         }
     });
 }
