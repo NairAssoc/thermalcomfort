@@ -97,6 +97,10 @@ pub fn wbgt(
     }
 
     // Calculate WBGT based on solar load condition
+    // WBGT formulas from ISO 7243 and ACGIH:
+    // - Outdoors (with solar load): WBGT = 0.7*Twb + 0.2*Tg + 0.1*Tdb
+    // - Indoors (no solar load): WBGT = 0.7*Twb + 0.3*Tg
+    // Coefficients represent weighting of each temperature component
     let mut wbgt_value = if options.with_solar_load {
         let dry_bulb_celsius = dry_bulb_celsius_opt.unwrap();
         0.7 * wet_bulb_celsius + 0.2 * globe_celsius + 0.1 * dry_bulb_celsius

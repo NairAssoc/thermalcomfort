@@ -123,22 +123,33 @@ pub fn adaptive_ashrae(
     let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
     // Calculate cooling effect for elevated air speed when to > 25°C
+    // From ASHRAE 55-2023 Section 5.4.3
+    // Thresholds: 0.6 m/s, 0.9 m/s, 1.2 m/s
+    // Cooling effects: 1.2°C, 1.8°C, 2.2°C respectively
+    // Only applies when operative temperature >= 25°C
     let ce = if speed_mps >= 0.6 && to.as_celsius() >= 25.0 {
         if speed_mps < 0.9 {
-            1.2
+            1.2  // First tier cooling effect
         } else if speed_mps < 1.2 {
-            1.8
+            1.8  // Second tier cooling effect
         } else {
-            2.2
+            2.2  // Third tier cooling effect
         }
     } else {
         0.0
     };
 
-    // Comfort temperature based on running mean
+    // Comfort temperature based on running mean outdoor temperature
+    // ASHRAE 55-2023 adaptive comfort equation:
+    // t_cmf = 0.31 * t_running_mean + 17.8
+    // where 0.31 is the climate adaptation coefficient
+    // and 17.8°C is the base comfort temperature
     let mut t_cmf = 0.31 * running_mean_celsius + 17.8;
 
-    // Apply input limits if requested
+    // Apply input limits if requested (ASHRAE 55-2023 applicability limits)
+    // Dry bulb and radiant temperature: 10-40°C
+    // Air speed: 0-2 m/s
+    // Running mean outdoor temperature: 10-33.5°C
     if options.limit_inputs
         && (!(10.0..=40.0).contains(&dry_bulb_celsius)
             || !(10.0..=40.0).contains(&radiant_celsius)
@@ -151,7 +162,9 @@ pub fn adaptive_ashrae(
     // Round to 1 decimal place
     t_cmf = libm::round(t_cmf * 10.0) / 10.0;
 
-    // Calculate acceptability bounds
+    // Calculate acceptability bounds (ASHRAE 55-2023)
+    // 80% acceptability: ±3.5°C from comfort temperature
+    // 90% acceptability: ±2.5°C from comfort temperature
     let tmp_cmf_80_low = t_cmf - 3.5;
     let tmp_cmf_90_low = t_cmf - 2.5;
     let tmp_cmf_80_up = t_cmf + 3.5 + ce;
@@ -230,10 +243,18 @@ pub fn adaptive_en(
     // Calculate operative temperature (use_ashrae=true for adaptive models)
     let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
-    // Comfort temperature based on running mean (EN formula)
+    // Comfort temperature based on running mean outdoor temperature
+    // EN 16798-1:2019 adaptive comfort equation:
+    // t_cmf = 0.33 * t_running_mean + 18.8
+    // where 0.33 is the climate adaptation coefficient
+    // and 18.8°C is the base comfort temperature
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
-    // Apply input limits if requested
+    // Apply input limits if requested (EN 16798-1:2019 applicability limits)
+    // Dry bulb temperature: 10-30°C
+    // Mean radiant temperature: 10-40°C
+    // Air speed: 0-2 m/s
+    // Running mean outdoor temperature: 10-30°C
     if options.limit_inputs
         && (!(10.0..=30.0).contains(&dry_bulb_celsius)
             || !(10.0..=40.0).contains(&radiant_celsius)
@@ -246,7 +267,10 @@ pub fn adaptive_en(
     // Round to 1 decimal place
     t_cmf = libm::round(t_cmf * 10.0) / 10.0;
 
-    // Calculate category bounds (EN 16798-1)
+    // Calculate category bounds (EN 16798-1:2019)
+    // Category I (high expectation): ±2°C from comfort temperature
+    // Category II (medium expectation): ±3°C from comfort temperature
+    // Category III (moderate expectation): ±4°C from comfort temperature
     let tmp_cmf_cat_i_low = t_cmf - 2.0;
     let tmp_cmf_cat_i_up = t_cmf + 2.0;
     let tmp_cmf_cat_ii_low = t_cmf - 3.0;

@@ -172,6 +172,8 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 pub fn v_relative(v: Speed, met: f64) -> Speed {
     let v_ms = v.as_meters_per_second();
     let vr_ms = if met > 1.0 {
+        // Relative air speed accounts for increased air movement from body motion
+        // 0.3 m/s per met above 1.0 (ISO 7730 and ASHRAE 55)
         // Round to 3 decimal places
         round((v_ms + 0.3 * (met - 1.0)) * 1000.0) / 1000.0
     } else {
@@ -364,6 +366,10 @@ pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> A
 /// # Returns
 ///
 /// Clothing area factor
+///
+/// # Source
+/// ISO 9920: f_cl = 1.0 + 0.28 * i_cl
+/// where 0.28 is the empirical coefficient relating clothing insulation to increased surface area
 #[inline]
 pub fn clo_area_factor(i_cl: f64) -> f64 {
     1.0 + 0.28 * i_cl
@@ -379,6 +385,12 @@ pub fn clo_area_factor(i_cl: f64) -> f64 {
 /// # Returns
 ///
 /// Dynamic clothing insulation (clo)
+///
+/// # Source
+/// ASHRAE 55: For met > 1.2, clo_dyn = clo * (0.6 + 0.4/met)
+/// - 1.2 met: threshold for walking/active movement
+/// - 0.6: base reduction factor
+/// - 0.4: adjustment factor (accounts for increased ventilation with activity)
 #[inline]
 pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
     if met > 1.2 {
@@ -428,6 +440,13 @@ pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: f64) -> f6
 }
 
 /// Correction factor for nude person - ISO 9920:2007
+///
+/// Empirical coefficients from ISO 9920:
+/// - -0.533: linear velocity coefficient
+/// - 0.15 m/s: reference air speed offset
+/// - 0.069: quadratic velocity coefficient
+/// - -0.462: linear walking speed coefficient
+/// - 0.201: quadratic walking speed coefficient
 #[inline]
 fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();
@@ -439,6 +458,12 @@ fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
 }
 
 /// Correction factor for normal clothing - ISO 9920:2007
+///
+/// Empirical coefficients from ISO 9920 for clothed persons:
+/// - -0.281: linear velocity coefficient
+/// - 0.15 m/s: reference air speed offset
+/// - 0.044: quadratic velocity coefficient
+/// - -0.492: linear walking speed coefficient
 #[inline]
 fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
     let vr_ms = vr.as_meters_per_second();

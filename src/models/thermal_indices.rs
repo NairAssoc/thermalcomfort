@@ -135,9 +135,15 @@ pub fn humidex(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_ou
     let rh_percent = relative_humidity.as_percent();
 
     // Rana et al. (2013) model
+    // Vapor pressure calculation using Magnus formula:
+    // - 6.112 hPa: reference saturation vapor pressure
+    // - 7.5 and 237.7: Magnus formula coefficients
     let vapor_pressure =
         6.112 * libm::pow(10.0, 7.5 * dry_bulb_celsius / (237.7 + dry_bulb_celsius)) * rh_percent
             / 100.0;
+    // Humidex calculation:
+    // - 5/9: Fahrenheit to Celsius conversion factor
+    // - 10.0 hPa: reference vapor pressure (comfort threshold)
     let mut hi = dry_bulb_celsius + 5.0 / 9.0 * (vapor_pressure - 10.0);
 
     if round_output {
@@ -299,16 +305,30 @@ pub fn heat_index_rothfusz(
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let rh_percent = relative_humidity.as_percent();
 
-    // Rothfusz polynomial regression
+    // Rothfusz polynomial regression (Rothfusz 1990, NWS Technical Attachment SR 90-23)
+    // All coefficients are empirically derived from regression analysis:
+    // Constant: -8.784695
+    // T coefficient: 1.61139411
+    // RH coefficient: 2.338549
+    // T×RH interaction: -0.14611605
     let mut hi = -8.784695 + 1.61139411 * dry_bulb_celsius + 2.338549 * rh_percent
         - 0.14611605 * dry_bulb_celsius * rh_percent;
+    // Quadratic terms:
+    // T² coefficient: -0.012308094
+    // RH² coefficient: -0.016424828
     hi += -1.2308094e-2 * dry_bulb_celsius * dry_bulb_celsius
         - 1.6424828e-2 * rh_percent * rh_percent;
+    // Higher-order interaction terms:
+    // T²×RH coefficient: 0.002211732
+    // T×RH² coefficient: 0.00072546
     hi += 2.211732e-3 * dry_bulb_celsius * dry_bulb_celsius * rh_percent
         + 7.2546e-4 * dry_bulb_celsius * rh_percent * rh_percent;
+    // Highest-order term:
+    // T²×RH² coefficient: -0.000003582
     hi += -3.582e-6 * dry_bulb_celsius * dry_bulb_celsius * rh_percent * rh_percent;
 
     // Heat index should only be calculated for temperatures above 27°C
+    // This is the applicability limit from NWS (≈80°F)
     if limit_inputs && dry_bulb_celsius < 27.0 {
         return f64::NAN;
     }

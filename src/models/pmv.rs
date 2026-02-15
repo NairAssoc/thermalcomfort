@@ -188,7 +188,12 @@ pub fn pmv_ppd_iso(
         pmv
     };
 
-    // Calculate PPD from PMV
+    // Calculate PPD (Predicted Percentage of Dissatisfied) from PMV
+    // PPD equation from Fanger's model (ISO 7730):
+    // PPD = 100 - 95 * exp(-0.03353 * PMV^4 - 0.2179 * PMV^2)
+    // Constants: 95.0 = percentage scale factor
+    //           0.03353 = quartic term coefficient
+    //           0.2179 = quadratic term coefficient
     let ppd = 100.0 - 95.0 * exp(-0.03353 * pow(pmv_final, 4.0) - 0.2179 * pow(pmv_final, 2.0));
 
     // Round if requested
@@ -289,11 +294,20 @@ pub fn pmv_ppd_ashrae(
 ///
 /// This is the core PMV calculation from Fanger's model,
 /// ported from the numba-optimized Python version
+///
+/// # Sources
+/// The constants used in this calculation come from:
+/// - ISO 7730:2005 - Ergonomics of the thermal environment
+/// - Fanger, P.O. (1970) - Thermal Comfort
+/// - ASHRAE Standard 55 - Thermal Environmental Conditions for Human Occupancy
 fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f64) -> f64 {
-    // Calculate partial vapor pressure
+    // Calculate partial vapor pressure using Antoine equation
+    // Constants: 16.6536, 4030.183, 235.0 are from the simplified Antoine equation
+    // for water vapor pressure calculation
     let pa = rh * 10.0 * exp(16.6536 - 4030.183 / (tdb + 235.0));
 
     // Thermal insulation of clothing [m²K/W]
+    // 0.155 = 1 clo in m²K/W (ISO 7730)
     let icl = 0.155 * clo;
 
     // Metabolic rate [W/m²]
@@ -305,7 +319,9 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     // Internal heat production
     let mw = m - w;
 
-    // Clothing area factor
+    // Clothing area factor (Fanger's model, ISO 7730)
+    // For low insulation (icl <= 0.078): fcl = 1.0 + 1.29 * icl
+    // For higher insulation: fcl = 1.05 + 0.645 * icl
     let fcl = if icl <= 0.078 {
         1.0 + 1.29 * icl
     } else {
@@ -313,30 +329,41 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     };
 
     // Heat transfer coefficient by forced convection
+    // 12.1 W/(m²·K) coefficient from ISO 7730 convection formula
     let hcf = 12.1 * sqrt(vr);
     let mut hc = hcf;
 
+    // Convert to Kelvin (using 273.0 as simplification of 273.15)
     let taa = tdb + 273.0;
     let tra = tr + 273.0;
+    // Initial clothing surface temperature estimate
+    // 35.5°C is approximate skin temperature, 3.5 and 0.1 are thermal resistance factors
     let tcla = taa + (35.5 - tdb) / (3.5 * icl + 0.1);
 
+    // Pre-computed factors for iterative calculation
     let p1 = icl * fcl;
-    let p2 = p1 * 3.96;
+    let p2 = p1 * 3.96;  // 3.96 is radiation coefficient (related to Stefan-Boltzmann)
     let p3 = p1 * 100.0;
     let p4 = p1 * taa;
+    // 308.7 K (35.55°C) is approximate mean skin temperature
+    // 0.028 is metabolic heat coefficient from Fanger's model
     let p5 = 308.7 - 0.028 * mw + p2 * pow(tra / 100.0, 4.0);
 
     let mut xn = tcla / 100.0;
     let mut xf = tcla / 50.0;
+    // Convergence tolerance for iterative clothing temperature calculation
     let eps = 0.00015;
 
     let mut n = 0;
     while abs(xn - xf) > eps {
         xf = (xf + xn) / 2.0;
+        // Natural convection coefficient: 2.38 W/(m²·K^1.25) and exponent 0.25
+        // from natural convection heat transfer correlation
         let hcn = 2.38 * pow(abs(100.0 * xf - taa), 0.25);
         hc = fmax(hcn, hcf);
         xn = (p5 + p4 * hc - p2 * pow(xf, 4.0)) / (100.0 + p3 * hc);
         n += 1;
+        // Maximum 150 iterations to prevent infinite loops
         if n > 150 {
             // Max iterations exceeded, return NaN
             return f64::NAN;
@@ -345,11 +372,18 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 
     let tcl = 100.0 * xn - 273.0;
 
-    // Heat losses
-    // Heat loss diff through skin
+    // Heat losses (all from Fanger's thermal comfort model, ISO 7730)
+
+    // Heat loss by diffusion through skin
+    // 3.05 = permeability coefficient [W/(m²·kPa)]
+    // 0.001 = unit conversion factor
+    // 5733 = vapor pressure constant [Pa]
+    // 6.99 = metabolic rate coefficient
     let hl1 = 3.05 * 0.001 * (5733.0 - 6.99 * mw - pa);
 
-    // Heat loss by sweating
+    // Heat loss by sweating (regulatory sweating)
+    // 0.42 = sweating efficiency coefficient [W/(m²) per W/(m²)]
+    // Only occurs when metabolic rate exceeds 1 met (58.15 W/m²)
     let hl2 = if mw > MET_TO_W_M2 {
         0.42 * (mw - MET_TO_W_M2)
     } else {
@@ -357,18 +391,29 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     };
 
     // Latent respiration heat loss
+    // 1.7 = respiratory coefficient
+    // 0.00001 = unit conversion factor
+    // 5867 = vapor pressure constant for exhaled air [Pa]
     let hl3 = 1.7 * 0.00001 * m * (5867.0 - pa);
 
     // Dry respiration heat loss
+    // 0.0014 = respiration heat coefficient [W/(m²·K) per W/m²]
+    // 34°C = approximate exhaled air temperature
     let hl4 = 0.0014 * m * (34.0 - tdb);
 
     // Heat loss by radiation
+    // 3.96 = radiation heat transfer coefficient [W/(m²·K⁴)]
+    // (related to Stefan-Boltzmann constant × emissivity)
     let hl5 = 3.96 * fcl * (pow(xn, 4.0) - pow(tra / 100.0, 4.0));
 
     // Heat loss by convection
     let hl6 = fcl * hc * (tcl - tdb);
 
-    // PMV calculation
+    // PMV calculation using thermal sensation coefficient
+    // 0.303 = base thermal sensation coefficient
+    // 0.036 = metabolic rate adjustment exponent (1/[W/m²])
+    // 0.028 = minimum thermal sensation coefficient
+    // These coefficients relate the heat balance to thermal sensation votes
     let ts = 0.303 * exp(-0.036 * m) + 0.028;
     ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)
 }
