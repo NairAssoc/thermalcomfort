@@ -29,10 +29,10 @@ use crate::{Clo, Humidity, Met, Speed, Temperature};
 /// Sport-specific parameters for heat stress risk calculation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SportsValues {
-    /// Clothing insulation [clo]
-    pub clo: f64,
-    /// Metabolic rate [met]
-    pub met: f64,
+    /// Clothing insulation
+    pub clo: Clo,
+    /// Metabolic rate
+    pub met: Met,
     /// Relative air speed [m/s]
     pub vr: f64,
     /// Activity duration [minutes]
@@ -45,7 +45,7 @@ impl SportsValues {
     /// # Panics
     ///
     /// Panics if clo, met, or vr are not positive, or if duration is negative.
-    pub const fn new(clo: f64, met: f64, vr: f64, duration: i32) -> Self {
+    pub const fn new(clo: Clo, met: Met, vr: f64, duration: i32) -> Self {
         Self {
             clo,
             met,
@@ -78,39 +78,39 @@ impl SportsValues {
 pub struct Sports;
 
 impl Sports {
-    pub const ABSEILING: SportsValues = SportsValues::new(0.6, 6.0, 0.5, 120);
-    pub const ARCHERY: SportsValues = SportsValues::new(0.75, 4.5, 0.5, 180);
-    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::new(0.47, 7.5, 0.75, 45);
-    pub const BASEBALL: SportsValues = SportsValues::new(0.7, 6.0, 0.75, 120);
-    pub const BASKETBALL: SportsValues = SportsValues::new(0.37, 7.5, 0.75, 45);
-    pub const BOWLS: SportsValues = SportsValues::new(0.5, 5.0, 0.5, 180);
-    pub const CANOEING: SportsValues = SportsValues::new(0.6, 7.5, 2.0, 60);
-    pub const CRICKET: SportsValues = SportsValues::new(0.7, 6.0, 0.75, 120);
-    pub const CYCLING: SportsValues = SportsValues::new(0.4, 7.0, 3.0, 60);
-    pub const EQUESTRIAN: SportsValues = SportsValues::new(0.9, 7.4, 3.0, 60);
-    pub const FIELD_ATHLETICS: SportsValues = SportsValues::new(0.3, 7.0, 1.0, 60);
-    pub const FIELD_HOCKEY: SportsValues = SportsValues::new(0.6, 7.4, 0.75, 45);
-    pub const FISHING: SportsValues = SportsValues::new(0.9, 4.0, 0.5, 180);
-    pub const GOLF: SportsValues = SportsValues::new(0.5, 5.0, 0.5, 180);
-    pub const HORSEBACK: SportsValues = SportsValues::new(0.9, 7.4, 3.0, 60);
-    pub const KAYAKING: SportsValues = SportsValues::new(0.6, 7.5, 2.0, 60);
-    pub const RUNNING: SportsValues = SportsValues::new(0.37, 7.5, 2.0, 60);
-    pub const MTB: SportsValues = SportsValues::new(0.55, 7.5, 3.0, 60);
-    pub const NETBALL: SportsValues = SportsValues::new(0.37, 7.5, 0.75, 45);
-    pub const OZTAG: SportsValues = SportsValues::new(0.4, 7.5, 0.75, 45);
-    pub const PICKLEBALL: SportsValues = SportsValues::new(0.4, 6.5, 0.5, 60);
-    pub const CLIMBING: SportsValues = SportsValues::new(0.6, 7.5, 1.0, 45);
-    pub const ROWING: SportsValues = SportsValues::new(0.4, 7.5, 2.0, 60);
-    pub const RUGBY_LEAGUE: SportsValues = SportsValues::new(0.47, 7.5, 0.75, 45);
-    pub const RUGBY_UNION: SportsValues = SportsValues::new(0.47, 7.5, 0.75, 45);
-    pub const SAILING: SportsValues = SportsValues::new(1.0, 6.5, 2.0, 180);
-    pub const SHOOTING: SportsValues = SportsValues::new(0.6, 5.0, 0.5, 120);
-    pub const SOCCER: SportsValues = SportsValues::new(0.47, 7.5, 1.0, 45);
-    pub const SOFTBALL: SportsValues = SportsValues::new(0.9, 6.1, 1.0, 120);
-    pub const TENNIS: SportsValues = SportsValues::new(0.4, 7.0, 0.75, 60);
-    pub const TOUCH: SportsValues = SportsValues::new(0.4, 7.5, 0.75, 45);
-    pub const VOLLEYBALL: SportsValues = SportsValues::new(0.37, 6.8, 0.75, 60);
-    pub const WALKING: SportsValues = SportsValues::new(0.5, 5.0, 0.5, 180);
+    pub const ABSEILING: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(6.0), 0.5, 120);
+    pub const ARCHERY: SportsValues = SportsValues::new(Clo::new(0.75), Met::new(4.5), 0.5, 180);
+    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::new(Clo::new(0.47), Met::new(7.5), 0.75, 45);
+    pub const BASEBALL: SportsValues = SportsValues::new(Clo::new(0.7), Met::new(6.0), 0.75, 120);
+    pub const BASKETBALL: SportsValues = SportsValues::new(Clo::new(0.37), Met::new(7.5), 0.75, 45);
+    pub const BOWLS: SportsValues = SportsValues::new(Clo::new(0.5), Met::new(5.0), 0.5, 180);
+    pub const CANOEING: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(7.5), 2.0, 60);
+    pub const CRICKET: SportsValues = SportsValues::new(Clo::new(0.7), Met::new(6.0), 0.75, 120);
+    pub const CYCLING: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(7.0), 3.0, 60);
+    pub const EQUESTRIAN: SportsValues = SportsValues::new(Clo::new(0.9), Met::new(7.4), 3.0, 60);
+    pub const FIELD_ATHLETICS: SportsValues = SportsValues::new(Clo::new(0.3), Met::new(7.0), 1.0, 60);
+    pub const FIELD_HOCKEY: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(7.4), 0.75, 45);
+    pub const FISHING: SportsValues = SportsValues::new(Clo::new(0.9), Met::new(4.0), 0.5, 180);
+    pub const GOLF: SportsValues = SportsValues::new(Clo::new(0.5), Met::new(5.0), 0.5, 180);
+    pub const HORSEBACK: SportsValues = SportsValues::new(Clo::new(0.9), Met::new(7.4), 3.0, 60);
+    pub const KAYAKING: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(7.5), 2.0, 60);
+    pub const RUNNING: SportsValues = SportsValues::new(Clo::new(0.37), Met::new(7.5), 2.0, 60);
+    pub const MTB: SportsValues = SportsValues::new(Clo::new(0.55), Met::new(7.5), 3.0, 60);
+    pub const NETBALL: SportsValues = SportsValues::new(Clo::new(0.37), Met::new(7.5), 0.75, 45);
+    pub const OZTAG: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(7.5), 0.75, 45);
+    pub const PICKLEBALL: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(6.5), 0.5, 60);
+    pub const CLIMBING: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(7.5), 1.0, 45);
+    pub const ROWING: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(7.5), 2.0, 60);
+    pub const RUGBY_LEAGUE: SportsValues = SportsValues::new(Clo::new(0.47), Met::new(7.5), 0.75, 45);
+    pub const RUGBY_UNION: SportsValues = SportsValues::new(Clo::new(0.47), Met::new(7.5), 0.75, 45);
+    pub const SAILING: SportsValues = SportsValues::new(Clo::new(1.0), Met::new(6.5), 2.0, 180);
+    pub const SHOOTING: SportsValues = SportsValues::new(Clo::new(0.6), Met::new(5.0), 0.5, 120);
+    pub const SOCCER: SportsValues = SportsValues::new(Clo::new(0.47), Met::new(7.5), 1.0, 45);
+    pub const SOFTBALL: SportsValues = SportsValues::new(Clo::new(0.9), Met::new(6.1), 1.0, 120);
+    pub const TENNIS: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(7.0), 0.75, 60);
+    pub const TOUCH: SportsValues = SportsValues::new(Clo::new(0.4), Met::new(7.5), 0.75, 45);
+    pub const VOLLEYBALL: SportsValues = SportsValues::new(Clo::new(0.37), Met::new(6.8), 0.75, 60);
+    pub const WALKING: SportsValues = SportsValues::new(Clo::new(0.5), Met::new(5.0), 0.5, 180);
 }
 
 /// Result of sports heat stress risk calculation.
@@ -161,8 +161,8 @@ fn phs_sweat_loss(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> 
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
         Humidity::from_percent(rh),
-        Met::new(sport.met),
-        Clo::new(sport.clo),
+        sport.met,
+        sport.clo,
         PhsPosture::Standing,
         PhsOptions {
             duration: sport.duration,
@@ -184,8 +184,8 @@ fn phs_core_temp(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
         Humidity::from_percent(rh),
-        Met::new(sport.met),
-        Clo::new(sport.clo),
+        sport.met,
+        sport.clo,
         PhsPosture::Standing,
         PhsOptions {
             duration: sport.duration,
@@ -487,8 +487,8 @@ mod tests {
 
     #[test]
     fn test_sports_values() {
-        assert_eq!(Sports::RUNNING.clo, 0.37);
-        assert_eq!(Sports::RUNNING.met, 7.5);
+        assert_eq!(Sports::RUNNING.clo.as_clo(), 0.37);
+        assert_eq!(Sports::RUNNING.met.as_met(), 7.5);
         assert_eq!(Sports::RUNNING.vr, 2.0);
         assert_eq!(Sports::RUNNING.duration, 60);
     }

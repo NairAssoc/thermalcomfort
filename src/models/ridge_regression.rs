@@ -7,7 +7,7 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 use crate::Sex;
-use measurements::Temperature;
+use measurements::{Humidity, Length, Mass, Temperature};
 
 /// Result from ridge regression body temperature prediction
 #[derive(Debug, Clone, PartialEq)]
@@ -21,10 +21,10 @@ pub struct PredictedBodyTemperatures {
 /// Options for ridge regression prediction
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RidgeRegressionOptions {
-    /// Initial rectal temperature [°C] (None = run baseline simulation)
-    pub t_re_initial: Option<f64>,
-    /// Initial skin temperature [°C] (None = run baseline simulation)
-    pub t_sk_initial: Option<f64>,
+    /// Initial rectal temperature (None = run baseline simulation)
+    pub t_re_initial: Option<Temperature>,
+    /// Initial skin temperature (None = run baseline simulation)
+    pub t_sk_initial: Option<Temperature>,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output to 2 decimal places
@@ -211,10 +211,10 @@ fn predict_temperature_simulation(
 ///
 /// * `sex` - Biological sex
 /// * `age` - Age [years]
-/// * `height` - Body height [m]
-/// * `weight` - Body weight [kg]
-/// * `tdb` - Ambient air temperature [°C]
-/// * `rh` - Relative humidity [%]
+/// * `height` - Body height (use `Length::from_meters()` or similar)
+/// * `weight` - Body weight (use `Mass::from_kilograms()` or similar)
+/// * `tdb` - Ambient air temperature (use `Temperature::from_celsius()` or similar)
+/// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
 /// * `duration` - Simulation duration [minutes]
 /// * `options` - Model options
 ///
@@ -243,15 +243,15 @@ fn predict_temperature_simulation(
 /// use thermalcomfort::models::ridge_regression::{
 ///     ridge_regression_predict_t_re_t_sk, RidgeRegressionOptions
 /// };
-/// use thermalcomfort::{Sex, Temperature};
+/// use thermalcomfort::{Sex, Temperature, Length, Mass, Humidity};
 ///
 /// let result = ridge_regression_predict_t_re_t_sk(
 ///     Sex::Male,
 ///     60.0,          // age
-///     1.8,           // height [m]
-///     75.0,          // weight [kg]
+///     Length::from_meters(1.8),
+///     Mass::from_kilograms(75.0),
 ///     Temperature::from_celsius(35.0),
-///     60.0,          // RH%
+///     Humidity::from_percent(60.0),
 ///     540,           // duration [min]
 ///     Default::default()
 /// );
@@ -267,24 +267,27 @@ fn predict_temperature_simulation(
 pub fn ridge_regression_predict_t_re_t_sk(
     sex: Sex,
     age: f64,
-    height_m: f64,
-    weight: f64,
+    height: Length,
+    weight: Mass,
     tdb: Temperature,
-    rh: f64,
+    rh: Humidity,
     duration: usize,
     options: RidgeRegressionOptions,
 ) -> PredictedBodyTemperatures {
     let tdb_c = tdb.as_celsius();
+    let height_m = height.as_meters();
     let height_cm = height_m * 100.0;
+    let weight_kg = weight.as_kilograms();
+    let rh_pct = rh.as_percent();
     let sex_value = sex.as_value();
 
     // Check applicability limits if requested
     if options.limit_inputs {
         let age_valid = (60.0..=100.0).contains(&age);
         let height_valid = (1.30..=2.30).contains(&height_m);
-        let weight_valid = (40.0..=140.0).contains(&weight);
+        let weight_valid = (40.0..=140.0).contains(&weight_kg);
         let tdb_valid = (0.0..=60.0).contains(&tdb_c);
-        let rh_valid = (0.0..=100.0).contains(&rh);
+        let rh_valid = (0.0..=100.0).contains(&rh_pct);
 
         if !age_valid || !height_valid || !weight_valid || !tdb_valid || !rh_valid {
             // Return NaN-filled arrays for out-of-range inputs
@@ -299,14 +302,14 @@ pub fn ridge_regression_predict_t_re_t_sk(
     let (initial_t_re, initial_t_sk) =
         if let (Some(t_re), Some(t_sk)) = (options.t_re_initial, options.t_sk_initial) {
             // Use provided initial temperatures
-            (t_re, t_sk)
+            (t_re.as_celsius(), t_sk.as_celsius())
         } else {
             // Run baseline simulation in thermoneutral environment
             let (baseline_t_re, baseline_t_sk) = predict_temperature_simulation(
                 sex_value,
                 age,
                 height_cm,
-                weight,
+                weight_kg,
                 THERMONEUTRAL_TDB,
                 THERMONEUTRAL_RH,
                 BASELINE_T_RE_INITIAL,
@@ -326,9 +329,9 @@ pub fn ridge_regression_predict_t_re_t_sk(
         sex_value,
         age,
         height_cm,
-        weight,
+        weight_kg,
         tdb_c,
-        rh,
+        rh_pct,
         initial_t_re,
         initial_t_sk,
         duration,
@@ -359,10 +362,10 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             Sex::Male,
             60.0,
-            1.8,
-            75.0,
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
             Temperature::from_celsius(35.0),
-            60.0,
+            Humidity::from_percent(60.0),
             540,
             Default::default(),
         );
@@ -384,10 +387,10 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             Sex::Male,
             50.0, // Too young (< 60)
-            1.8,
-            75.0,
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
             Temperature::from_celsius(35.0),
-            60.0,
+            Humidity::from_percent(60.0),
             10,
             Default::default(),
         );
@@ -400,8 +403,8 @@ mod tests {
     #[test]
     fn test_ridge_regression_with_initial_temps() {
         let options = RidgeRegressionOptions {
-            t_re_initial: Some(37.0),
-            t_sk_initial: Some(33.0),
+            t_re_initial: Some(Temperature::from_celsius(37.0)),
+            t_sk_initial: Some(Temperature::from_celsius(33.0)),
             limit_inputs: true,
             round_output: true,
         };
@@ -409,10 +412,10 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             Sex::Female,
             65.0,
-            1.65,
-            60.0,
+            Length::from_meters(1.65),
+            Mass::from_kilograms(60.0),
             Temperature::from_celsius(40.0),
-            50.0,
+            Humidity::from_percent(50.0),
             60,
             options,
         );

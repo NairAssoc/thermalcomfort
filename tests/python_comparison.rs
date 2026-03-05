@@ -4,7 +4,7 @@
 //! Python package across a wide range of inputs and edge cases.
 
 use approx::assert_abs_diff_eq;
-use measurements::{Humidity, Pressure, Speed, Temperature};
+use measurements::{Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::pmv::PmvPpdOptions;
@@ -17,7 +17,7 @@ use thermalcomfort::models::{
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
-use thermalcomfort::{Clo, Met, Sex};
+use thermalcomfort::{Clo, Mass, Met, Sex};
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
     CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
@@ -1153,7 +1153,7 @@ fn test_compare_work_capacity_iso() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_iso(Temperature::from_celsius(wbgt), met);
+            let rust_result = work_capacity_iso(Temperature::from_celsius(wbgt), Power::from_watts(met));
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1177,7 +1177,7 @@ fn test_compare_work_capacity_niosh() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_niosh(Temperature::from_celsius(wbgt), met);
+            let rust_result = work_capacity_niosh(Temperature::from_celsius(wbgt), Power::from_watts(met));
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1795,7 +1795,7 @@ fn test_two_nodes_gagge_sleep_comparison() {
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
                 Clo::new(clo),
-                thickness,
+                Length::from_centimeters(thickness),
                 Default::default(),
             );
 
@@ -1917,10 +1917,10 @@ fn test_ridge_regression_comparison() {
         let rust_result = ridge_regression_predict_t_re_t_sk(
             Sex::Male,
             60.0,
-            1.8,
-            75.0,
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
             Temperature::from_celsius(35.0),
-            60.0,
+            Humidity::from_percent(60.0),
             60,
             Default::default(),
         );

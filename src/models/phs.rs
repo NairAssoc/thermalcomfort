@@ -105,12 +105,12 @@ pub struct PhsOptions {
     pub a_p: f64,
     /// Whether workers can drink freely. Default: true
     pub drink: bool,
-    /// Body weight [kg]. Default: 75.0
-    pub weight: f64,
-    /// Height [m]. Default: 1.8
-    pub height: f64,
-    /// Walking speed [m/s]. Default: 0.0
-    pub walk_sp: f64,
+    /// Body weight. Default: 75.0 kg
+    pub weight: Mass,
+    /// Height. Default: 1.8 m
+    pub height: Length,
+    /// Walking speed. Default: 0.0 m/s
+    pub walk_sp: Speed,
     /// Angle between walking and wind direction [degrees]. Default: 0.0
     pub theta: f64,
     /// Whether worker is acclimatized. Default: true
@@ -119,14 +119,14 @@ pub struct PhsOptions {
     pub duration: i32,
     /// Emissivity of reflective clothing [dimensionless]. Default: depends on model
     pub f_r: Option<f64>,
-    /// Initial mean skin temperature [°C]. Default: 34.1
-    pub t_sk: f64,
-    /// Initial mean core temperature [°C]. Default: 36.8
-    pub t_cr: f64,
-    /// Initial rectal temperature [°C]. Default: depends on model
-    pub t_re: Option<f64>,
-    /// Initial core temp equilibrium [°C]. Default: depends on model
-    pub t_cr_eq: Option<f64>,
+    /// Initial mean skin temperature. Default: 34.1°C
+    pub t_sk: Temperature,
+    /// Initial mean core temperature. Default: 36.8°C
+    pub t_cr: Temperature,
+    /// Initial rectal temperature. Default: depends on model
+    pub t_re: Option<Temperature>,
+    /// Initial core temp equilibrium. Default: depends on model
+    pub t_cr_eq: Option<Temperature>,
     /// Initial skin/core weighting fraction. Default: 0.3
     pub t_sk_t_cr_wg: f64,
     /// Initial sweat rate [W/m²]. Default: 0.0
@@ -145,15 +145,15 @@ impl Default for PhsOptions {
             i_mst: 0.38,
             a_p: 0.54,
             drink: true,
-            weight: 75.0,
-            height: 1.8,
-            walk_sp: 0.0,
+            weight: Mass::from_kilograms(75.0),
+            height: Length::from_meters(1.8),
+            walk_sp: Speed::from_meters_per_second(0.0),
             theta: 0.0,
             acclimatized: true,
             duration: 480,
             f_r: None,
-            t_sk: 34.1,
-            t_cr: 36.8,
+            t_sk: Temperature::from_celsius(34.1),
+            t_cr: Temperature::from_celsius(36.8),
             t_re: None,
             t_cr_eq: None,
             t_sk_t_cr_wg: 0.3,
@@ -276,24 +276,26 @@ pub fn phs(
         Iso7933Model::Iso2023 => 0.42,
     });
 
-    let t_re_init = options.t_re.unwrap_or(match options.model {
-        Iso7933Model::Iso2004 => options.t_cr,
+    let opt_t_sk = options.t_sk.as_celsius();
+    let opt_t_cr = options.t_cr.as_celsius();
+    let opt_weight = options.weight.as_kilograms();
+    let opt_walk_sp = options.walk_sp.as_meters_per_second();
+
+    let t_re_init = options.t_re.map(|t| t.as_celsius()).unwrap_or(match options.model {
+        Iso7933Model::Iso2004 => opt_t_cr,
         Iso7933Model::Iso2023 => 36.8,
     });
 
-    let t_cr_eq_init = options.t_cr_eq.unwrap_or(match options.model {
-        Iso7933Model::Iso2004 => options.t_cr,
+    let t_cr_eq_init = options.t_cr_eq.map(|t: Temperature| t.as_celsius()).unwrap_or(match options.model {
+        Iso7933Model::Iso2004 => opt_t_cr,
         Iso7933Model::Iso2023 => 36.8,
     });
 
     // Body properties
-    let a_dubois = body_surface_area_dubois(
-        Mass::from_kilograms(options.weight),
-        Length::from_meters(options.height),
-    )
-    .as_square_meters();
+    let a_dubois = body_surface_area_dubois(options.weight, options.height)
+        .as_square_meters();
 
-    let sp_heat = MET_TO_W_M2 * options.weight / a_dubois;
+    let sp_heat = MET_TO_W_M2 * opt_weight / a_dubois;
 
     // Radiating area ratio
     let a_r_du = match posture {
@@ -339,7 +341,7 @@ pub fn phs(
     };
 
     // Walking speed
-    let mut walk_sp = options.walk_sp;
+    let mut walk_sp = opt_walk_sp;
     let walking = walk_sp > 0.0;
     if !walking {
         walk_sp = 0.0052 * (met * MET_TO_W_M2 - MET_TO_W_M2);
@@ -406,14 +408,14 @@ pub fn phs(
     // Maximum water loss limits
     let (d_max_50, d_max_95) = match options.model {
         Iso7933Model::Iso2004 => (
-            0.075 * options.weight * 1000.0,
-            0.05 * options.weight * 1000.0,
+            0.075 * opt_weight * 1000.0,
+            0.05 * opt_weight * 1000.0,
         ),
         Iso7933Model::Iso2023 => {
             let max_loss = if options.drink {
-                0.05 * options.weight * 1000.0
+                0.05 * opt_weight * 1000.0
             } else {
-                0.03 * options.weight * 1000.0
+                0.03 * opt_weight * 1000.0
             };
             (max_loss, max_loss)
         }
@@ -425,7 +427,7 @@ pub fn phs(
     // Compute hc_dyn ONCE before the time loop (matching Python reference)
     let hc_dyn = {
         let hc_dyn_base = match options.model {
-            Iso7933Model::Iso2004 => 2.38 * pow((options.t_sk - tdb).abs(), 0.25),
+            Iso7933Model::Iso2004 => 2.38 * pow((opt_t_sk - tdb).abs(), 0.25),
             Iso7933Model::Iso2023 => {
                 let t_cl_init = tr + 0.1;
                 2.38 * pow((t_cl_init - tdb).abs(), 0.25)
@@ -435,8 +437,8 @@ pub fn phs(
     };
 
     // Initialize state
-    let mut t_sk = options.t_sk;
-    let mut t_cr = options.t_cr;
+    let mut t_sk = opt_t_sk;
+    let mut t_cr = opt_t_cr;
     let mut t_re = t_re_init;
     let mut t_cr_eq = t_cr_eq_init;
     let mut t_sk_t_cr_wg = options.t_sk_t_cr_wg;

@@ -2,7 +2,7 @@
 
 use thermalcomfort::models::pmv_typed::{pmv_ppd_ashrae_typed, pmv_ppd_iso_typed};
 use thermalcomfort::utilities::v_relative;
-use thermalcomfort::{Humidity, Speed, Temperature};
+use thermalcomfort::{Clo, Humidity, Met, Speed, Temperature};
 
 fn main() {
     println!("=== Type-Safe Thermal Comfort API Example ===\n");
@@ -13,8 +13,8 @@ fn main() {
     let tr_c = Temperature::from_celsius(25.0);
     let v_kmh = Speed::from_kilometers_per_hour(0.36);
     let rh = Humidity::from_percent(50.0);
-    let met = 1.4;
-    let clo = 0.5;
+    let met = Met::new(1.4);
+    let clo = Clo::new(0.5);
 
     println!(
         "  Temperature (F): {:.1}°F = {:.1}°C",
@@ -46,8 +46,8 @@ fn main() {
     // Both should give same result
     let vr = Speed::from_meters_per_second(0.1);
     let rh_50 = Humidity::from_percent(50.0);
-    let result_c = pmv_ppd_iso_typed(temp_c, temp_c, vr, rh_50, 1.2, 1.0, Default::default());
-    let result_f = pmv_ppd_iso_typed(temp_f, temp_f, vr, rh_50, 1.2, 1.0, Default::default());
+    let result_c = pmv_ppd_iso_typed(temp_c, temp_c, vr, rh_50, Met::new(1.2), Clo::new(1.0), Default::default());
+    let result_f = pmv_ppd_iso_typed(temp_f, temp_f, vr, rh_50, Met::new(1.2), Clo::new(1.0), Default::default());
 
     println!("  PMV (using Celsius): {:.2}", result_c.pmv);
     println!("  PMV (using Fahrenheit): {:.2}", result_f.pmv);
@@ -62,10 +62,8 @@ fn main() {
     let tr = Temperature::from_celsius(25.0);
     let v = Speed::from_meters_per_second(0.1);
     let rh = Humidity::from_percent(50.0);
-    let met = 1.2;
-    let clo = 0.5;
 
-    let result = pmv_ppd_ashrae_typed(tdb, tr, v, rh, met, clo, Default::default());
+    let result = pmv_ppd_ashrae_typed(tdb, tr, v, rh, Met::new(1.2), Clo::new(0.5), Default::default());
     println!("  PMV (ASHRAE): {:.2}", result.pmv);
     println!("  PPD: {:.1}%", result.ppd);
     println!("  Thermal Sensation: {:?}\n", result.tsv);

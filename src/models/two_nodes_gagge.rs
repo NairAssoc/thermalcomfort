@@ -8,7 +8,7 @@ extern crate alloc;
 use crate::utilities::{Posture, p_sat_torr};
 use crate::{Clo, Met};
 use libm::{exp, fabs as abs, pow};
-use measurements::{Area, Humidity, Pressure, Speed, Temperature};
+use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
 
 /// Result from the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -520,20 +520,20 @@ pub struct GaggeTwoNodesSleepOptions {
     pub wme: Met,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Body height [cm]
-    pub height: f64,
-    /// Body weight [kg]
-    pub weight: f64,
+    /// Body height
+    pub height: Length,
+    /// Body weight
+    pub weight: Mass,
     /// Driving coefficient for regulatory sweating
     pub c_sw: f64,
     /// Driving coefficient for vasodilation
     pub c_dil: f64,
     /// Driving coefficient for vasoconstriction
     pub c_str: f64,
-    /// Skin temperature at neutral conditions [°C]
-    pub temp_skin_neutral: f64,
-    /// Core temperature at neutral conditions [°C]
-    pub temp_core_neutral: f64,
+    /// Skin temperature at neutral conditions
+    pub temp_skin_neutral: Temperature,
+    /// Core temperature at neutral conditions
+    pub temp_core_neutral: Temperature,
     /// Round output values
     pub round_output: bool,
 }
@@ -543,13 +543,13 @@ impl Default for GaggeTwoNodesSleepOptions {
         Self {
             wme: Met::new(0.0),
             p_atm: Pressure::from_pascals(101325.0),
-            height: 171.0,
-            weight: 70.0,
+            height: Length::from_centimeters(171.0),
+            weight: Mass::from_kilograms(70.0),
             c_sw: 170.0,
             c_dil: 120.0,
             c_str: 0.5,
-            temp_skin_neutral: 33.7,
-            temp_core_neutral: 36.8,
+            temp_skin_neutral: Temperature::from_celsius(33.7),
+            temp_core_neutral: Temperature::from_celsius(36.8),
             round_output: true,
         }
     }
@@ -568,7 +568,7 @@ impl Default for GaggeTwoNodesSleepOptions {
 /// * `air_speed` - Air speed
 /// * `relative_humidity` - Relative humidity
 /// * `clothing_insulation` - Clothing insulation (clo)
-/// * `quilt_thickness` - Thickness of bedding/quilt [cm]
+/// * `quilt_thickness` - Thickness of bedding/quilt
 /// * `options` - Sleep model options
 ///
 /// # Returns
@@ -584,7 +584,7 @@ impl Default for GaggeTwoNodesSleepOptions {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge_sleep, GaggeTwoNodesSleepOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Clo, Length};
 ///
 /// let result = two_nodes_gagge_sleep(
 ///     Temperature::from_celsius(25.0),
@@ -592,7 +592,7 @@ impl Default for GaggeTwoNodesSleepOptions {
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
 ///     Clo::new(0.5),
-///     0.1,  // quilt thickness [cm]
+///     Length::from_centimeters(0.1),
 ///     Default::default()
 /// );
 /// println!("Sleep SET: {:.1}°C", result.set);
@@ -607,7 +607,7 @@ pub fn two_nodes_gagge_sleep(
     air_speed: Speed,
     relative_humidity: Humidity,
     clothing_insulation: Clo,
-    quilt_thickness: f64,
+    quilt_thickness: Length,
     options: GaggeTwoNodesSleepOptions,
 ) -> GaggeTwoNodesResult {
     // For simplified steady-state sleep, use average metabolic rate
@@ -617,12 +617,12 @@ pub fn two_nodes_gagge_sleep(
     let met_sleep = 0.7; // Typical sleep metabolic rate [met]
 
     // Calculate body surface area from height and weight
-    let sa = pow((options.height * options.weight) / 3600.0, 0.5);
+    let sa = pow((options.height.as_centimeters() * options.weight.as_kilograms()) / 3600.0, 0.5);
     let body_surface_area = Area::from_square_meters(sa);
 
     // Calculate clothing area factor adjusted for bedding
     // f_a_cl = 0.0308 * thickness + 0.7695 (from Python implementation)
-    let _f_a_cl_bedding = 0.0308 * quilt_thickness + 0.7695;
+    let _f_a_cl_bedding = 0.0308 * quilt_thickness.as_centimeters() + 0.7695;
 
     // Create modified Gagge options for sleep
     let gagge_options = GaggeTwoNodesOptions {
@@ -1128,7 +1128,7 @@ mod tests {
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
             Clo::new(0.5),
-            0.1,
+            Length::from_centimeters(0.1),
             Default::default(),
         );
 

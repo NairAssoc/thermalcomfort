@@ -98,7 +98,7 @@ use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
 use crate::{Clo, Met, Sex};
 use libm::{exp, fabs, log, pow};
-use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
+use measurements::{Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
 #[cfg(feature = "std")]
 use nalgebra::{Matrix3, Vector3};
@@ -137,8 +137,8 @@ pub struct PetOptions {
     pub weight: Mass,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// External work [W]
-    pub work: f64,
+    /// External work
+    pub work: Power,
     /// Posture
     pub posture: Posture,
     /// Round output values
@@ -153,7 +153,7 @@ impl Default for PetOptions {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: 0.0,
+            work: Power::from_watts(0.0),
             posture: Posture::Sitting,
             round_output: true,
         }
@@ -251,7 +251,7 @@ pub fn pet_steady(
         weight_kg,
         options.age,
         sex_bool,
-        options.work,
+        options.work.as_watts(),
         p_atm_hpa,
         options.posture,
     );
@@ -1188,7 +1188,7 @@ mod tests {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: 0.0,
+            work: Power::from_watts(0.0),
             posture: Posture::Sitting,
             round_output: true,
         };

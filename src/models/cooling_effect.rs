@@ -14,8 +14,8 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 pub struct CoolingEffectOptions {
     /// External work
     pub wme: Met,
-    /// Still air threshold [m/s]
-    pub still_air_threshold: f64,
+    /// Still air threshold
+    pub still_air_threshold: Speed,
     /// Body surface area
     pub body_surface_area: Area,
     /// Atmospheric pressure
@@ -28,7 +28,7 @@ impl Default for CoolingEffectOptions {
     fn default() -> Self {
         Self {
             wme: Met::new(0.0),
-            still_air_threshold: 0.1,
+            still_air_threshold: Speed::from_meters_per_second(0.1),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
@@ -88,9 +88,10 @@ pub fn cooling_effect(
     options: CoolingEffectOptions,
 ) -> f64 {
     let air_speed = relative_air_speed.as_meters_per_second();
+    let still_air = options.still_air_threshold.as_meters_per_second();
 
     // No cooling effect if air speed is at or below still air threshold
-    if air_speed <= options.still_air_threshold {
+    if air_speed <= still_air {
         return 0.0;
     }
 
@@ -128,7 +129,7 @@ pub fn cooling_effect(
         let set_still = set_tmp(
             Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
             Temperature::from_celsius(radiant_celsius - cooling_effect_delta),
-            Speed::from_meters_per_second(options.still_air_threshold),
+            options.still_air_threshold,
             relative_humidity,
             metabolic_rate,
             clothing_insulation,

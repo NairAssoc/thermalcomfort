@@ -4,7 +4,7 @@
 
 use crate::models::pmv::pmv_ppd_ashrae;
 use crate::{Clo, Met};
-use measurements::{Humidity, Speed, Temperature};
+use measurements::{Humidity, Length, Speed, Temperature};
 
 /// Calculate percentage dissatisfied due to ankle draft
 ///
@@ -159,14 +159,27 @@ pub fn vertical_tmp_grad_ppd(
 ///
 /// # Arguments
 ///
-/// * `w` - Width of the window (m)
-/// * `h` - Height of the window (m)
-/// * `d` - Distance between occupant and window (m)
+/// * `w` - Width of the window
+/// * `h` - Height of the window
+/// * `d` - Distance between occupant and window
 ///
 /// # Returns
 ///
 /// Sky-vault view fraction (0-1)
-pub fn f_svv(w: f64, h: f64, d: f64) -> f64 {
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::f_svv;
+/// use thermalcomfort::Length;
+///
+/// let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
+/// assert!(svv > 0.0 && svv <= 1.0);
+/// ```
+pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
+    let w = w.as_meters();
+    let h = h.as_meters();
+    let d = d.as_meters();
     let angle_h = libm::atan(h / (2.0 * d));
     let angle_w = libm::atan(w / (2.0 * d));
 
@@ -234,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_f_svv() {
-        let svv = f_svv(2.0, 1.5, 3.0);
+        let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
         assert!(svv > 0.0 && svv <= 1.0);
     }
 
