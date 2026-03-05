@@ -11,6 +11,7 @@ pub mod ridge_regression;
 pub mod set_tmp;
 pub mod solar_gain;
 pub mod specialty;
+pub mod sports_heat_stress_risk;
 pub mod thermal_indices;
 pub mod two_nodes_gagge;
 pub mod use_fans_heatwaves;
@@ -37,6 +38,9 @@ pub use ridge_regression::{
 pub use set_tmp::{SetOptions, set_tmp};
 pub use solar_gain::{SolarGainResult, solar_gain};
 pub use specialty::{ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd};
+pub use sports_heat_stress_risk::{
+    Sports, SportsHeatStressRisk, SportsValues, sports_heat_stress_risk,
+};
 pub use thermal_indices::{
     at, discomfort_index, esi, heat_index_rothfusz, humidex, humidex_masterson, net, thi, wci,
     wind_chill_temperature,

@@ -2321,3 +2321,111 @@ fn test_phs_short_duration() {
         assert_abs_diff_eq!(rust_result.sweat_loss_g, py_sweat_loss_g, epsilon = 50.0);
     });
 }
+
+/// Test sports_heat_stress_risk against Python pythermalcomfort
+#[test]
+fn test_sports_heat_stress_risk_comparison() {
+    use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+
+    Python::with_gil(|py| {
+        let sports_mod = PyModule::import(py, "pythermalcomfort.models.sports_heat_stress_risk")
+            .expect("Failed to import sports_heat_stress_risk module");
+        let py_sports_class = sports_mod
+            .getattr("Sports")
+            .expect("Failed to get Sports class");
+        let py_func = sports_mod
+            .getattr("sports_heat_stress_risk")
+            .expect("Failed to get sports_heat_stress_risk function");
+
+        // Test cases: (tdb, tr, rh, vr, sport_name, rust_sport)
+        let test_cases: Vec<(f64, f64, f64, f64, &str, thermalcomfort::models::SportsValues)> = vec![
+            (35.0, 35.0, 40.0, 0.1, "RUNNING", Sports::RUNNING),
+            (30.0, 30.0, 50.0, 0.5, "SOCCER", Sports::SOCCER),
+            (20.0, 20.0, 50.0, 0.5, "WALKING", Sports::WALKING),
+            (45.0, 45.0, 30.0, 0.5, "CYCLING", Sports::CYCLING),
+            (33.0, 70.0, 60.0, 0.1, "TENNIS", Sports::TENNIS),
+        ];
+
+        for (tdb, tr, rh, vr, sport_name, rust_sport) in &test_cases {
+            println!("\nTest: {} at tdb={}, tr={}, rh={}, vr={}", sport_name, tdb, tr, rh, vr);
+
+            // Call Python
+            let py_sport = py_sports_class.getattr(*sport_name).unwrap();
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("tdb", tdb).unwrap();
+            kwargs.set_item("tr", tr).unwrap();
+            kwargs.set_item("rh", rh).unwrap();
+            kwargs.set_item("vr", vr).unwrap();
+            kwargs.set_item("sport", py_sport).unwrap();
+            let py_result = py_func.call((), Some(&kwargs)).unwrap();
+
+            // Python returns numpy arrays for scalar inputs; use .item() to extract
+            let py_risk: f64 = py_result
+                .getattr("risk_level_interpolated")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_t_medium: f64 = py_result
+                .getattr("t_medium")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_t_high: f64 = py_result
+                .getattr("t_high")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_t_extreme: f64 = py_result
+                .getattr("t_extreme")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_recommendation: String = py_result
+                .getattr("recommendation")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            // Call Rust
+            let rust_result = sports_heat_stress_risk(
+                Temperature::from_celsius(*tdb),
+                Temperature::from_celsius(*tr),
+                Humidity::from_percent(*rh),
+                Speed::from_meters_per_second(*vr),
+                *rust_sport,
+            );
+
+            println!(
+                "  Python - risk: {}, t_med: {}, t_high: {}, t_ext: {}",
+                py_risk, py_t_medium, py_t_high, py_t_extreme
+            );
+            println!(
+                "  Rust   - risk: {}, t_med: {}, t_high: {}, t_ext: {}",
+                rust_result.risk_level_interpolated,
+                rust_result.t_medium,
+                rust_result.t_high,
+                rust_result.t_extreme
+            );
+
+            // Compare results
+            assert_abs_diff_eq!(
+                rust_result.risk_level_interpolated, py_risk,
+                epsilon = 0.1
+            );
+            assert_abs_diff_eq!(rust_result.t_medium, py_t_medium, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.t_high, py_t_high, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.t_extreme, py_t_extreme, epsilon = 0.5);
+            assert_eq!(rust_result.recommendation, py_recommendation.as_str());
+        }
+    });
+}
