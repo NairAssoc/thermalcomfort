@@ -3,6 +3,8 @@
 pub mod adaptive;
 pub mod cooling_effect;
 pub mod heat_index_lu;
+pub mod pet;
+pub mod phs;
 pub mod pmv;
 pub mod pmv_typed;
 pub mod ridge_regression;
@@ -25,6 +27,8 @@ pub use adaptive::{
 };
 pub use cooling_effect::{CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
+pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
+pub use phs::{Iso7933Model, PhsOptions, PhsPosture, PhsResult, phs};
 pub use pmv::{PmvPpdResult, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso};
 pub use ridge_regression::{
     PredictedBodyTemperatures, RidgeRegressionOptions, Sex as RidgeSex,
@@ -38,8 +42,8 @@ pub use thermal_indices::{
     wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
-    GaggeTwoNodesOptions, GaggeTwoNodesResult, GaggeTwoNodesSleepOptions, two_nodes_gagge,
-    two_nodes_gagge_sleep,
+    GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult, GaggeTwoNodesOptions, GaggeTwoNodesResult,
+    GaggeTwoNodesSleepOptions, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
 };
 pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
 pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
