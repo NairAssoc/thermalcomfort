@@ -24,7 +24,7 @@
 
 use crate::models::phs::{Iso7933Model, PhsOptions, PhsPosture, phs};
 use crate::numerical::brentq;
-use crate::{Humidity, Speed, Temperature};
+use crate::{Clo, Humidity, Met, Speed, Temperature};
 
 /// Sport-specific parameters for heat stress risk calculation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -161,14 +161,14 @@ fn phs_sweat_loss(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> 
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
         Humidity::from_percent(rh),
-        sport.met,
-        sport.clo,
+        Met::new(sport.met),
+        Clo::new(sport.clo),
         PhsPosture::Standing,
         PhsOptions {
             duration: sport.duration,
             round_output: false,
             limit_inputs: false,
-            acclimatized: 100,
+            acclimatized: true,
             i_mst: 0.4,
             model: Iso7933Model::Iso2023,
             ..Default::default()
@@ -184,14 +184,14 @@ fn phs_core_temp(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f
         Temperature::from_celsius(tr),
         Speed::from_meters_per_second(vr),
         Humidity::from_percent(rh),
-        sport.met,
-        sport.clo,
+        Met::new(sport.met),
+        Clo::new(sport.clo),
         PhsPosture::Standing,
         PhsOptions {
             duration: sport.duration,
             round_output: false,
             limit_inputs: false,
-            acclimatized: 100,
+            acclimatized: true,
             i_mst: 0.4,
             model: Iso7933Model::Iso2023,
             ..Default::default()

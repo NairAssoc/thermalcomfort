@@ -1,6 +1,7 @@
 //! Utility functions for thermal comfort calculations
 
 use crate::constants::*;
+use crate::{Clo, Met};
 use libm::{exp, log, pow, round};
 pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
 
@@ -151,7 +152,7 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 /// # Arguments
 ///
 /// * `v` - Air speed measured by sensor (use `Speed::from_meters_per_second()` or similar)
-/// * `met` - Metabolic rate (met)
+/// * `met` - Metabolic rate
 ///
 /// # Returns
 ///
@@ -161,21 +162,22 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 ///
 /// ```
 /// use thermalcomfort::utilities::v_relative;
-/// use thermalcomfort::Speed;
+/// use thermalcomfort::{Speed, Met};
 ///
 /// let v = Speed::from_meters_per_second(0.1);
-/// let met = 1.4; // metabolic rate [met]
+/// let met = Met::new(1.4);
 /// let vr = v_relative(v, met);
 /// assert!((vr.as_meters_per_second() - 0.22).abs() < 0.01);
 /// ```
 #[inline]
-pub fn v_relative(v: Speed, met: f64) -> Speed {
+pub fn v_relative(v: Speed, met: Met) -> Speed {
     let v_ms = v.as_meters_per_second();
-    let vr_ms = if met > 1.0 {
+    let met_val = met.as_met();
+    let vr_ms = if met_val > 1.0 {
         // Relative air speed accounts for increased air movement from body motion
         // 0.3 m/s per met above 1.0 (ISO 7730 and ASHRAE 55)
         // Round to 3 decimal places
-        round((v_ms + 0.3 * (met - 1.0)) * 1000.0) / 1000.0
+        round((v_ms + 0.3 * (met_val - 1.0)) * 1000.0) / 1000.0
     } else {
         v_ms
     };
@@ -406,12 +408,12 @@ pub fn clo_area_factor(i_cl: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation (clo)
-/// * `met` - Metabolic rate (met)
+/// * `clo` - Static clothing insulation
+/// * `met` - Metabolic rate
 ///
 /// # Returns
 ///
-/// Dynamic clothing insulation (clo)
+/// Dynamic clothing insulation
 ///
 /// # Source
 /// ASHRAE 55: For met > 1.2, clo_dyn = clo * (0.6 + 0.4/met)
@@ -419,9 +421,10 @@ pub fn clo_area_factor(i_cl: f64) -> f64 {
 /// - 0.6: base reduction factor
 /// - 0.4: adjustment factor (accounts for increased ventilation with activity)
 #[inline]
-pub fn clo_dynamic_ashrae(clo: f64, met: f64) -> f64 {
-    if met > 1.2 {
-        round_to(clo * (0.6 + 0.4 / met), 3)
+pub fn clo_dynamic_ashrae(clo: Clo, met: Met) -> Clo {
+    let met_val = met.as_met();
+    if met_val > 1.2 {
+        Clo::new(round_to(clo.as_clo() * (0.6 + 0.4 / met_val), 3))
     } else {
         clo
     }
@@ -563,8 +566,8 @@ pub fn clo_total_insulation(i_t: f64, vr: Speed, v_walk: Speed, i_a_static: f64,
 ///
 /// # Arguments
 ///
-/// * `clo` - Static clothing insulation (clo)
-/// * `met` - Metabolic rate (met)
+/// * `clo` - Static clothing insulation
+/// * `met` - Metabolic rate
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `i_a` - Thermal insulation of boundary air layer (clo) (typically 0.7)
 ///
@@ -576,17 +579,18 @@ pub fn clo_total_insulation(i_t: f64, vr: Speed, v_walk: Speed, i_a_static: f64,
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_dynamic_iso;
-/// use thermalcomfort::Speed;
+/// use thermalcomfort::{Speed, Clo, Met};
 ///
-/// let clo_dyn = clo_dynamic_iso(1.0, 1.2, Speed::from_meters_per_second(0.1), 0.7);
+/// let clo_dyn = clo_dynamic_iso(Clo::new(1.0), Met::new(1.2), Speed::from_meters_per_second(0.1), 0.7);
 /// assert!(clo_dyn > 0.0 && clo_dyn <= 1.0);
 /// ```
-pub fn clo_dynamic_iso(clo: f64, met: f64, v: Speed, i_a: f64) -> f64 {
+pub fn clo_dynamic_iso(clo: Clo, met: Met, v: Speed, i_a: f64) -> f64 {
+    let clo_val = clo.as_clo();
     // Calculate clothing area factor
-    let f_cl = clo_area_factor(clo);
+    let f_cl = clo_area_factor(clo_val);
 
     // Total insulation under static conditions
-    let i_t = clo + i_a / f_cl;
+    let i_t = clo_val + i_a / f_cl;
 
     // Calculate walking speed and relative air speed
     let v_r = v_relative(v, met);
@@ -594,7 +598,7 @@ pub fn clo_dynamic_iso(clo: f64, met: f64, v: Speed, i_a: f64) -> f64 {
     let v_walk = Speed::from_meters_per_second(v_walk_ms);
 
     // Calculate total dynamic insulation
-    let i_t_r = clo_total_insulation(i_t, v_r, v_walk, i_a, clo);
+    let i_t_r = clo_total_insulation(i_t, v_r, v_walk, i_a, clo_val);
 
     // Calculate dynamic air layer insulation
     let i_a_r = clo_insulation_air_layer(v_r, v_walk, i_a);
@@ -883,13 +887,13 @@ mod tests {
 
     #[test]
     fn test_v_relative() {
-        let v1 = v_relative(Speed::from_meters_per_second(0.1), 1.0);
+        let v1 = v_relative(Speed::from_meters_per_second(0.1), Met::new(1.0));
         assert_eq!(v1.as_meters_per_second(), 0.1);
 
-        let v2 = v_relative(Speed::from_meters_per_second(0.1), 1.4);
+        let v2 = v_relative(Speed::from_meters_per_second(0.1), Met::new(1.4));
         assert!((v2.as_meters_per_second() - 0.22).abs() < 0.001);
 
-        let v3 = v_relative(Speed::from_meters_per_second(0.15), 2.0);
+        let v3 = v_relative(Speed::from_meters_per_second(0.15), Met::new(2.0));
         assert!((v3.as_meters_per_second() - 0.45).abs() < 0.001);
     }
 

@@ -16,14 +16,14 @@
 //! ## Example
 //!
 //! ```
-//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity};
+//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, Met, Clo};
 //!
 //! let tdb = Temperature::from_celsius(25.0);
 //! let tr = Temperature::from_celsius(25.0);
 //! let rh = Humidity::from_percent(50.0);
 //! let v = Speed::from_meters_per_second(0.1);
-//! let met = 1.4;  // metabolic rate [met]
-//! let clo = 0.5;  // clothing insulation [clo]
+//! let met = Met::new(1.4);
+//! let clo = Clo::new(0.5);
 //!
 //! // Calculate relative air speed
 //! let vr = v_relative(v, met);
@@ -57,4 +57,163 @@ pub use utilities::{
 
 // Re-export measurements types for convenience
 // Users should import these from thermalcomfort instead of directly from measurements
-pub use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
+pub use measurements::{Area, Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
+
+/// Clothing insulation unit (clo)
+///
+/// 1 clo = 0.155 m²·K/W of thermal resistance per unit body surface area.
+/// Approximately the insulation of a typical business suit.
+///
+/// # Conversions
+///
+/// - 1 clo = 0.155 m²·K/W
+/// - 1 clo = 1.55 tog
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::Clo;
+///
+/// let clo = Clo::new(1.0);
+/// assert!((clo.as_m2_k_per_w() - 0.155).abs() < 1e-10);
+/// assert!((clo.as_tog() - 1.55).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Clo(f64);
+
+impl Clo {
+    /// Create from clo units
+    #[inline]
+    pub const fn new(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Create from tog units (1 clo = 1.55 tog)
+    #[inline]
+    pub fn from_tog(value: f64) -> Self {
+        Self(value / 1.55)
+    }
+
+    /// Create from SI thermal resistance (m²·K/W) (1 clo = 0.155 m²·K/W)
+    #[inline]
+    pub fn from_m2_k_per_w(value: f64) -> Self {
+        Self(value / 0.155)
+    }
+
+    /// Get value in clo units
+    #[inline]
+    pub const fn as_clo(&self) -> f64 {
+        self.0
+    }
+
+    /// Get value in tog units (1 clo = 1.55 tog)
+    #[inline]
+    pub fn as_tog(&self) -> f64 {
+        self.0 * 1.55
+    }
+
+    /// Get value in SI thermal resistance (m²·K/W) (1 clo = 0.155 m²·K/W)
+    #[inline]
+    pub fn as_m2_k_per_w(&self) -> f64 {
+        self.0 * 0.155
+    }
+}
+
+impl Default for Clo {
+    fn default() -> Self {
+        Self(0.0)
+    }
+}
+
+/// Metabolic rate unit (met)
+///
+/// 1 met = 58.15 W/m² (metabolic heat production per unit body surface area),
+/// representing the resting metabolic rate of a seated person.
+///
+/// # Conversions
+///
+/// - 1 met = 58.15 W/m² (ISO 7730 / ASHRAE 55)
+/// - 1 met = 18.4 Btu/(h·ft²)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::Met;
+///
+/// let met = Met::new(1.0);
+/// assert!((met.as_w_per_m2() - 58.15).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Met(f64);
+
+impl Met {
+    /// Conversion factor: 1 met = 58.15 W/m²
+    pub const MET_TO_W_M2: f64 = 58.15;
+
+    /// Conversion factor: 1 met = 18.4 Btu/(h·ft²)
+    pub const MET_TO_BTU_H_FT2: f64 = 18.4;
+
+    /// Create from met units
+    #[inline]
+    pub const fn new(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Create from W/m² (1 met = 58.15 W/m²)
+    #[inline]
+    pub fn from_w_per_m2(value: f64) -> Self {
+        Self(value / Self::MET_TO_W_M2)
+    }
+
+    /// Create from Btu/(h·ft²) (1 met = 18.4 Btu/(h·ft²))
+    #[inline]
+    pub fn from_btu_per_h_ft2(value: f64) -> Self {
+        Self(value / Self::MET_TO_BTU_H_FT2)
+    }
+
+    /// Get value in met units
+    #[inline]
+    pub const fn as_met(&self) -> f64 {
+        self.0
+    }
+
+    /// Get value in W/m² (1 met = 58.15 W/m²)
+    #[inline]
+    pub fn as_w_per_m2(&self) -> f64 {
+        self.0 * Self::MET_TO_W_M2
+    }
+
+    /// Get value in Btu/(h·ft²) (1 met = 18.4 Btu/(h·ft²))
+    #[inline]
+    pub fn as_btu_per_h_ft2(&self) -> f64 {
+        self.0 * Self::MET_TO_BTU_H_FT2
+    }
+}
+
+impl Default for Met {
+    fn default() -> Self {
+        Self(0.0)
+    }
+}
+
+/// Biological sex for physiological calculations
+///
+/// Used in models that differentiate physiological responses by sex,
+/// such as PET (basal metabolism) and ridge regression (body temperature prediction).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sex {
+    Male,
+    Female,
+}
+
+impl Sex {
+    /// Get numeric value (0.0 for Male, 1.0 for Female)
+    ///
+    /// Used internally by ridge regression and other models.
+    pub fn as_value(&self) -> f64 {
+        match self {
+            Sex::Male => 0.0,
+            Sex::Female => 1.0,
+        }
+    }
+}

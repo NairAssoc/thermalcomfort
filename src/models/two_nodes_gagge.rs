@@ -6,6 +6,7 @@
 extern crate alloc;
 
 use crate::utilities::{Posture, p_sat_torr};
+use crate::{Clo, Met};
 use libm::{exp, fabs as abs, pow};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
@@ -53,8 +54,8 @@ pub struct GaggeTwoNodesResult {
 /// Options for the two-node Gagge model
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesOptions {
-    /// External work (met)
-    pub wme: f64,
+    /// External work
+    pub wme: Met,
     /// Body surface area
     pub body_surface_area: Area,
     /// Atmospheric pressure
@@ -76,7 +77,7 @@ pub struct GaggeTwoNodesOptions {
 impl Default for GaggeTwoNodesOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
@@ -128,15 +129,15 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge, GaggeTwoNodesOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let result = two_nodes_gagge(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     Met::new(1.2),
+///     Clo::new(0.5),
 ///     Default::default()
 /// );
 /// println!("SET: {:.1}°C", result.set);
@@ -146,8 +147,8 @@ pub fn two_nodes_gagge(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     options: GaggeTwoNodesOptions,
 ) -> GaggeTwoNodesResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
@@ -162,10 +163,10 @@ pub fn two_nodes_gagge(
         dry_bulb_celsius,
         radiant_celsius,
         speed_mps,
-        metabolic_rate,
-        clothing_insulation,
+        metabolic_rate.as_met(),
+        clothing_insulation.as_clo(),
         vapor_pressure,
-        options.wme,
+        options.wme.as_met(),
         options.body_surface_area.as_square_meters(),
         options.p_atm.as_pascals(),
         options.posture,
@@ -515,8 +516,8 @@ fn gagge_two_nodes_optimized(
 /// Options for the two-node Gagge sleep model
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesSleepOptions {
-    /// External work (met) - typically 0 for sleep
-    pub wme: f64,
+    /// External work - typically 0 for sleep
+    pub wme: Met,
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Body height [cm]
@@ -540,7 +541,7 @@ pub struct GaggeTwoNodesSleepOptions {
 impl Default for GaggeTwoNodesSleepOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             p_atm: Pressure::from_pascals(101325.0),
             height: 171.0,
             weight: 70.0,
@@ -583,14 +584,14 @@ impl Default for GaggeTwoNodesSleepOptions {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge_sleep, GaggeTwoNodesSleepOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Clo};
 ///
 /// let result = two_nodes_gagge_sleep(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     0.5,  // bedding clo
+///     Clo::new(0.5),
 ///     0.1,  // quilt thickness [cm]
 ///     Default::default()
 /// );
@@ -605,7 +606,7 @@ pub fn two_nodes_gagge_sleep(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    clothing_insulation: f64,
+    clothing_insulation: Clo,
     quilt_thickness: f64,
     options: GaggeTwoNodesSleepOptions,
 ) -> GaggeTwoNodesResult {
@@ -647,7 +648,7 @@ pub fn two_nodes_gagge_sleep(
         mean_radiant_temp,
         air_speed,
         relative_humidity,
-        met_sleep,
+        Met::new(met_sleep),
         clothing_insulation,
         gagge_options,
     )
@@ -656,8 +657,8 @@ pub fn two_nodes_gagge_sleep(
 /// Options for the two-node Gagge JI model (for older individuals)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesJiOptions {
-    /// External work (met)
-    pub wme: f64,
+    /// External work
+    pub wme: Met,
     /// Body surface area
     pub body_surface_area: Area,
     /// Atmospheric pressure
@@ -679,7 +680,7 @@ pub struct GaggeTwoNodesJiOptions {
 impl Default for GaggeTwoNodesJiOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
@@ -725,15 +726,15 @@ pub struct GaggeTwoNodesJiResult {
 ///
 /// ```
 /// use thermalcomfort::models::two_nodes_gagge::{two_nodes_gagge_ji, GaggeTwoNodesJiOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let result = two_nodes_gagge_ji(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     Met::new(1.2),
+///     Clo::new(0.5),
 ///     Default::default()
 /// );
 ///
@@ -829,8 +830,8 @@ pub fn two_nodes_gagge_ji(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     options: GaggeTwoNodesJiOptions,
 ) -> GaggeTwoNodesJiResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
@@ -845,10 +846,10 @@ pub fn two_nodes_gagge_ji(
         dry_bulb_celsius,
         radiant_celsius,
         speed_mps,
-        metabolic_rate,
-        clothing_insulation,
+        metabolic_rate.as_met(),
+        clothing_insulation.as_clo(),
         vapor_pressure,
-        options.wme,
+        options.wme.as_met(),
         options.body_surface_area.as_square_meters(),
         options.p_atm.as_pascals(),
         options.posture,
@@ -1072,8 +1073,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -1091,8 +1092,8 @@ mod tests {
             Temperature::from_celsius(10.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.0,
-            1.0,
+            Met::new(1.0),
+            Clo::new(1.0),
             Default::default(),
         );
 
@@ -1108,8 +1109,8 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -1126,7 +1127,7 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            0.5,
+            Clo::new(0.5),
             0.1,
             Default::default(),
         );

@@ -6,13 +6,14 @@
 use crate::models::set_tmp::{SetOptions, set_tmp};
 use crate::numerical::brentq;
 use crate::utilities::Posture;
+use crate::{Clo, Met};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for cooling effect calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoolingEffectOptions {
-    /// External work (met)
-    pub wme: f64,
+    /// External work
+    pub wme: Met,
     /// Still air threshold [m/s]
     pub still_air_threshold: f64,
     /// Body surface area
@@ -26,7 +27,7 @@ pub struct CoolingEffectOptions {
 impl Default for CoolingEffectOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             still_air_threshold: 0.1,
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
@@ -63,7 +64,7 @@ impl Default for CoolingEffectOptions {
 ///
 /// ```
 /// use thermalcomfort::models::cooling_effect::{cooling_effect, CoolingEffectOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// // Calculate cooling effect with elevated air speed
 /// let ce = cooling_effect(
@@ -71,8 +72,8 @@ impl Default for CoolingEffectOptions {
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.5),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     Met::new(1.2),
+///     Clo::new(0.5),
 ///     Default::default()
 /// );
 /// println!("Cooling effect: {:.2}°C", ce);
@@ -82,8 +83,8 @@ pub fn cooling_effect(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     options: CoolingEffectOptions,
 ) -> f64 {
     let air_speed = relative_air_speed.as_meters_per_second();
@@ -153,8 +154,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         assert_eq!(ce, 0.0);
@@ -165,8 +166,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.05),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         assert_eq!(ce, 0.0);
@@ -180,8 +181,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         assert!(ce > 0.0);
@@ -196,8 +197,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         let ce2 = cooling_effect(
@@ -205,8 +206,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.8),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -221,8 +222,8 @@ mod tests {
             Temperature::from_celsius(30.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         assert!(ce > 0.0);

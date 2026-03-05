@@ -6,23 +6,8 @@
 extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
+use crate::Sex;
 use measurements::Temperature;
-
-/// Sex for physiological calculations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sex {
-    Male,
-    Female,
-}
-
-impl Sex {
-    fn as_value(&self) -> f64 {
-        match self {
-            Sex::Male => 0.0,
-            Sex::Female => 1.0,
-        }
-    }
-}
 
 /// Result from ridge regression body temperature prediction
 #[derive(Debug, Clone, PartialEq)]
@@ -256,9 +241,9 @@ fn predict_temperature_simulation(
 ///
 /// ```
 /// use thermalcomfort::models::ridge_regression::{
-///     ridge_regression_predict_t_re_t_sk, Sex, RidgeRegressionOptions
+///     ridge_regression_predict_t_re_t_sk, RidgeRegressionOptions
 /// };
-/// use thermalcomfort::Temperature;
+/// use thermalcomfort::{Sex, Temperature};
 ///
 /// let result = ridge_regression_predict_t_re_t_sk(
 ///     Sex::Male,

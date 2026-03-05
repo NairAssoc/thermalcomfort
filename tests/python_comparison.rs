@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    Iso7933Model, PhsOptions, PhsPosture, RidgeSex, WorkIntensity, adaptive_ashrae, adaptive_en,
+    Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en,
     ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
     humidex, net, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
     ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, two_nodes_gagge,
@@ -17,6 +17,7 @@ use thermalcomfort::models::{
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
+use thermalcomfort::{Clo, Met, Sex};
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
     CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
@@ -60,8 +61,8 @@ fn test_pmv_ppd_iso_standard_conditions() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -124,8 +125,8 @@ fn test_pmv_ppd_iso_extreme_conditions() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 options,
             );
 
@@ -178,8 +179,8 @@ fn test_pmv_ppd_ashrae() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -223,7 +224,7 @@ fn test_v_relative() {
                 .unwrap();
 
             // Call Rust function
-            let rust_vr = v_relative(Speed::from_meters_per_second(v), met);
+            let rust_vr = v_relative(Speed::from_meters_per_second(v), Met::new(met));
 
             println!("  Python: {:.3}", py_vr);
             println!("  Rust:   {:.3}", rust_vr.as_meters_per_second());
@@ -430,8 +431,8 @@ fn test_pmv_ppd_iso_outside_limits() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -478,8 +479,8 @@ fn test_pmv_sequential_scenarios() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -526,8 +527,8 @@ fn test_compare_two_nodes_gagge() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -616,8 +617,8 @@ fn test_compare_pmv_a() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 a_coeff,
                 Default::default(),
             );
@@ -653,8 +654,8 @@ fn test_compare_pmv_e() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 e_coeff,
                 Default::default(),
             );
@@ -689,8 +690,8 @@ fn test_compare_pmv_athb() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                Some(clo),
+                Met::new(met),
+                Some(Clo::new(clo)),
                 Temperature::from_celsius(t_rm),
             );
 
@@ -725,8 +726,8 @@ fn test_compare_set_tmp() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -760,8 +761,8 @@ fn test_compare_cooling_effect() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -1270,8 +1271,8 @@ fn test_compare_ankle_draft() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Speed::from_meters_per_second(v_ankle),
             );
 
@@ -1305,8 +1306,8 @@ fn test_compare_vertical_tmp_grad_ppd() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 grad,
             );
 
@@ -1407,7 +1408,7 @@ fn test_readme_example_basic_pmv_ppd() {
         let clo = 0.5; // clothing insulation [clo]
 
         // Calculate relative air speed (accounts for body movement)
-        let vr = v_relative(Speed::from_meters_per_second(v), met);
+        let vr = v_relative(Speed::from_meters_per_second(v), Met::new(met));
 
         // Python calculation
         let py_result = pythermal
@@ -1424,8 +1425,8 @@ fn test_readme_example_basic_pmv_ppd() {
             Temperature::from_celsius(tr),
             vr,
             Humidity::from_percent(rh),
-            met,
-            clo,
+            Met::new(met),
+            Clo::new(clo),
             Default::default(),
         );
 
@@ -1498,7 +1499,7 @@ fn test_readme_example_custom_pmv_options() {
 
         // Example from README: Custom PMV/PPD Options
         let options = PmvPpdOptions {
-            wme: 0.0,            // external work [met]
+            wme: Met::new(0.0),  // external work [met]
             limit_inputs: false, // don't limit to standard ranges
             round_output: true,  // round output values
         };
@@ -1518,8 +1519,8 @@ fn test_readme_example_custom_pmv_options() {
             Temperature::from_celsius(30.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             options,
         );
 
@@ -1555,8 +1556,8 @@ fn test_readme_example_set() {
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
             Humidity::from_percent(rh),
-            met,
-            clo,
+            Met::new(met),
+            Clo::new(clo),
             Default::default(),
         );
 
@@ -1593,8 +1594,8 @@ fn test_readme_example_cooling_effect() {
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(vr),
             Humidity::from_percent(rh),
-            met,
-            clo,
+            Met::new(met),
+            Clo::new(clo),
             Default::default(),
         );
 
@@ -1793,7 +1794,7 @@ fn test_two_nodes_gagge_sleep_comparison() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                clo,
+                Clo::new(clo),
                 thickness,
                 Default::default(),
             );
@@ -1914,7 +1915,7 @@ fn test_ridge_regression_comparison() {
 
         // Call Rust function
         let rust_result = ridge_regression_predict_t_re_t_sk(
-            RidgeSex::Male,
+            Sex::Male,
             60.0,
             1.8,
             75.0,
@@ -2025,8 +2026,8 @@ fn test_two_nodes_gagge_ji_comparison() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -2096,8 +2097,8 @@ fn test_pet_comparison() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 
@@ -2176,8 +2177,8 @@ fn test_phs_iso2023_comparison() {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(v),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 rust_posture,
                 PhsOptions::default(),
             );
@@ -2240,8 +2241,8 @@ fn test_phs_iso2004_comparison() {
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
             Humidity::from_percent(rh),
-            met,
-            clo,
+            Met::new(met),
+            Clo::new(clo),
             PhsPosture::Standing,
             options,
         );
@@ -2299,8 +2300,8 @@ fn test_phs_short_duration() {
             Temperature::from_celsius(tr),
             Speed::from_meters_per_second(v),
             Humidity::from_percent(rh),
-            met,
-            clo,
+            Met::new(met),
+            Clo::new(clo),
             PhsPosture::Standing,
             options,
         );

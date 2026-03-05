@@ -96,6 +96,7 @@
 
 use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
+use crate::{Clo, Met, Sex};
 use libm::{exp, fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
@@ -128,8 +129,8 @@ pub enum Posture {
 pub struct PetOptions {
     /// Age [years]
     pub age: f64,
-    /// Sex (true = male, false = female)
-    pub sex: bool,
+    /// Biological sex
+    pub sex: Sex,
     /// Body height
     pub height: Length,
     /// Body weight
@@ -148,7 +149,7 @@ impl Default for PetOptions {
     fn default() -> Self {
         Self {
             age: 23.0,
-            sex: true, // male
+            sex: Sex::Male,
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
@@ -171,8 +172,8 @@ impl Default for PetOptions {
 /// * `tr` - Mean radiant temperature
 /// * `v` - Air velocity [m/s]
 /// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate [met]
-/// * `clo` - Clothing insulation [clo]
+/// * `met` - Metabolic rate (met)
+/// * `clo` - Clothing insulation (clo)
 /// * `options` - Model options
 ///
 /// # Returns
@@ -190,7 +191,7 @@ impl Default for PetOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 /// use thermalcomfort::models::pet::{pet_steady, PetOptions};
 ///
 /// let result = pet_steady(
@@ -198,8 +199,8 @@ impl Default for PetOptions {
 ///     Temperature::from_celsius(27.0),
 ///     Speed::from_meters_per_second(1.0),
 ///     Humidity::from_percent(50.0),
-///     1.0,
-///     0.5,
+///     Met::new(1.0),
+///     Clo::new(0.5),
 ///     Default::default()
 /// );
 /// println!("PET: {:.1}°C", result.pet);
@@ -215,8 +216,8 @@ pub fn pet_steady(
     tr: Temperature,
     v: Speed,
     rh: Humidity,
-    met: f64,
-    clo: f64,
+    met: Met,
+    clo: Clo,
     options: PetOptions,
 ) -> PetResult {
     let tdb_c = tdb.as_celsius();
@@ -230,8 +231,12 @@ pub fn pet_steady(
     // Calculate body surface area (DuBois formula)
     let a_dubois = body_surface_area_dubois(options.weight, options.height).as_square_meters();
 
+    // Convert typed parameters to raw values for internal calculations
+    let clo = clo.as_clo();
+    let sex_bool = matches!(options.sex, Sex::Male);
+
     // Metabolic rate - Python just does met * 58.2 (dimensionless, treated as W later)
-    let met_converted = met * 58.2;
+    let met_converted = met.as_met() * 58.2;
 
     // Solve for T_core, T_skin, T_clo in actual environment
     let (t_core, t_skin, t_clo) = solve_3node_system(
@@ -245,7 +250,7 @@ pub fn pet_steady(
         height_m,
         weight_kg,
         options.age,
-        options.sex,
+        sex_bool,
         options.work,
         p_atm_hpa,
         options.posture,
@@ -267,7 +272,7 @@ pub fn pet_steady(
             height_m,
             weight_kg,
             options.age,
-            options.sex,
+            sex_bool,
             p_atm_hpa,
             options.posture,
         )
@@ -1149,8 +1154,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.0,
-            0.5,
+            Met::new(1.0),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -1166,8 +1171,8 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
             Humidity::from_percent(60.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -1179,7 +1184,7 @@ mod tests {
     fn test_pet_cold() {
         let opts = PetOptions {
             age: 23.0,
-            sex: true,
+            sex: Sex::Male,
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
@@ -1193,8 +1198,8 @@ mod tests {
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(2.0),
             Humidity::from_percent(50.0),
-            1.5,
-            1.0,
+            Met::new(1.5),
+            Clo::new(1.0),
             opts,
         );
 

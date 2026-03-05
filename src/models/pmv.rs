@@ -4,6 +4,7 @@
 
 use crate::constants::*;
 use crate::utilities::{round_to, valid_range};
+use crate::{Clo, Met};
 use libm::{exp, fabs as abs, fmax, pow, sqrt};
 use measurements::{Humidity, Speed, Temperature};
 
@@ -52,8 +53,8 @@ impl ThermalSensation {
 /// PMV/PPD calculation options
 #[derive(Debug, Clone, Copy)]
 pub struct PmvPpdOptions {
-    /// External work (met), default 0.0
-    pub wme: f64,
+    /// External work, default 0 met
+    pub wme: Met,
     /// Limit inputs to standard compliance ranges
     pub limit_inputs: bool,
     /// Round output values
@@ -63,7 +64,7 @@ pub struct PmvPpdOptions {
 impl Default for PmvPpdOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             limit_inputs: true,
             round_output: true,
         }
@@ -105,14 +106,14 @@ impl Default for PmvPpdOptions {
 /// ```
 /// use thermalcomfort::models::pmv_ppd_iso;
 /// use thermalcomfort::utilities::v_relative;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
 /// let tr = Temperature::from_celsius(25.0);
 /// let rh = Humidity::from_percent(50.0);
 /// let v = Speed::from_meters_per_second(0.1);
-/// let met = 1.4;
-/// let clo = 0.5;
+/// let met = Met::new(1.4);
+/// let clo = Clo::new(0.5);
 ///
 /// let vr = v_relative(v, met);
 /// let result = pmv_ppd_iso(
@@ -131,22 +132,24 @@ pub fn pmv_ppd_iso(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let air_speed = relative_air_speed.as_meters_per_second();
     let rh_percent = relative_humidity.as_percent();
+    let met = metabolic_rate.as_met();
+    let clo = clothing_insulation.as_clo();
 
     // Check standard compliance if requested
     if options.limit_inputs {
         let dry_bulb_valid = valid_range(dry_bulb_celsius, 10.0, 30.0);
         let radiant_valid = valid_range(radiant_celsius, 10.0, 40.0);
         let speed_valid = valid_range(air_speed, 0.0, 1.0);
-        let metabolic_valid = valid_range(metabolic_rate, 0.8, 4.0);
-        let clothing_valid = valid_range(clothing_insulation, 0.0, 2.0);
+        let metabolic_valid = valid_range(met, 0.8, 4.0);
+        let clothing_valid = valid_range(clo, 0.0, 2.0);
 
         if dry_bulb_valid.is_nan()
             || radiant_valid.is_nan()
@@ -168,9 +171,9 @@ pub fn pmv_ppd_iso(
         radiant_celsius,
         air_speed,
         rh_percent,
-        metabolic_rate,
-        clothing_insulation,
-        options.wme,
+        met,
+        clo,
+        options.wme.as_met(),
     );
 
     // Check PMV range if limiting inputs
@@ -231,22 +234,24 @@ pub fn pmv_ppd_ashrae(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let air_speed = relative_air_speed.as_meters_per_second();
     let rh_percent = relative_humidity.as_percent();
+    let met = metabolic_rate.as_met();
+    let clo = clothing_insulation.as_clo();
 
     // Check ASHRAE standard compliance if requested
     if options.limit_inputs {
         let dry_bulb_valid = valid_range(dry_bulb_celsius, 10.0, 40.0);
         let radiant_valid = valid_range(radiant_celsius, 10.0, 40.0);
         let speed_valid = valid_range(air_speed, 0.0, 2.0);
-        let metabolic_valid = valid_range(metabolic_rate, 1.0, 4.0);
-        let clothing_valid = valid_range(clothing_insulation, 0.0, 1.5);
+        let metabolic_valid = valid_range(met, 1.0, 4.0);
+        let clothing_valid = valid_range(clo, 0.0, 1.5);
 
         if dry_bulb_valid.is_nan()
             || radiant_valid.is_nan()
@@ -268,9 +273,9 @@ pub fn pmv_ppd_ashrae(
         radiant_celsius,
         air_speed,
         rh_percent,
-        metabolic_rate,
-        clothing_insulation,
-        options.wme,
+        met,
+        clo,
+        options.wme.as_met(),
     );
 
     // Calculate PPD from PMV
@@ -446,15 +451,15 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 ///
 /// ```
 /// use thermalcomfort::models::pmv_a;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let a_pmv = pmv_a(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     Met::new(1.2),
+///     Clo::new(0.5),
 ///     0.5,  // adaptive coefficient
 ///     Default::default()
 /// );
@@ -470,8 +475,8 @@ pub fn pmv_a(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     a_coefficient: f64,
     options: PmvPpdOptions,
 ) -> f64 {
@@ -520,15 +525,15 @@ pub fn pmv_a(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_e;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let e_pmv = pmv_e(
 ///     Temperature::from_celsius(28.0),
 ///     Temperature::from_celsius(28.0),
 ///     Speed::from_meters_per_second(0.2),
 ///     Humidity::from_percent(60.0),
-///     1.2,
-///     0.5,
+///     Met::new(1.2),
+///     Clo::new(0.5),
 ///     0.7,  // expectancy factor
 ///     Default::default()
 /// );
@@ -544,8 +549,8 @@ pub fn pmv_e(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
     e_coefficient: f64,
     options: PmvPpdOptions,
 ) -> f64 {
@@ -563,7 +568,7 @@ pub fn pmv_e(
 
     // Adjust metabolic rate if warm (PMV > 0)
     let met_adjusted = if pmv1 > 0.0 {
-        metabolic_rate * (1.0 + pmv1 * (-0.067))
+        Met::new(metabolic_rate.as_met() * (1.0 + pmv1 * (-0.067)))
     } else {
         metabolic_rate
     };
@@ -607,15 +612,15 @@ pub fn pmv_e(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_athb;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let athb_pmv = pmv_athb(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     Some(0.6),  // clothing insulation
+///     Met::new(1.2),
+///     Some(Clo::new(0.6)),
 ///     Temperature::from_celsius(20.0)  // running mean outdoor temp
 /// );
 /// // ATHB PMV accounts for physiological and behavioral adaptation
@@ -629,18 +634,18 @@ pub fn pmv_athb(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: Option<f64>,
+    metabolic_rate: Met,
+    clothing_insulation: Option<Clo>,
     running_mean_outdoor_temp: Temperature,
 ) -> f64 {
     let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
 
     // Adapt metabolic rate for psychological adaptation
-    let met_adapted = metabolic_rate - (0.234 * running_mean_celsius) / 58.2;
+    let met_adapted = metabolic_rate.as_met() - (0.234 * running_mean_celsius) / 58.2;
 
     // Calculate or use provided clothing insulation
     let clo_adapted = if let Some(c) = clothing_insulation {
-        c
+        c.as_clo()
     } else {
         // Behavioral adaptation: calculate clothing from conditions
         let exponent = -0.17168 - 0.000485 * running_mean_celsius + 0.08176 * met_adapted
@@ -658,8 +663,8 @@ pub fn pmv_athb(
         mean_radiant_temp,
         relative_air_speed,
         relative_humidity,
-        met_adapted,
-        clo_adapted,
+        Met::new(met_adapted),
+        Clo::new(clo_adapted),
         options,
     )
     .pmv;
@@ -706,8 +711,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
 
@@ -724,8 +729,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             Default::default(),
         );
         assert!(result.pmv.is_nan());
@@ -741,8 +746,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            Met::new(1.2),
+            Clo::new(0.5),
             options,
         );
         assert!(!result.pmv.is_nan());
@@ -782,8 +787,8 @@ mod tests {
                 Temperature::from_celsius(tr),
                 Speed::from_meters_per_second(vr),
                 Humidity::from_percent(rh),
-                met,
-                clo,
+                Met::new(met),
+                Clo::new(clo),
                 Default::default(),
             );
 

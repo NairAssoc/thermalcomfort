@@ -5,6 +5,7 @@
 
 use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
+use crate::{Clo, Met};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result of fan use during heatwaves assessment
@@ -76,16 +77,16 @@ pub struct UseFansHeatwavesResult {
 /// ```
 /// use thermalcomfort::models::use_fans_heatwaves::use_fans_heatwaves;
 /// use thermalcomfort::utilities::Posture;
-/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity, Met, Clo};
 ///
 /// let result = use_fans_heatwaves(
 ///     Temperature::from_celsius(35.0),
 ///     Temperature::from_celsius(35.0),
 ///     Speed::from_meters_per_second(1.0),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
-///     0.0,
+///     Met::new(1.2),
+///     Clo::new(0.5),
+///     Met::new(0.0),
 ///     Area::from_square_meters(1.8258),
 ///     Pressure::from_pascals(101325.0),
 ///     Posture::Standing,
@@ -100,9 +101,9 @@ pub fn use_fans_heatwaves(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
-    wme: f64,
+    metabolic_rate: Met,
+    clothing_insulation: Clo,
+    wme: Met,
     body_surface_area: Area,
     p_atm: Pressure,
     posture: Posture,
@@ -167,9 +168,9 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            0.0,
+            Met::new(1.2),
+            Clo::new(0.5),
+            Met::new(0.0),
             Area::from_square_meters(1.8258),
             Pressure::from_pascals(101325.0),
             Posture::Standing,
@@ -188,9 +189,9 @@ mod tests {
             Temperature::from_celsius(45.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(70.0),
-            1.8,
-            0.3,
-            0.0,
+            Met::new(1.8),
+            Clo::new(0.3),
+            Met::new(0.0),
             Area::from_square_meters(1.8258),
             Pressure::from_pascals(101325.0),
             Posture::Standing,

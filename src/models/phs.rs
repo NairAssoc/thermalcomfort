@@ -38,7 +38,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::utilities::{body_surface_area_dubois, p_sat};
-use crate::{Humidity, Length, Mass, Speed, Temperature};
+use crate::{Clo, Humidity, Length, Mass, Met, Speed, Temperature};
 use libm::{cos, exp, pow, sqrt};
 
 /// Result of PHS calculation
@@ -91,8 +91,8 @@ pub enum Iso7933Model {
 /// Options for PHS calculation
 #[derive(Debug, Clone, Copy)]
 pub struct PhsOptions {
-    /// External work [met]. Default: 0.0
-    pub wme: f64,
+    /// External work. Default: 0 met
+    pub wme: Met,
     /// Round output values. Default: true
     pub round_output: bool,
     /// ISO 7933 model version. Default: Iso2023
@@ -103,8 +103,8 @@ pub struct PhsOptions {
     pub i_mst: f64,
     /// Fraction of body covered by reflective clothing [dimensionless]. Default: 0.54
     pub a_p: f64,
-    /// 1 if workers can drink freely, 0 otherwise. Default: 1
-    pub drink: i32,
+    /// Whether workers can drink freely. Default: true
+    pub drink: bool,
     /// Body weight [kg]. Default: 75.0
     pub weight: f64,
     /// Height [m]. Default: 1.8
@@ -113,8 +113,8 @@ pub struct PhsOptions {
     pub walk_sp: f64,
     /// Angle between walking and wind direction [degrees]. Default: 0.0
     pub theta: f64,
-    /// 100 if acclimatized, 0 otherwise. Default: 100
-    pub acclimatized: i32,
+    /// Whether worker is acclimatized. Default: true
+    pub acclimatized: bool,
     /// Duration of work sequence [minutes]. Default: 480
     pub duration: i32,
     /// Emissivity of reflective clothing [dimensionless]. Default: depends on model
@@ -138,18 +138,18 @@ pub struct PhsOptions {
 impl Default for PhsOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
+            wme: Met::new(0.0),
             round_output: true,
             model: Iso7933Model::Iso2023,
             limit_inputs: true,
             i_mst: 0.38,
             a_p: 0.54,
-            drink: 1,
+            drink: true,
             weight: 75.0,
             height: 1.8,
             walk_sp: 0.0,
             theta: 0.0,
-            acclimatized: 100,
+            acclimatized: true,
             duration: 480,
             f_r: None,
             t_sk: 34.1,
@@ -209,15 +209,15 @@ const I_A_ST: f64 = 0.111; // m²·K/W
 ///
 /// ```
 /// use thermalcomfort::models::{phs, PhsOptions, PhsPosture};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
 ///
 /// let result = phs(
 ///     Temperature::from_celsius(40.0),
 ///     Temperature::from_celsius(40.0),
 ///     Speed::from_meters_per_second(0.3),
 ///     Humidity::from_percent(33.85),
-///     2.5,
-///     0.5,
+///     Met::new(2.5),
+///     Clo::new(0.5),
 ///     PhsPosture::Standing,
 ///     PhsOptions::default(),
 /// );
@@ -235,8 +235,8 @@ pub fn phs(
     tr: Temperature,
     v: Speed,
     rh: Humidity,
-    met: f64,
-    clo: f64,
+    met: Met,
+    clo: Clo,
     posture: PhsPosture,
     options: PhsOptions,
 ) -> PhsResult {
@@ -244,6 +244,8 @@ pub fn phs(
     let tr = tr.as_celsius();
     let v = v.as_meters_per_second();
     let rh = rh.as_percent();
+    let met = met.as_met();
+    let clo = clo.as_clo();
 
     // Input validation
     if options.limit_inputs
@@ -313,14 +315,14 @@ pub fn phs(
         Iso7933Model::Iso2004 => {
             let mut sw = (met - 32.0) * a_dubois;
             sw = sw.clamp(250.0, 400.0);
-            if options.acclimatized == 100 {
+            if options.acclimatized {
                 sw * 1.25
             } else {
                 sw
             }
         }
         Iso7933Model::Iso2023 => {
-            if options.acclimatized == 0 {
+            if !options.acclimatized {
                 400.0
             } else {
                 500.0
@@ -408,7 +410,7 @@ pub fn phs(
             0.05 * options.weight * 1000.0,
         ),
         Iso7933Model::Iso2023 => {
-            let max_loss = if options.drink == 1 {
+            let max_loss = if options.drink {
                 0.05 * options.weight * 1000.0
             } else {
                 0.03 * options.weight * 1000.0
@@ -418,7 +420,7 @@ pub fn phs(
     };
 
     // Maximum skin wettedness (based on acclimatization, matching Python reference)
-    let w_max = if options.acclimatized == 0 { 0.85 } else { 1.0 };
+    let w_max = if !options.acclimatized { 0.85 } else { 1.0 };
 
     // Compute hc_dyn ONCE before the time loop (matching Python reference)
     let hc_dyn = {
@@ -503,7 +505,7 @@ pub fn phs(
         let e_max = (p_sk - p_a) / r_t_dyn;
         let e_req = met * MET_TO_W_M2
             - d_stored_eq
-            - options.wme * MET_TO_W_M2
+            - options.wme.as_met() * MET_TO_W_M2
             - c_res
             - e_res
             - convection
@@ -586,7 +588,7 @@ pub fn phs(
     }
 
     // Post-simulation adjustments
-    if options.drink == 0 {
+    if !options.drink {
         d_lim_loss_95 *= 0.6;
         d_lim_loss_50 = d_lim_loss_95;
     }
@@ -669,8 +671,8 @@ mod tests {
             Temperature::from_celsius(40.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(33.85),
-            2.5,
-            0.5,
+            Met::new(2.5),
+            Clo::new(0.5),
             PhsPosture::Standing,
             PhsOptions::default(),
         );
@@ -693,8 +695,8 @@ mod tests {
             Temperature::from_celsius(40.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(50.0),
-            2.5,
-            0.5,
+            Met::new(2.5),
+            Clo::new(0.5),
             PhsPosture::Standing,
             PhsOptions::default(),
         );
@@ -714,8 +716,8 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            2.0,
-            0.5,
+            Met::new(2.0),
+            Clo::new(0.5),
             PhsPosture::Standing,
             options,
         );
