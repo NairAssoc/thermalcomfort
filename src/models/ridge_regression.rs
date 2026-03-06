@@ -210,12 +210,12 @@ fn predict_temperature_simulation(
 /// # Arguments
 ///
 /// * `sex` - Biological sex
-/// * `age` - Age [years]
+/// * `age` - Age \[years\]
 /// * `height` - Body height (use `Length::from_meters()` or similar)
 /// * `weight` - Body weight (use `Mass::from_kilograms()` or similar)
 /// * `tdb` - Ambient air temperature (use `Temperature::from_celsius()` or similar)
 /// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
-/// * `duration` - Simulation duration [minutes]
+/// * `duration` - Simulation duration \[minutes\]
 /// * `options` - Model options
 ///
 /// # Returns

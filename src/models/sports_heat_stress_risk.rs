@@ -35,7 +35,7 @@ pub struct SportsValues {
     pub met: MetabolicRate,
     /// Relative air speed [m/s]
     pub vr: f64,
-    /// Activity duration [minutes]
+    /// Activity duration \[minutes\]
     pub duration: i32,
 }
 

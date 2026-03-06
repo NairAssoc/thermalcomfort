@@ -127,7 +127,7 @@ pub enum Posture {
 /// Options for PET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetOptions {
-    /// Age [years]
+    /// Age \[years\]
     pub age: f64,
     /// Biological sex
     pub sex: Sex,

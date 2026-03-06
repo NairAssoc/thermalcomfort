@@ -209,7 +209,7 @@ pub fn round_to(value: f64, decimals: i32) -> f64 {
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure [Pa]
+/// Saturation vapor pressure \[Pa\]
 #[inline]
 pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
     let tdb_celsius = tdb.as_celsius();
@@ -217,7 +217,7 @@ pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
     Pressure::from_pascals(p_pa)
 }
 
-/// Calculate saturation vapor pressure using Antoine equation [kPa]
+/// Calculate saturation vapor pressure using Antoine equation \[kPa\]
 ///
 /// This is an alias for p_sat_antoine that returns the value in kPa
 /// to match the Python pythermalcomfort.utilities.antoine function.
@@ -228,7 +228,7 @@ pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure [kPa]
+/// Saturation vapor pressure \[kPa\]
 ///
 /// # Examples
 ///

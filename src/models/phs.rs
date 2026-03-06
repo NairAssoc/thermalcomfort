@@ -52,15 +52,15 @@ pub struct PhsResult {
     pub t_cr: f64,
     /// Core temperature as a function of metabolic rate [°C]
     pub t_cr_eq: f64,
-    /// Fraction of body mass at skin temperature [dimensionless]
+    /// Fraction of body mass at skin temperature \[dimensionless\]
     pub t_sk_t_cr_wg: f64,
-    /// Maximum allowable exposure time for 50% worker (dehydration) [minutes]
+    /// Maximum allowable exposure time for 50% worker (dehydration) \[minutes\]
     pub d_lim_loss_50: f64,
-    /// Maximum allowable exposure time for 95% worker (dehydration) [minutes]
+    /// Maximum allowable exposure time for 95% worker (dehydration) \[minutes\]
     pub d_lim_loss_95: f64,
-    /// Maximum allowable exposure time for heat storage [minutes]
+    /// Maximum allowable exposure time for heat storage \[minutes\]
     pub d_lim_t_re: f64,
-    /// Cumulative sweat loss for whole person [grams]
+    /// Cumulative sweat loss for whole person \[grams\]
     pub sweat_loss_g: f64,
     /// Instantaneous evaporative heat flux at skin [W/m²]
     pub sweat_rate_watt: f64,
@@ -99,9 +99,9 @@ pub struct PhsOptions {
     pub model: Iso7933Model,
     /// Limit inputs to standard applicability. Default: true
     pub limit_inputs: bool,
-    /// Static moisture permeability index [dimensionless]. Default: 0.38
+    /// Static moisture permeability index \[dimensionless\]. Default: 0.38
     pub i_mst: f64,
-    /// Fraction of body covered by reflective clothing [dimensionless]. Default: 0.54
+    /// Fraction of body covered by reflective clothing \[dimensionless\]. Default: 0.54
     pub a_p: f64,
     /// Whether workers can drink freely. Default: true
     pub drink: bool,
@@ -111,13 +111,13 @@ pub struct PhsOptions {
     pub height: Length,
     /// Walking speed. Default: 0.0 m/s
     pub walk_sp: Speed,
-    /// Angle between walking and wind direction [degrees]. Default: 0.0
+    /// Angle between walking and wind direction \[degrees\]. Default: 0.0
     pub theta: f64,
     /// Whether worker is acclimatized. Default: true
     pub acclimatized: bool,
-    /// Duration of work sequence [minutes]. Default: 480
+    /// Duration of work sequence \[minutes\]. Default: 480
     pub duration: i32,
-    /// Emissivity of reflective clothing [dimensionless]. Default: depends on model
+    /// Emissivity of reflective clothing \[dimensionless\]. Default: depends on model
     pub f_r: Option<f64>,
     /// Initial mean skin temperature. Default: 34.1°C
     pub t_sk: Temperature,
