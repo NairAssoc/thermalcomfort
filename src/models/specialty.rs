@@ -3,7 +3,7 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv::pmv_ppd_ashrae;
-use crate::{Clo, Met};
+use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Humidity, Length, Speed, Temperature};
 
 /// Calculate percentage dissatisfied due to ankle draft
@@ -29,15 +29,15 @@ use measurements::{Humidity, Length, Speed, Temperature};
 ///
 /// ```
 /// use thermalcomfort::models::ankle_draft;
-/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let (ppd, acceptable) = ankle_draft(
 ///     Temperature::from_celsius(23.0),
 ///     Temperature::from_celsius(23.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(45.0),
-///     Met::new(1.1),
-///     Clo::new(0.7),
+///     MetabolicRate::from_met(1.1),
+///     ClothingInsulation::from_clo(0.7),
 ///     Speed::from_meters_per_second(0.15)  // ankle draft
 /// );
 /// println!("PPD ankle draft: {:.1}%, Acceptable: {}", ppd, acceptable);
@@ -52,8 +52,8 @@ pub fn ankle_draft(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: Met,
-    clothing_insulation: Clo,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     ankle_air_speed: Speed,
 ) -> (f64, bool) {
     // Calculate PMV value for use in ankle draft equation
@@ -103,15 +103,15 @@ pub fn ankle_draft(
 ///
 /// ```
 /// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     Met::new(1.2),
-///     Clo::new(0.5),
+///     MetabolicRate::from_met(1.2),
+///     ClothingInsulation::from_clo(0.5),
 ///     2.0  // 2°C temperature gradient
 /// );
 /// println!("PPD vertical gradient: {:.1}%, Acceptable: {}", ppd, acceptable);
@@ -126,8 +126,8 @@ pub fn vertical_tmp_grad_ppd(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: Met,
-    clothing_insulation: Clo,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     vertical_temp_gradient: f64,
 ) -> (f64, bool) {
     // Calculate PMV value for use in vertical temperature gradient equation
@@ -220,8 +220,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.2),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Speed::from_meters_per_second(0.3),
         );
         assert!((0.0..=100.0).contains(&ppd));
@@ -236,8 +236,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             2.0,
         );
         // PPD can be negative for comfortable conditions (formula artifact)

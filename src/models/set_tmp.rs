@@ -5,14 +5,14 @@
 
 use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use crate::{Clo, Met};
+use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetOptions {
     /// External work
-    pub wme: Met,
+    pub wme: MetabolicRate,
     /// Body surface area
     pub body_surface_area: Area,
     /// Atmospheric pressure
@@ -28,7 +28,7 @@ pub struct SetOptions {
 impl Default for SetOptions {
     fn default() -> Self {
         Self {
-            wme: Met::new(0.0),
+            wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
@@ -73,15 +73,15 @@ impl Default for SetOptions {
 ///
 /// ```
 /// use thermalcomfort::models::set_tmp::{set_tmp, SetOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let set = set_tmp(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     Met::new(1.2),
-///     Clo::new(0.5),
+///     MetabolicRate::from_met(1.2),
+///     ClothingInsulation::from_clo(0.5),
 ///     Default::default()
 /// );
 /// println!("SET: {:.1}°C", set);
@@ -91,8 +91,8 @@ pub fn set_tmp(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: Met,
-    clothing_insulation: Clo,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     options: SetOptions,
 ) -> f64 {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
@@ -162,8 +162,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(set > 20.0 && set < 30.0);
@@ -178,8 +178,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(set.is_nan());
@@ -190,8 +190,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(set.is_nan());
@@ -202,8 +202,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(0.5),
-            Clo::new(0.5),
+            MetabolicRate::from_met(0.5),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(set.is_nan());
@@ -218,8 +218,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             options,
         );
         assert!(!set.is_nan());
@@ -236,8 +236,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             options_round,
         );
 
@@ -250,8 +250,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             options_no_round,
         );
 

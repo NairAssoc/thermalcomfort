@@ -2,7 +2,7 @@
 
 use thermalcomfort::models::pmv_ppd_iso;
 use thermalcomfort::utilities::v_relative;
-use thermalcomfort::{Clo, Humidity, Met, Speed, Temperature};
+use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 fn main() {
     println!("=== Thermal Comfort PMV/PPD Example ===\n");
@@ -12,8 +12,8 @@ fn main() {
     let tr = Temperature::from_celsius(25.0); // mean radiant temperature
     let rh = Humidity::from_percent(50.0); // relative humidity
     let v = Speed::from_meters_per_second(0.1); // air speed
-    let met = Met::new(1.4); // metabolic rate [met]
-    let clo = Clo::new(0.5); // clothing insulation [clo]
+    let met = MetabolicRate::from_met(1.4); // metabolic rate [met]
+    let clo = ClothingInsulation::from_clo(0.5); // clothing insulation [clo]
 
     println!("Environmental Conditions:");
     println!("  Temperature (dry bulb): {:.1}°C", tdb.as_celsius());

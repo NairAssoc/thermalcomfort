@@ -1,7 +1,7 @@
 //! Utility functions for thermal comfort calculations
 
 use crate::constants::*;
-use crate::{Clo, Met};
+use crate::{ClothingInsulation, MetabolicRate};
 use libm::{exp, log, pow, round};
 pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
 
@@ -162,15 +162,15 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
 ///
 /// ```
 /// use thermalcomfort::utilities::v_relative;
-/// use thermalcomfort::{Speed, Met};
+/// use thermalcomfort::{Speed, MetabolicRate};
 ///
 /// let v = Speed::from_meters_per_second(0.1);
-/// let met = Met::new(1.4);
+/// let met = MetabolicRate::from_met(1.4);
 /// let vr = v_relative(v, met);
 /// assert!((vr.as_meters_per_second() - 0.22).abs() < 0.01);
 /// ```
 #[inline]
-pub fn v_relative(v: Speed, met: Met) -> Speed {
+pub fn v_relative(v: Speed, met: MetabolicRate) -> Speed {
     let v_ms = v.as_meters_per_second();
     let met_val = met.as_met();
     let vr_ms = if met_val > 1.0 {
@@ -400,7 +400,7 @@ pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> A
 /// ISO 9920: f_cl = 1.0 + 0.28 * i_cl
 /// where 0.28 is the empirical coefficient relating clothing insulation to increased surface area
 #[inline]
-pub fn clo_area_factor(i_cl: Clo) -> f64 {
+pub fn clo_area_factor(i_cl: ClothingInsulation) -> f64 {
     1.0 + 0.28 * i_cl.as_clo()
 }
 
@@ -421,10 +421,10 @@ pub fn clo_area_factor(i_cl: Clo) -> f64 {
 /// - 0.6: base reduction factor
 /// - 0.4: adjustment factor (accounts for increased ventilation with activity)
 #[inline]
-pub fn clo_dynamic_ashrae(clo: Clo, met: Met) -> Clo {
+pub fn clo_dynamic_ashrae(clo: ClothingInsulation, met: MetabolicRate) -> ClothingInsulation {
     let met_val = met.as_met();
     if met_val > 1.2 {
-        Clo::new(round_to(clo.as_clo() * (0.6 + 0.4 / met_val), 3))
+        ClothingInsulation::from_clo(round_to(clo.as_clo() * (0.6 + 0.4 / met_val), 3))
     } else {
         clo
     }
@@ -450,17 +450,17 @@ pub fn clo_dynamic_ashrae(clo: Clo, met: Met) -> Clo {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_insulation_air_layer;
-/// use thermalcomfort::{Speed, Clo};
+/// use thermalcomfort::{Speed, ClothingInsulation};
 ///
 /// let i_a_r = clo_insulation_air_layer(
 ///     Speed::from_meters_per_second(0.1),
 ///     Speed::from_meters_per_second(0.0),
-///     Clo::new(0.7)
+///     ClothingInsulation::from_clo(0.7)
 /// );
 /// assert!((i_a_r - 0.719).abs() < 0.01);
 /// ```
 #[inline]
-pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: Clo) -> f64 {
+pub fn clo_insulation_air_layer(vr: Speed, v_walk: Speed, i_a_static: ClothingInsulation) -> f64 {
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
     exp(
@@ -531,18 +531,18 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_total_insulation;
-/// use thermalcomfort::{Speed, Clo};
+/// use thermalcomfort::{Speed, ClothingInsulation};
 ///
 /// let i_t_r = clo_total_insulation(
-///     Clo::new(1.5),
+///     ClothingInsulation::from_clo(1.5),
 ///     Speed::from_meters_per_second(0.1),
 ///     Speed::from_meters_per_second(0.0),
-///     Clo::new(0.7),
-///     Clo::new(1.0)
+///     ClothingInsulation::from_clo(0.7),
+///     ClothingInsulation::from_clo(1.0)
 /// );
 /// assert!(i_t_r > 0.0);
 /// ```
-pub fn clo_total_insulation(i_t: Clo, vr: Speed, v_walk: Speed, i_a_static: Clo, i_cl: Clo) -> f64 {
+pub fn clo_total_insulation(i_t: ClothingInsulation, vr: Speed, v_walk: Speed, i_a_static: ClothingInsulation, i_cl: ClothingInsulation) -> f64 {
     let i_t = i_t.as_clo();
     let i_a_static = i_a_static.as_clo();
     let i_cl = i_cl.as_clo();
@@ -582,12 +582,12 @@ pub fn clo_total_insulation(i_t: Clo, vr: Speed, v_walk: Speed, i_a_static: Clo,
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_dynamic_iso;
-/// use thermalcomfort::{Speed, Clo, Met};
+/// use thermalcomfort::{Speed, ClothingInsulation, MetabolicRate};
 ///
-/// let clo_dyn = clo_dynamic_iso(Clo::new(1.0), Met::new(1.2), Speed::from_meters_per_second(0.1), Clo::new(0.7));
+/// let clo_dyn = clo_dynamic_iso(ClothingInsulation::from_clo(1.0), MetabolicRate::from_met(1.2), Speed::from_meters_per_second(0.1), ClothingInsulation::from_clo(0.7));
 /// assert!(clo_dyn > 0.0 && clo_dyn <= 1.0);
 /// ```
-pub fn clo_dynamic_iso(clo: Clo, met: Met, v: Speed, i_a: Clo) -> f64 {
+pub fn clo_dynamic_iso(clo: ClothingInsulation, met: MetabolicRate, v: Speed, i_a: ClothingInsulation) -> f64 {
     let clo_val = clo.as_clo();
     // Calculate clothing area factor
     let f_cl = clo_area_factor(clo);
@@ -601,7 +601,7 @@ pub fn clo_dynamic_iso(clo: Clo, met: Met, v: Speed, i_a: Clo) -> f64 {
     let v_walk = Speed::from_meters_per_second(v_walk_ms);
 
     // Calculate total dynamic insulation
-    let i_t_r = clo_total_insulation(Clo::new(i_t), v_r, v_walk, i_a, clo);
+    let i_t_r = clo_total_insulation(ClothingInsulation::from_clo(i_t), v_r, v_walk, i_a, clo);
 
     // Calculate dynamic air layer insulation
     let i_a_r = clo_insulation_air_layer(v_r, v_walk, i_a);
@@ -680,12 +680,12 @@ pub fn clo_tout(tout: Temperature) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_correction_factor_environment;
-/// use thermalcomfort::{Speed, Clo};
+/// use thermalcomfort::{Speed, ClothingInsulation};
 ///
 /// let cf = clo_correction_factor_environment(
 ///     Speed::from_meters_per_second(0.3),
 ///     Speed::from_meters_per_second(0.5),
-///     Clo::new(0.8)
+///     ClothingInsulation::from_clo(0.8)
 /// );
 /// assert!(cf > 0.0 && cf <= 1.0);
 /// ```
@@ -693,7 +693,7 @@ pub fn clo_tout(tout: Temperature) -> f64 {
 /// # References
 ///
 /// - ISO 9920:2007
-pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: Clo) -> f64 {
+pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: ClothingInsulation) -> f64 {
     let i_cl = i_cl.as_clo();
     if i_cl == 0.0 {
         return correction_nude(vr, v_walk);
@@ -891,13 +891,13 @@ mod tests {
 
     #[test]
     fn test_v_relative() {
-        let v1 = v_relative(Speed::from_meters_per_second(0.1), Met::new(1.0));
+        let v1 = v_relative(Speed::from_meters_per_second(0.1), MetabolicRate::from_met(1.0));
         assert_eq!(v1.as_meters_per_second(), 0.1);
 
-        let v2 = v_relative(Speed::from_meters_per_second(0.1), Met::new(1.4));
+        let v2 = v_relative(Speed::from_meters_per_second(0.1), MetabolicRate::from_met(1.4));
         assert!((v2.as_meters_per_second() - 0.22).abs() < 0.001);
 
-        let v3 = v_relative(Speed::from_meters_per_second(0.15), Met::new(2.0));
+        let v3 = v_relative(Speed::from_meters_per_second(0.15), MetabolicRate::from_met(2.0));
         assert!((v3.as_meters_per_second() - 0.45).abs() < 0.001);
     }
 
@@ -910,8 +910,8 @@ mod tests {
 
     #[test]
     fn test_clo_area_factor() {
-        assert!((clo_area_factor(Clo::new(0.5)) - 1.14).abs() < 0.01);
-        assert!((clo_area_factor(Clo::new(1.0)) - 1.28).abs() < 0.01);
+        assert!((clo_area_factor(ClothingInsulation::from_clo(0.5)) - 1.14).abs() < 0.01);
+        assert!((clo_area_factor(ClothingInsulation::from_clo(1.0)) - 1.28).abs() < 0.01);
     }
 
     #[test]

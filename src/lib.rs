@@ -16,14 +16,14 @@
 //! ## Example
 //!
 //! ```
-//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, Met, Clo};
+//! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 //!
 //! let tdb = Temperature::from_celsius(25.0);
 //! let tr = Temperature::from_celsius(25.0);
 //! let rh = Humidity::from_percent(50.0);
 //! let v = Speed::from_meters_per_second(0.1);
-//! let met = Met::new(1.4);
-//! let clo = Clo::new(0.5);
+//! let met = MetabolicRate::from_met(1.4);
+//! let clo = ClothingInsulation::from_clo(0.5);
 //!
 //! // Calculate relative air speed
 //! let vr = v_relative(v, met);
@@ -59,32 +59,42 @@ pub use utilities::{
 // Users should import these from thermalcomfort instead of directly from measurements
 pub use measurements::{Area, Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
-/// Clothing insulation unit (clo)
+/// Clothing insulation measurement.
 ///
-/// 1 clo = 0.155 m²·K/W of thermal resistance per unit body surface area.
-/// Approximately the insulation of a typical business suit.
+/// Represents thermal resistance of clothing per unit body surface area.
+/// 1 clo = 0.155 m²·K/W ≈ the insulation of a typical business suit.
 ///
-/// # Conversions
+/// # Constructors
 ///
-/// - 1 clo = 0.155 m²·K/W
-/// - 1 clo = 1.55 tog
+/// - [`from_clo(0.5)`](ClothingInsulation::from_clo) — primary; clo values found in ASHRAE 55 / ISO 7730 clothing tables
+/// - [`from_tog(0.775)`](ClothingInsulation::from_tog) — tog units common in bedding industry (1 clo = 1.55 tog)
+/// - [`from_m2_k_per_w(0.0775)`](ClothingInsulation::from_m2_k_per_w) — SI thermal resistance (1 clo = 0.155 m²·K/W)
+///
+/// # Common Values (clo)
+///
+/// | Ensemble | clo |
+/// |----------|-----|
+/// | Nude | ≈ 0 |
+/// | Light summer (shorts, t-shirt) | 0.3–0.5 |
+/// | Typical business suit | 1.0 |
+/// | Heavy winter clothing | 1.5 |
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::Clo;
+/// use thermalcomfort::ClothingInsulation;
 ///
-/// let clo = Clo::new(1.0);
+/// let clo = ClothingInsulation::from_clo(1.0);
 /// assert!((clo.as_m2_k_per_w() - 0.155).abs() < 1e-10);
 /// assert!((clo.as_tog() - 1.55).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Clo(f64);
+pub struct ClothingInsulation(f64);
 
-impl Clo {
-    /// Create from clo units
+impl ClothingInsulation {
+    /// Create from clo units (1 clo = 0.155 m²·K/W)
     #[inline]
-    pub const fn new(value: f64) -> Self {
+    pub const fn from_clo(value: f64) -> Self {
         Self(value)
     }
 
@@ -119,43 +129,53 @@ impl Clo {
     }
 }
 
-impl Default for Clo {
+impl Default for ClothingInsulation {
     fn default() -> Self {
         Self(0.0)
     }
 }
 
-/// Metabolic rate unit (met)
+/// Metabolic rate measurement.
 ///
-/// 1 met = 58.15 W/m² (metabolic heat production per unit body surface area),
-/// representing the resting metabolic rate of a seated person.
+/// Represents metabolic heat production per unit body surface area.
+/// 1 met = 58.15 W/m², the resting metabolic rate of a seated person.
 ///
-/// # Conversions
+/// # Constructors
 ///
-/// - 1 met = 58.15 W/m² (ISO 7730 / ASHRAE 55)
-/// - 1 met = 18.4 Btu/(h·ft²)
+/// - [`from_met(1.4)`](MetabolicRate::from_met) — primary; met values found in ASHRAE 55 / ISO 7730 activity tables
+/// - [`from_w_per_m2(81.41)`](MetabolicRate::from_w_per_m2) — SI heat flux per body surface area (1 met = 58.15 W/m²)
+/// - [`from_btu_per_h_ft2(25.76)`](MetabolicRate::from_btu_per_h_ft2) — Imperial equivalent (1 met = 18.4 Btu/(h·ft²))
+///
+/// # Common Values (met)
+///
+/// | Activity | met |
+/// |----------|-----|
+/// | Seated, quiet | 1.0 |
+/// | Standing, relaxed | 1.2 |
+/// | Walking 3.2 km/h | 2.0 |
+/// | Heavy work | 3.0+ |
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::Met;
+/// use thermalcomfort::MetabolicRate;
 ///
-/// let met = Met::new(1.0);
+/// let met = MetabolicRate::from_met(1.0);
 /// assert!((met.as_w_per_m2() - 58.15).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Met(f64);
+pub struct MetabolicRate(f64);
 
-impl Met {
+impl MetabolicRate {
     /// Conversion factor: 1 met = 58.15 W/m²
     pub const MET_TO_W_M2: f64 = 58.15;
 
     /// Conversion factor: 1 met = 18.4 Btu/(h·ft²)
     pub const MET_TO_BTU_H_FT2: f64 = 18.4;
 
-    /// Create from met units
+    /// Create from met units (1 met = 58.15 W/m²)
     #[inline]
-    pub const fn new(value: f64) -> Self {
+    pub const fn from_met(value: f64) -> Self {
         Self(value)
     }
 
@@ -190,7 +210,7 @@ impl Met {
     }
 }
 
-impl Default for Met {
+impl Default for MetabolicRate {
     fn default() -> Self {
         Self(0.0)
     }

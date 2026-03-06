@@ -35,8 +35,8 @@ From the [`measurements`](https://crates.io/crates/measurements) crate:
 - `Pressure` - Pa, kPa, mmHg, atm, etc.
 
 Defined in this crate:
-- `Clo` - Clothing insulation (clo, tog, m²·K/W)
-- `Met` - Metabolic rate (met, W/m², Btu/(h·ft²))
+- `ClothingInsulation` - Clothing insulation (clo, tog, m²·K/W)
+- `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
 - `Sex` - Biological sex for physiological models
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
@@ -66,15 +66,15 @@ thermalcomfort = "3.9.1"
 ### Basic PMV/PPD Calculation
 
 ```rust
-use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, Met, Clo};
+use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 
 fn main() {
     let tdb = Temperature::from_celsius(25.0);
     let tr = Temperature::from_celsius(25.0);
     let rh = Humidity::from_percent(50.0);
     let v = Speed::from_meters_per_second(0.1);
-    let met = Met::new(1.4);
-    let clo = Clo::new(0.5);
+    let met = MetabolicRate::from_met(1.4);
+    let clo = ClothingInsulation::from_clo(0.5);
 
     let vr = v_relative(v, met);
 
@@ -128,7 +128,7 @@ fn main() {
 ### PET (Physiological Equivalent Temperature)
 
 ```rust
-use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 use thermalcomfort::models::pet_steady;
 
 fn main() {
@@ -137,8 +137,8 @@ fn main() {
         Temperature::from_celsius(27.0),
         Speed::from_meters_per_second(1.0),
         Humidity::from_percent(50.0),
-        Met::new(1.5),
-        Clo::new(1.0),
+        MetabolicRate::from_met(1.5),
+        ClothingInsulation::from_clo(1.0),
         Default::default()
     );
     println!("PET: {:.1}°C", result.pet);
@@ -148,7 +148,7 @@ fn main() {
 ### PHS (Predicted Heat Strain)
 
 ```rust
-use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 use thermalcomfort::models::{phs, PhsPosture, PhsOptions};
 
 fn main() {
@@ -157,8 +157,8 @@ fn main() {
         Temperature::from_celsius(40.0),
         Speed::from_meters_per_second(0.3),
         Humidity::from_percent(33.85),
-        Met::new(2.5),
-        Clo::new(0.5),
+        MetabolicRate::from_met(2.5),
+        ClothingInsulation::from_clo(0.5),
         PhsPosture::Standing,
         PhsOptions::default()
     );
@@ -174,7 +174,7 @@ fn main() {
 All measurement types support automatic unit conversion:
 
 ```rust
-use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, Met, Clo};
+use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 
 fn main() {
     // Use any units - automatically converts internally
@@ -182,8 +182,8 @@ fn main() {
     let tr = Temperature::from_celsius(25.0);
     let v = Speed::from_kilometers_per_hour(0.36);
     let rh = Humidity::from_percent(50.0);
-    let met = Met::new(1.4);
-    let clo = Clo::new(0.5);
+    let met = MetabolicRate::from_met(1.4);
+    let clo = ClothingInsulation::from_clo(0.5);
 
     let vr = v_relative(v, met);
     let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());

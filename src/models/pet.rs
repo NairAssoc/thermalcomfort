@@ -96,7 +96,7 @@
 
 use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
-use crate::{Clo, Met, Sex};
+use crate::{ClothingInsulation, MetabolicRate, Sex};
 use libm::{exp, fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
@@ -191,7 +191,7 @@ impl Default for PetOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 /// use thermalcomfort::models::pet::{pet_steady, PetOptions};
 ///
 /// let result = pet_steady(
@@ -199,8 +199,8 @@ impl Default for PetOptions {
 ///     Temperature::from_celsius(27.0),
 ///     Speed::from_meters_per_second(1.0),
 ///     Humidity::from_percent(50.0),
-///     Met::new(1.0),
-///     Clo::new(0.5),
+///     MetabolicRate::from_met(1.0),
+///     ClothingInsulation::from_clo(0.5),
 ///     Default::default()
 /// );
 /// println!("PET: {:.1}°C", result.pet);
@@ -216,8 +216,8 @@ pub fn pet_steady(
     tr: Temperature,
     v: Speed,
     rh: Humidity,
-    met: Met,
-    clo: Clo,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
     options: PetOptions,
 ) -> PetResult {
     let tdb_c = tdb.as_celsius();
@@ -1154,8 +1154,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            Met::new(1.0),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.0),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
 
@@ -1171,8 +1171,8 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
             Humidity::from_percent(60.0),
-            Met::new(1.2),
-            Clo::new(0.5),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
 
@@ -1198,8 +1198,8 @@ mod tests {
             Temperature::from_celsius(5.0),
             Speed::from_meters_per_second(2.0),
             Humidity::from_percent(50.0),
-            Met::new(1.5),
-            Clo::new(1.0),
+            MetabolicRate::from_met(1.5),
+            ClothingInsulation::from_clo(1.0),
             opts,
         );
 

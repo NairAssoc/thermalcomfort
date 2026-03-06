@@ -38,7 +38,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::utilities::{body_surface_area_dubois, p_sat};
-use crate::{Clo, Humidity, Length, Mass, Met, Speed, Temperature};
+use crate::{ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Speed, Temperature};
 use libm::{cos, exp, pow, sqrt};
 
 /// Result of PHS calculation
@@ -92,7 +92,7 @@ pub enum Iso7933Model {
 #[derive(Debug, Clone, Copy)]
 pub struct PhsOptions {
     /// External work. Default: 0 met
-    pub wme: Met,
+    pub wme: MetabolicRate,
     /// Round output values. Default: true
     pub round_output: bool,
     /// ISO 7933 model version. Default: Iso2023
@@ -138,7 +138,7 @@ pub struct PhsOptions {
 impl Default for PhsOptions {
     fn default() -> Self {
         Self {
-            wme: Met::new(0.0),
+            wme: MetabolicRate::from_met(0.0),
             round_output: true,
             model: Iso7933Model::Iso2023,
             limit_inputs: true,
@@ -209,15 +209,15 @@ const I_A_ST: f64 = 0.111; // m²·K/W
 ///
 /// ```
 /// use thermalcomfort::models::{phs, PhsOptions, PhsPosture};
-/// use thermalcomfort::{Temperature, Speed, Humidity, Met, Clo};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let result = phs(
 ///     Temperature::from_celsius(40.0),
 ///     Temperature::from_celsius(40.0),
 ///     Speed::from_meters_per_second(0.3),
 ///     Humidity::from_percent(33.85),
-///     Met::new(2.5),
-///     Clo::new(0.5),
+///     MetabolicRate::from_met(2.5),
+///     ClothingInsulation::from_clo(0.5),
 ///     PhsPosture::Standing,
 ///     PhsOptions::default(),
 /// );
@@ -235,8 +235,8 @@ pub fn phs(
     tr: Temperature,
     v: Speed,
     rh: Humidity,
-    met: Met,
-    clo: Clo,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
     posture: PhsPosture,
     options: PhsOptions,
 ) -> PhsResult {
@@ -673,8 +673,8 @@ mod tests {
             Temperature::from_celsius(40.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(33.85),
-            Met::new(2.5),
-            Clo::new(0.5),
+            MetabolicRate::from_met(2.5),
+            ClothingInsulation::from_clo(0.5),
             PhsPosture::Standing,
             PhsOptions::default(),
         );
@@ -697,8 +697,8 @@ mod tests {
             Temperature::from_celsius(40.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(50.0),
-            Met::new(2.5),
-            Clo::new(0.5),
+            MetabolicRate::from_met(2.5),
+            ClothingInsulation::from_clo(0.5),
             PhsPosture::Standing,
             PhsOptions::default(),
         );
@@ -718,8 +718,8 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            Met::new(2.0),
-            Clo::new(0.5),
+            MetabolicRate::from_met(2.0),
+            ClothingInsulation::from_clo(0.5),
             PhsPosture::Standing,
             options,
         );
