@@ -117,8 +117,8 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `options` - Model options
 ///
 /// # Returns
@@ -567,7 +567,7 @@ impl Default for GaggeTwoNodesSleepOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature
 /// * `air_speed` - Air speed
 /// * `relative_humidity` - Relative humidity
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `clothing_insulation` - Clothing insulation
 /// * `quilt_thickness` - Thickness of bedding/quilt
 /// * `options` - Sleep model options
 ///
@@ -614,7 +614,7 @@ pub fn two_nodes_gagge_sleep(
     // Full polynomial from Yan et al. (2022) would be:
     // met(t) = -0.000000000000575*t^5 + ... + 1.09952538864493
     // For steady state, use approximate sleep metabolic rate
-    let met_sleep = 0.7; // Typical sleep metabolic rate [met]
+    let met_sleep = 0.7; // Typical sleep metabolic rate
 
     // Calculate body surface area from height and weight
     let sa = pow((options.height.as_centimeters() * options.weight.as_kilograms()) / 3600.0, 0.5);
@@ -714,8 +714,8 @@ pub struct GaggeTwoNodesJiResult {
 /// * `mean_radiant_temp` - Mean radiant temperature
 /// * `air_speed` - Air speed
 /// * `relative_humidity` - Relative humidity
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `options` - Model options
 ///
 /// # Returns

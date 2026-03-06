@@ -52,8 +52,8 @@ impl Default for SetOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `options` - SET calculation options
 ///
 /// # Returns
@@ -66,8 +66,8 @@ impl Default for SetOptions {
 /// * 10 < tdb [°C] < 40
 /// * 10 < tr [°C] < 40
 /// * 0 < v [m/s] < 2
-/// * 1 < met (met) < 4
-/// * 0 < clo (clo) < 1.5
+/// * 1 < met < 4
+/// * 0 < clo < 1.5
 ///
 /// # Examples
 ///

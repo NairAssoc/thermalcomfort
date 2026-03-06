@@ -83,8 +83,8 @@ impl Default for PmvPpdOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `options` - Additional calculation options
 ///
 /// # Returns
@@ -97,8 +97,8 @@ impl Default for PmvPpdOptions {
 /// - 10 < tdb [°C] < 30
 /// - 10 < tr [°C] < 40
 /// - 0 < vr [m/s] < 1
-/// - 0.8 < met (met) < 4
-/// - 0 < clo (clo) < 2
+/// - 0.8 < met < 4
+/// - 0 < clo < 2
 /// - -2 < PMV < 2
 ///
 /// # Example
@@ -227,8 +227,8 @@ pub fn pmv_ppd_iso(
 /// - 10 < tdb [°C] < 40
 /// - 10 < tr [°C] < 40
 /// - 0 < vr [m/s] < 2
-/// - 1.0 < met (met) < 4
-/// - 0 < clo (clo) < 1.5
+/// - 1.0 < met < 4
+/// - 0 < clo < 1.5
 pub fn pmv_ppd_ashrae(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -434,8 +434,8 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `a_coefficient` - Adaptive coefficient (λ)
 /// * `options` - PMV calculation options
 ///
@@ -505,8 +505,8 @@ pub fn pmv_a(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `e_coefficient` - Expectancy factor
 /// * `options` - PMV calculation options
 ///
@@ -600,8 +600,8 @@ pub fn pmv_e(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo) (if None, calculated from running mean)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation (if None, calculated from running mean)
 /// * `running_mean_outdoor_temp` - Running mean outdoor temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns

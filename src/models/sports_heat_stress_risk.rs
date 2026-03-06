@@ -57,7 +57,7 @@ impl SportsValues {
 
 /// Predefined sport-specific parameters.
 ///
-/// Each constant provides the clothing insulation (clo), metabolic rate (met),
+/// Each constant provides the clothing insulation, metabolic rate,
 /// relative air speed (m/s), and typical activity duration (minutes) for that sport.
 ///
 /// # Examples

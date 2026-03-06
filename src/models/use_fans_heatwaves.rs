@@ -59,9 +59,9 @@ pub struct UseFansHeatwavesResult {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()`, recommended range: 0.1-4.5 m/s)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met, 0.7-2.0]
-/// * `clothing_insulation` - Clothing insulation [clo, 0-1]
-/// * `wme` - External work [met, default 0]
+/// * `metabolic_rate` - Metabolic rate (recommended range: 0.7-2.0 met)
+/// * `clothing_insulation` - Clothing insulation (recommended range: 0-1 clo)
+/// * `wme` - External work (default 0)
 /// * `body_surface_area` - Body surface area (use `Area::from_square_meters()`, default 1.8258 m²)
 /// * `p_atm` - Atmospheric pressure (use `Pressure::from_pascals()`, default 101325 Pa)
 /// * `posture` - Body posture

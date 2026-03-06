@@ -184,8 +184,8 @@ const I_A_ST: f64 = 0.111; // m²·K/W
 /// * `tr` - Mean radiant temperature [°C]
 /// * `v` - Air speed [m/s]
 /// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate [met]
-/// * `clo` - Clothing insulation [clo]
+/// * `met` - Metabolic rate
+/// * `clo` - Clothing insulation
 /// * `posture` - Body posture (standing, sitting, crouching)
 /// * `options` - Additional parameters
 ///

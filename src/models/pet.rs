@@ -172,8 +172,8 @@ impl Default for PetOptions {
 /// * `tr` - Mean radiant temperature
 /// * `v` - Air velocity [m/s]
 /// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate (met)
-/// * `clo` - Clothing insulation (clo)
+/// * `met` - Metabolic rate
+/// * `clo` - Clothing insulation
 /// * `options` - Model options
 ///
 /// # Returns
