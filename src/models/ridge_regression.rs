@@ -4,9 +4,9 @@
 //! Trained on adults aged 60-100 in minimal clothing under stationary conditions.
 
 extern crate alloc;
+use crate::Sex;
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::Sex;
 use measurements::{Humidity, Length, Mass, Temperature};
 
 /// Result from ridge regression body temperature prediction

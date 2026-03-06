@@ -542,7 +542,13 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 /// );
 /// assert!(i_t_r > 0.0);
 /// ```
-pub fn clo_total_insulation(i_t: ClothingInsulation, vr: Speed, v_walk: Speed, i_a_static: ClothingInsulation, i_cl: ClothingInsulation) -> f64 {
+pub fn clo_total_insulation(
+    i_t: ClothingInsulation,
+    vr: Speed,
+    v_walk: Speed,
+    i_a_static: ClothingInsulation,
+    i_cl: ClothingInsulation,
+) -> f64 {
     let i_t = i_t.as_clo();
     let i_a_static = i_a_static.as_clo();
     let i_cl = i_cl.as_clo();
@@ -587,7 +593,12 @@ pub fn clo_total_insulation(i_t: ClothingInsulation, vr: Speed, v_walk: Speed, i
 /// let clo_dyn = clo_dynamic_iso(ClothingInsulation::from_clo(1.0), MetabolicRate::from_met(1.2), Speed::from_meters_per_second(0.1), ClothingInsulation::from_clo(0.7));
 /// assert!(clo_dyn > 0.0 && clo_dyn <= 1.0);
 /// ```
-pub fn clo_dynamic_iso(clo: ClothingInsulation, met: MetabolicRate, v: Speed, i_a: ClothingInsulation) -> f64 {
+pub fn clo_dynamic_iso(
+    clo: ClothingInsulation,
+    met: MetabolicRate,
+    v: Speed,
+    i_a: ClothingInsulation,
+) -> f64 {
     let clo_val = clo.as_clo();
     // Calculate clothing area factor
     let f_cl = clo_area_factor(clo);
@@ -693,7 +704,11 @@ pub fn clo_tout(tout: Temperature) -> f64 {
 /// # References
 ///
 /// - ISO 9920:2007
-pub fn clo_correction_factor_environment(vr: Speed, v_walk: Speed, i_cl: ClothingInsulation) -> f64 {
+pub fn clo_correction_factor_environment(
+    vr: Speed,
+    v_walk: Speed,
+    i_cl: ClothingInsulation,
+) -> f64 {
     let i_cl = i_cl.as_clo();
     if i_cl == 0.0 {
         return correction_nude(vr, v_walk);
@@ -891,13 +906,22 @@ mod tests {
 
     #[test]
     fn test_v_relative() {
-        let v1 = v_relative(Speed::from_meters_per_second(0.1), MetabolicRate::from_met(1.0));
+        let v1 = v_relative(
+            Speed::from_meters_per_second(0.1),
+            MetabolicRate::from_met(1.0),
+        );
         assert_eq!(v1.as_meters_per_second(), 0.1);
 
-        let v2 = v_relative(Speed::from_meters_per_second(0.1), MetabolicRate::from_met(1.4));
+        let v2 = v_relative(
+            Speed::from_meters_per_second(0.1),
+            MetabolicRate::from_met(1.4),
+        );
         assert!((v2.as_meters_per_second() - 0.22).abs() < 0.001);
 
-        let v3 = v_relative(Speed::from_meters_per_second(0.15), MetabolicRate::from_met(2.0));
+        let v3 = v_relative(
+            Speed::from_meters_per_second(0.15),
+            MetabolicRate::from_met(2.0),
+        );
         assert!((v3.as_meters_per_second() - 0.45).abs() < 0.001);
     }
 

@@ -32,8 +32,7 @@ pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
 pub use phs::{Iso7933Model, PhsOptions, PhsPosture, PhsResult, phs};
 pub use pmv::{PmvPpdResult, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso};
 pub use ridge_regression::{
-    PredictedBodyTemperatures, RidgeRegressionOptions,
-    ridge_regression_predict_t_re_t_sk,
+    PredictedBodyTemperatures, RidgeRegressionOptions, ridge_regression_predict_t_re_t_sk,
 };
 pub use set_tmp::{SetOptions, set_tmp};
 pub use solar_gain::{SolarGainResult, solar_gain};

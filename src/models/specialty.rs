@@ -247,7 +247,11 @@ mod tests {
 
     #[test]
     fn test_f_svv() {
-        let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
+        let svv = f_svv(
+            Length::from_meters(2.0),
+            Length::from_meters(1.5),
+            Length::from_meters(3.0),
+        );
         assert!(svv > 0.0 && svv <= 1.0);
     }
 

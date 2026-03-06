@@ -197,17 +197,20 @@ mod tests {
         assert!(capacity > 0.0 && capacity <= 100.0);
 
         // Hot conditions - capacity should be lower
-        let capacity_hot = work_capacity_iso(Temperature::from_celsius(35.0), Power::from_watts(300.0));
+        let capacity_hot =
+            work_capacity_iso(Temperature::from_celsius(35.0), Power::from_watts(300.0));
         assert!(capacity_hot < capacity);
     }
 
     #[test]
     fn test_work_capacity_niosh() {
-        let capacity = work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(300.0));
+        let capacity =
+            work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(300.0));
         assert!(capacity > 0.0 && capacity <= 100.0);
 
         // Higher metabolic rate should reduce capacity limits
-        let capacity_high_met = work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(400.0));
+        let capacity_high_met =
+            work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(400.0));
         assert!(capacity_high_met < capacity);
     }
 

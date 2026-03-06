@@ -281,19 +281,24 @@ pub fn phs(
     let opt_weight = options.weight.as_kilograms();
     let opt_walk_sp = options.walk_sp.as_meters_per_second();
 
-    let t_re_init = options.t_re.map(|t| t.as_celsius()).unwrap_or(match options.model {
-        Iso7933Model::Iso2004 => opt_t_cr,
-        Iso7933Model::Iso2023 => 36.8,
-    });
+    let t_re_init = options
+        .t_re
+        .map(|t| t.as_celsius())
+        .unwrap_or(match options.model {
+            Iso7933Model::Iso2004 => opt_t_cr,
+            Iso7933Model::Iso2023 => 36.8,
+        });
 
-    let t_cr_eq_init = options.t_cr_eq.map(|t: Temperature| t.as_celsius()).unwrap_or(match options.model {
-        Iso7933Model::Iso2004 => opt_t_cr,
-        Iso7933Model::Iso2023 => 36.8,
-    });
+    let t_cr_eq_init = options
+        .t_cr_eq
+        .map(|t: Temperature| t.as_celsius())
+        .unwrap_or(match options.model {
+            Iso7933Model::Iso2004 => opt_t_cr,
+            Iso7933Model::Iso2023 => 36.8,
+        });
 
     // Body properties
-    let a_dubois = body_surface_area_dubois(options.weight, options.height)
-        .as_square_meters();
+    let a_dubois = body_surface_area_dubois(options.weight, options.height).as_square_meters();
 
     let sp_heat = MET_TO_W_M2 * opt_weight / a_dubois;
 
@@ -317,11 +322,7 @@ pub fn phs(
         Iso7933Model::Iso2004 => {
             let mut sw = (met - 32.0) * a_dubois;
             sw = sw.clamp(250.0, 400.0);
-            if options.acclimatized {
-                sw * 1.25
-            } else {
-                sw
-            }
+            if options.acclimatized { sw * 1.25 } else { sw }
         }
         Iso7933Model::Iso2023 => {
             if !options.acclimatized {
@@ -407,10 +408,7 @@ pub fn phs(
 
     // Maximum water loss limits
     let (d_max_50, d_max_95) = match options.model {
-        Iso7933Model::Iso2004 => (
-            0.075 * opt_weight * 1000.0,
-            0.05 * opt_weight * 1000.0,
-        ),
+        Iso7933Model::Iso2004 => (0.075 * opt_weight * 1000.0, 0.05 * opt_weight * 1000.0),
         Iso7933Model::Iso2023 => {
             let max_loss = if options.drink {
                 0.05 * opt_weight * 1000.0
@@ -485,8 +483,8 @@ pub fn phs(
 
         for _ in 0..100 {
             // Radiative heat transfer coefficient
-            let h_r = f_cl_r * aux_r * (pow(t_cl + 273.0, 4.0) - pow(tr + 273.0, 4.0))
-                / (t_cl - tr);
+            let h_r =
+                f_cl_r * aux_r * (pow(t_cl + 273.0, 4.0) - pow(tr + 273.0, 4.0)) / (t_cl - tr);
 
             let t_cl_new = (fcl * (hc_dyn * tdb + h_r * tr) + t_sk / i_cl_dyn)
                 / (fcl * (hc_dyn + h_r) + 1.0 / i_cl_dyn);
@@ -498,8 +496,7 @@ pub fn phs(
         }
 
         // Final h_r with converged t_cl
-        let h_r = f_cl_r * aux_r * (pow(t_cl + 273.0, 4.0) - pow(tr + 273.0, 4.0))
-            / (t_cl - tr);
+        let h_r = f_cl_r * aux_r * (pow(t_cl + 273.0, 4.0) - pow(tr + 273.0, 4.0)) / (t_cl - tr);
 
         // Heat flows
         let convection = fcl * hc_dyn * (t_cl - tdb);

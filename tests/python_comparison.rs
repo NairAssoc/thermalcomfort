@@ -9,20 +9,19 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en,
-    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
-    humidex, net, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
-    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, two_nodes_gagge,
-    two_nodes_gagge_ji, two_nodes_gagge_sleep, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft,
+    at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, humidex, net,
+    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
+    set_tmp, solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, utci,
+    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
+    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
-use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
     CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
     clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, v_relative,
 };
+use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
 
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
@@ -224,7 +223,10 @@ fn test_v_relative() {
                 .unwrap();
 
             // Call Rust function
-            let rust_vr = v_relative(Speed::from_meters_per_second(v), MetabolicRate::from_met(met));
+            let rust_vr = v_relative(
+                Speed::from_meters_per_second(v),
+                MetabolicRate::from_met(met),
+            );
 
             println!("  Python: {:.3}", py_vr);
             println!("  Rust:   {:.3}", rust_vr.as_meters_per_second());
@@ -1153,7 +1155,8 @@ fn test_compare_work_capacity_iso() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_iso(Temperature::from_celsius(wbgt), Power::from_watts(met));
+            let rust_result =
+                work_capacity_iso(Temperature::from_celsius(wbgt), Power::from_watts(met));
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1177,7 +1180,8 @@ fn test_compare_work_capacity_niosh() {
 
             let py_capacity: f64 = py_result.getattr("capacity").unwrap().extract().unwrap();
 
-            let rust_result = work_capacity_niosh(Temperature::from_celsius(wbgt), Power::from_watts(met));
+            let rust_result =
+                work_capacity_niosh(Temperature::from_celsius(wbgt), Power::from_watts(met));
 
             assert_abs_diff_eq!(rust_result, py_capacity, epsilon = 0.5);
         }
@@ -1408,7 +1412,10 @@ fn test_readme_example_basic_pmv_ppd() {
         let clo = 0.5; // clothing insulation [clo]
 
         // Calculate relative air speed (accounts for body movement)
-        let vr = v_relative(Speed::from_meters_per_second(v), MetabolicRate::from_met(met));
+        let vr = v_relative(
+            Speed::from_meters_per_second(v),
+            MetabolicRate::from_met(met),
+        );
 
         // Python calculation
         let py_result = pythermal
@@ -1499,9 +1506,9 @@ fn test_readme_example_custom_pmv_options() {
 
         // Example from README: Custom PMV/PPD Options
         let options = PmvPpdOptions {
-            wme: MetabolicRate::from_met(0.0),  // external work [met]
-            limit_inputs: false, // don't limit to standard ranges
-            round_output: true,  // round output values
+            wme: MetabolicRate::from_met(0.0), // external work [met]
+            limit_inputs: false,               // don't limit to standard ranges
+            round_output: true,                // round output values
         };
 
         // Python calculation with same options
@@ -1892,17 +1899,14 @@ fn test_ridge_regression_comparison() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Test case: Male, 60 years old, hot environment
-        let kwargs = [
-            ("sex", "male".into_py(py)),
-            ("age", 60.into_py(py)),
-            ("height", 1.8.into_py(py)),
-            ("weight", 75.into_py(py)),
-            ("tdb", 35.into_py(py)),
-            ("rh", 60.into_py(py)),
-            ("duration", 60.into_py(py)),
-        ]
-        .into_py_dict(py)
-        .unwrap();
+        let kwargs = pyo3::types::PyDict::new(py);
+        kwargs.set_item("sex", "male").unwrap();
+        kwargs.set_item("age", 60).unwrap();
+        kwargs.set_item("height", 1.8).unwrap();
+        kwargs.set_item("weight", 75).unwrap();
+        kwargs.set_item("tdb", 35).unwrap();
+        kwargs.set_item("rh", 60).unwrap();
+        kwargs.set_item("duration", 60).unwrap();
 
         let py_result = pythermal
             .getattr("ridge_regression_predict_t_re_t_sk")
@@ -2339,7 +2343,14 @@ fn test_sports_heat_stress_risk_comparison() {
             .expect("Failed to get sports_heat_stress_risk function");
 
         // Test cases: (tdb, tr, rh, vr, sport_name, rust_sport)
-        let test_cases: Vec<(f64, f64, f64, f64, &str, thermalcomfort::models::SportsValues)> = vec![
+        let test_cases: Vec<(
+            f64,
+            f64,
+            f64,
+            f64,
+            &str,
+            thermalcomfort::models::SportsValues,
+        )> = vec![
             (35.0, 35.0, 40.0, 0.1, "RUNNING", Sports::RUNNING),
             (30.0, 30.0, 50.0, 0.5, "SOCCER", Sports::SOCCER),
             (20.0, 20.0, 50.0, 0.5, "WALKING", Sports::WALKING),
@@ -2348,7 +2359,10 @@ fn test_sports_heat_stress_risk_comparison() {
         ];
 
         for (tdb, tr, rh, vr, sport_name, rust_sport) in &test_cases {
-            println!("\nTest: {} at tdb={}, tr={}, rh={}, vr={}", sport_name, tdb, tr, rh, vr);
+            println!(
+                "\nTest: {} at tdb={}, tr={}, rh={}, vr={}",
+                sport_name, tdb, tr, rh, vr
+            );
 
             // Call Python
             let py_sport = py_sports_class.getattr(*sport_name).unwrap();
@@ -2419,10 +2433,7 @@ fn test_sports_heat_stress_risk_comparison() {
             );
 
             // Compare results
-            assert_abs_diff_eq!(
-                rust_result.risk_level_interpolated, py_risk,
-                epsilon = 0.1
-            );
+            assert_abs_diff_eq!(rust_result.risk_level_interpolated, py_risk, epsilon = 0.1);
             assert_abs_diff_eq!(rust_result.t_medium, py_t_medium, epsilon = 0.5);
             assert_abs_diff_eq!(rust_result.t_high, py_t_high, epsilon = 0.5);
             assert_abs_diff_eq!(rust_result.t_extreme, py_t_extreme, epsilon = 0.5);

@@ -617,7 +617,10 @@ pub fn two_nodes_gagge_sleep(
     let met_sleep = 0.7; // Typical sleep metabolic rate
 
     // Calculate body surface area from height and weight
-    let sa = pow((options.height.as_centimeters() * options.weight.as_kilograms()) / 3600.0, 0.5);
+    let sa = pow(
+        (options.height.as_centimeters() * options.weight.as_kilograms()) / 3600.0,
+        0.5,
+    );
     let body_surface_area = Area::from_square_meters(sa);
 
     // Calculate clothing area factor adjusted for bedding

@@ -78,39 +78,204 @@ impl SportsValues {
 pub struct Sports;
 
 impl Sports {
-    pub const ABSEILING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(6.0), 0.5, 120);
-    pub const ARCHERY: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.75), MetabolicRate::from_met(4.5), 0.5, 180);
-    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.47), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const BASEBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.7), MetabolicRate::from_met(6.0), 0.75, 120);
-    pub const BASKETBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.37), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const BOWLS: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.5), MetabolicRate::from_met(5.0), 0.5, 180);
-    pub const CANOEING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(7.5), 2.0, 60);
-    pub const CRICKET: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.7), MetabolicRate::from_met(6.0), 0.75, 120);
-    pub const CYCLING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(7.0), 3.0, 60);
-    pub const EQUESTRIAN: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.9), MetabolicRate::from_met(7.4), 3.0, 60);
-    pub const FIELD_ATHLETICS: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.3), MetabolicRate::from_met(7.0), 1.0, 60);
-    pub const FIELD_HOCKEY: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(7.4), 0.75, 45);
-    pub const FISHING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.9), MetabolicRate::from_met(4.0), 0.5, 180);
-    pub const GOLF: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.5), MetabolicRate::from_met(5.0), 0.5, 180);
-    pub const HORSEBACK: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.9), MetabolicRate::from_met(7.4), 3.0, 60);
-    pub const KAYAKING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(7.5), 2.0, 60);
-    pub const RUNNING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.37), MetabolicRate::from_met(7.5), 2.0, 60);
-    pub const MTB: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.55), MetabolicRate::from_met(7.5), 3.0, 60);
-    pub const NETBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.37), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const OZTAG: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const PICKLEBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(6.5), 0.5, 60);
-    pub const CLIMBING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(7.5), 1.0, 45);
-    pub const ROWING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(7.5), 2.0, 60);
-    pub const RUGBY_LEAGUE: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.47), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const RUGBY_UNION: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.47), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const SAILING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(1.0), MetabolicRate::from_met(6.5), 2.0, 180);
-    pub const SHOOTING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.6), MetabolicRate::from_met(5.0), 0.5, 120);
-    pub const SOCCER: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.47), MetabolicRate::from_met(7.5), 1.0, 45);
-    pub const SOFTBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.9), MetabolicRate::from_met(6.1), 1.0, 120);
-    pub const TENNIS: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(7.0), 0.75, 60);
-    pub const TOUCH: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.4), MetabolicRate::from_met(7.5), 0.75, 45);
-    pub const VOLLEYBALL: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.37), MetabolicRate::from_met(6.8), 0.75, 60);
-    pub const WALKING: SportsValues = SportsValues::new(ClothingInsulation::from_clo(0.5), MetabolicRate::from_met(5.0), 0.5, 180);
+    pub const ABSEILING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(6.0),
+        0.5,
+        120,
+    );
+    pub const ARCHERY: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.75),
+        MetabolicRate::from_met(4.5),
+        0.5,
+        180,
+    );
+    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.47),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const BASEBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.7),
+        MetabolicRate::from_met(6.0),
+        0.75,
+        120,
+    );
+    pub const BASKETBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.37),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const BOWLS: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.5),
+        MetabolicRate::from_met(5.0),
+        0.5,
+        180,
+    );
+    pub const CANOEING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(7.5),
+        2.0,
+        60,
+    );
+    pub const CRICKET: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.7),
+        MetabolicRate::from_met(6.0),
+        0.75,
+        120,
+    );
+    pub const CYCLING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(7.0),
+        3.0,
+        60,
+    );
+    pub const EQUESTRIAN: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.9),
+        MetabolicRate::from_met(7.4),
+        3.0,
+        60,
+    );
+    pub const FIELD_ATHLETICS: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.3),
+        MetabolicRate::from_met(7.0),
+        1.0,
+        60,
+    );
+    pub const FIELD_HOCKEY: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(7.4),
+        0.75,
+        45,
+    );
+    pub const FISHING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.9),
+        MetabolicRate::from_met(4.0),
+        0.5,
+        180,
+    );
+    pub const GOLF: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.5),
+        MetabolicRate::from_met(5.0),
+        0.5,
+        180,
+    );
+    pub const HORSEBACK: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.9),
+        MetabolicRate::from_met(7.4),
+        3.0,
+        60,
+    );
+    pub const KAYAKING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(7.5),
+        2.0,
+        60,
+    );
+    pub const RUNNING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.37),
+        MetabolicRate::from_met(7.5),
+        2.0,
+        60,
+    );
+    pub const MTB: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.55),
+        MetabolicRate::from_met(7.5),
+        3.0,
+        60,
+    );
+    pub const NETBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.37),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const OZTAG: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const PICKLEBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(6.5),
+        0.5,
+        60,
+    );
+    pub const CLIMBING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(7.5),
+        1.0,
+        45,
+    );
+    pub const ROWING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(7.5),
+        2.0,
+        60,
+    );
+    pub const RUGBY_LEAGUE: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.47),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const RUGBY_UNION: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.47),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const SAILING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(1.0),
+        MetabolicRate::from_met(6.5),
+        2.0,
+        180,
+    );
+    pub const SHOOTING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.6),
+        MetabolicRate::from_met(5.0),
+        0.5,
+        120,
+    );
+    pub const SOCCER: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.47),
+        MetabolicRate::from_met(7.5),
+        1.0,
+        45,
+    );
+    pub const SOFTBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.9),
+        MetabolicRate::from_met(6.1),
+        1.0,
+        120,
+    );
+    pub const TENNIS: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(7.0),
+        0.75,
+        60,
+    );
+    pub const TOUCH: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.4),
+        MetabolicRate::from_met(7.5),
+        0.75,
+        45,
+    );
+    pub const VOLLEYBALL: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.37),
+        MetabolicRate::from_met(6.8),
+        0.75,
+        60,
+    );
+    pub const WALKING: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.5),
+        MetabolicRate::from_met(5.0),
+        0.5,
+        180,
+    );
 }
 
 /// Result of sports heat stress risk calculation.
@@ -374,7 +539,7 @@ fn find_threshold_water_loss(tr: f64, rh: f64, vr: f64, sport: &SportsValues) ->
 
     // Try two bracket ranges, matching Python
     for &(min_t, max_t) in &[(0.0, 36.0), (20.0, 50.0)] {
-        if let Ok(root) = brentq(&target, min_t, max_t, None, None) {
+        if let Ok(root) = brentq(target, min_t, max_t, None, None) {
             return root;
         }
     }
@@ -392,7 +557,7 @@ fn find_threshold_core_temp(tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> 
 
     // Try two bracket ranges, matching Python
     for &(min_t, max_t) in &[(0.0, 36.0), (20.0, 50.0)] {
-        if let Ok(root) = brentq(&target, min_t, max_t, None, None) {
+        if let Ok(root) = brentq(target, min_t, max_t, None, None) {
             return root;
         }
     }
@@ -434,7 +599,10 @@ mod tests {
         assert_eq!(result.t_medium, 32.7);
         assert_eq!(result.t_high, 34.9);
         assert_eq!(result.t_extreme, 37.1);
-        assert_eq!(result.recommendation, "Increase hydration & modify clothing");
+        assert_eq!(
+            result.recommendation,
+            "Increase hydration & modify clothing"
+        );
     }
 
     #[test]
@@ -450,7 +618,10 @@ mod tests {
         assert_eq!(result.t_medium, 23.0);
         assert_eq!(result.t_high, 25.0);
         assert_eq!(result.t_extreme, 26.0);
-        assert_eq!(result.recommendation, "Increase hydration & modify clothing");
+        assert_eq!(
+            result.recommendation,
+            "Increase hydration & modify clothing"
+        );
     }
 
     #[test]

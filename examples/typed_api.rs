@@ -46,8 +46,24 @@ fn main() {
     // Both should give same result
     let vr = Speed::from_meters_per_second(0.1);
     let rh_50 = Humidity::from_percent(50.0);
-    let result_c = pmv_ppd_iso_typed(temp_c, temp_c, vr, rh_50, MetabolicRate::from_met(1.2), ClothingInsulation::from_clo(1.0), Default::default());
-    let result_f = pmv_ppd_iso_typed(temp_f, temp_f, vr, rh_50, MetabolicRate::from_met(1.2), ClothingInsulation::from_clo(1.0), Default::default());
+    let result_c = pmv_ppd_iso_typed(
+        temp_c,
+        temp_c,
+        vr,
+        rh_50,
+        MetabolicRate::from_met(1.2),
+        ClothingInsulation::from_clo(1.0),
+        Default::default(),
+    );
+    let result_f = pmv_ppd_iso_typed(
+        temp_f,
+        temp_f,
+        vr,
+        rh_50,
+        MetabolicRate::from_met(1.2),
+        ClothingInsulation::from_clo(1.0),
+        Default::default(),
+    );
 
     println!("  PMV (using Celsius): {:.2}", result_c.pmv);
     println!("  PMV (using Fahrenheit): {:.2}", result_f.pmv);
@@ -63,7 +79,15 @@ fn main() {
     let v = Speed::from_meters_per_second(0.1);
     let rh = Humidity::from_percent(50.0);
 
-    let result = pmv_ppd_ashrae_typed(tdb, tr, v, rh, MetabolicRate::from_met(1.2), ClothingInsulation::from_clo(0.5), Default::default());
+    let result = pmv_ppd_ashrae_typed(
+        tdb,
+        tr,
+        v,
+        rh,
+        MetabolicRate::from_met(1.2),
+        ClothingInsulation::from_clo(0.5),
+        Default::default(),
+    );
     println!("  PMV (ASHRAE): {:.2}", result.pmv);
     println!("  PPD: {:.1}%", result.ppd);
     println!("  Thermal Sensation: {:?}\n", result.tsv);
