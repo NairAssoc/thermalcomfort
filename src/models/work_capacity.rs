@@ -4,7 +4,7 @@
 //! expressed as a percentage where 100% means work is unaffected by heat
 //! and 0% means no work can be performed.
 
-use measurements::Temperature;
+use measurements::{Power, Temperature};
 
 /// Work intensity levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,7 +26,7 @@ pub enum WorkIntensity {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production (W)
+/// * `metabolic_power` - Metabolic heat production (use `Power::from_watts()` or similar)
 ///
 /// # Returns
 ///
@@ -36,17 +36,18 @@ pub enum WorkIntensity {
 ///
 /// ```
 /// use thermalcomfort::models::work_capacity::work_capacity_iso;
-/// use thermalcomfort::Temperature;
+/// use thermalcomfort::{Temperature, Power};
 ///
-/// let capacity = work_capacity_iso(Temperature::from_celsius(30.0), 300.0);
+/// let capacity = work_capacity_iso(Temperature::from_celsius(30.0), Power::from_watts(300.0));
 /// assert!(capacity >= 0.0 && capacity <= 100.0);
 /// ```
 ///
 /// # References
 ///
 /// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
-pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
+pub fn work_capacity_iso(wbgt: Temperature, metabolic_power: Power) -> f64 {
     let wbgt_celsius = wbgt.as_celsius();
+    let met = metabolic_power.as_watts();
     let met_rest = 117.0; // Assumed resting metabolic rate
 
     let wbgt_lim = 34.9 - met / 46.0;
@@ -66,7 +67,7 @@ pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `met` - Metabolic heat production (W)
+/// * `metabolic_power` - Metabolic heat production (use `Power::from_watts()` or similar)
 ///
 /// # Returns
 ///
@@ -76,17 +77,18 @@ pub fn work_capacity_iso(wbgt: Temperature, met: f64) -> f64 {
 ///
 /// ```
 /// use thermalcomfort::models::work_capacity::work_capacity_niosh;
-/// use thermalcomfort::Temperature;
+/// use thermalcomfort::{Temperature, Power};
 ///
-/// let capacity = work_capacity_niosh(Temperature::from_celsius(30.0), 300.0);
+/// let capacity = work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(300.0));
 /// assert!(capacity >= 0.0 && capacity <= 100.0);
 /// ```
 ///
 /// # References
 ///
 /// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
-pub fn work_capacity_niosh(wbgt: Temperature, met: f64) -> f64 {
+pub fn work_capacity_niosh(wbgt: Temperature, metabolic_power: Power) -> f64 {
     let wbgt_celsius = wbgt.as_celsius();
+    let met = metabolic_power.as_watts();
     let met_rest = 117.0; // Assumed resting metabolic rate
 
     let wbgt_lim = 56.7 - 11.5 * libm::log10(met);
@@ -191,21 +193,24 @@ mod tests {
     #[test]
     fn test_work_capacity_iso() {
         // Moderate conditions
-        let capacity = work_capacity_iso(Temperature::from_celsius(30.0), 300.0);
+        let capacity = work_capacity_iso(Temperature::from_celsius(30.0), Power::from_watts(300.0));
         assert!(capacity > 0.0 && capacity <= 100.0);
 
         // Hot conditions - capacity should be lower
-        let capacity_hot = work_capacity_iso(Temperature::from_celsius(35.0), 300.0);
+        let capacity_hot =
+            work_capacity_iso(Temperature::from_celsius(35.0), Power::from_watts(300.0));
         assert!(capacity_hot < capacity);
     }
 
     #[test]
     fn test_work_capacity_niosh() {
-        let capacity = work_capacity_niosh(Temperature::from_celsius(30.0), 300.0);
+        let capacity =
+            work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(300.0));
         assert!(capacity > 0.0 && capacity <= 100.0);
 
         // Higher metabolic rate should reduce capacity limits
-        let capacity_high_met = work_capacity_niosh(Temperature::from_celsius(30.0), 400.0);
+        let capacity_high_met =
+            work_capacity_niosh(Temperature::from_celsius(30.0), Power::from_watts(400.0));
         assert!(capacity_high_met < capacity);
     }
 

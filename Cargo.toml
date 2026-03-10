@@ -1,6 +1,6 @@
 [package]
 name = "thermalcomfort"
-version = "3.8.0"
+version = "3.9.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Thermal Comfort Contributors"]
@@ -16,6 +16,11 @@ categories = ["science", "mathematics", "wasm", "no-std"]
 [dependencies]
 libm = "0.2"
 measurements = { version = "0.11", default-features = false }
+heapless = "0.8"
+
+# std feature: enables sophisticated linear algebra for perfect Python accuracy matching
+# Trade-off: breaks no_std compatibility, slightly larger binary size
+nalgebra = { version = "0.33", optional = true, default-features = false, features = ["std"] }
 
 [dev-dependencies]
 approx = "0.5"
@@ -23,3 +28,6 @@ pyo3 = { version = "0.23", features = ["auto-initialize"] }
 
 [features]
 default = []
+# Enable std library and nalgebra for perfect accuracy matching in extreme conditions
+# This breaks no_std compatibility but provides <0.1°C accuracy in all conditions
+std = ["nalgebra"]

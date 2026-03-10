@@ -3,7 +3,7 @@
 use crate::constants::*;
 use crate::utilities::p_sat;
 use libm::{atan, exp, fabs as abs, log, pow, sqrt};
-use measurements::{Humidity, Pressure, Speed, Temperature};
+use measurements::{Humidity, Length, Pressure, Speed, Temperature};
 
 /// Psychrometric values result
 #[derive(Debug, Clone, Copy)]
@@ -180,7 +180,7 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
 /// * `tg` - Globe temperature (use `Temperature::from_celsius()` or similar)
 /// * `tdb` - Air temperature (use `Temperature::from_celsius()` or similar)
 /// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `d` - Globe diameter (m), default 0.15 m
+/// * `d` - Globe diameter, default 0.15 m
 /// * `emissivity` - Globe emissivity, default 0.95
 /// * `use_iso` - If true, use ISO formula; if false, use Mixed Convection
 ///
@@ -196,18 +196,19 @@ pub fn mean_radiant_temperature(
     tg: Temperature,
     tdb: Temperature,
     v: Speed,
-    d: f64,
+    d: Length,
     emissivity: f64,
     use_iso: bool,
 ) -> Temperature {
     let tg_celsius = tg.as_celsius();
     let tdb_celsius = tdb.as_celsius();
     let v_ms = v.as_meters_per_second();
+    let d_m = d.as_meters();
 
     let tr_celsius = if use_iso {
-        mean_radiant_temperature_iso(tg_celsius, tdb_celsius, v_ms, d, emissivity)
+        mean_radiant_temperature_iso(tg_celsius, tdb_celsius, v_ms, d_m, emissivity)
     } else {
-        mean_radiant_temperature_mixed(tg_celsius, tdb_celsius, v_ms, d, emissivity)
+        mean_radiant_temperature_mixed(tg_celsius, tdb_celsius, v_ms, d_m, emissivity)
     };
     Temperature::from_celsius(tr_celsius)
 }

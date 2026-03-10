@@ -7,6 +7,7 @@ use crate::models::pmv::{
     PmvPpdOptions, PmvPpdResult, pmv_ppd_ashrae as pmv_ppd_ashrae_f64,
     pmv_ppd_iso as pmv_ppd_iso_f64,
 };
+use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Humidity, Speed, Temperature};
 
 /// Calculate PMV and PPD according to ISO 7730:2005 using type-safe measurements
@@ -20,8 +21,8 @@ use measurements::{Humidity, Speed, Temperature};
 /// * `tr` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
-/// * `met` - Metabolic rate (met)
-/// * `clo` - Clothing insulation (clo)
+/// * `met` - Metabolic rate
+/// * `clo` - Clothing insulation
 /// * `options` - Additional calculation options
 ///
 /// # Returns
@@ -33,14 +34,14 @@ use measurements::{Humidity, Speed, Temperature};
 /// ```
 /// use thermalcomfort::models::pmv_typed::pmv_ppd_iso_typed;
 /// use thermalcomfort::utilities::v_relative;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
 /// let tr = Temperature::from_celsius(25.0);
 /// let v = Speed::from_meters_per_second(0.1);
 /// let rh = Humidity::from_percent(50.0);
-/// let met = 1.4;
-/// let clo = 0.5;
+/// let met = MetabolicRate::from_met(1.4);
+/// let clo = ClothingInsulation::from_clo(0.5);
 ///
 /// // Calculate relative air speed
 /// let vr = v_relative(v, met);
@@ -52,11 +53,10 @@ pub fn pmv_ppd_iso_typed(
     tr: Temperature,
     vr: Speed,
     rh: Humidity,
-    met: f64,
-    clo: f64,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
-    // The main function now takes measurement types directly
     pmv_ppd_iso_f64(tdb, tr, vr, rh, met, clo, options)
 }
 
@@ -73,14 +73,14 @@ pub fn pmv_ppd_iso_typed(
 ///
 /// ```
 /// use thermalcomfort::models::pmv_typed::pmv_ppd_ashrae_typed;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
 /// let tr = Temperature::from_celsius(25.0);
 /// let vr = Speed::from_meters_per_second(0.1);
 /// let rh = Humidity::from_percent(50.0);
-/// let met = 1.2;
-/// let clo = 0.5;
+/// let met = MetabolicRate::from_met(1.2);
+/// let clo = ClothingInsulation::from_clo(0.5);
 ///
 /// let result = pmv_ppd_ashrae_typed(tdb, tr, vr, rh, met, clo, Default::default());
 /// ```
@@ -89,11 +89,10 @@ pub fn pmv_ppd_ashrae_typed(
     tr: Temperature,
     vr: Speed,
     rh: Humidity,
-    met: f64,
-    clo: f64,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
     options: PmvPpdOptions,
 ) -> PmvPpdResult {
-    // The main function now takes measurement types directly
     pmv_ppd_ashrae_f64(tdb, tr, vr, rh, met, clo, options)
 }
 
@@ -108,8 +107,8 @@ mod tests {
         let tr = Temperature::from_celsius(25.0);
         let vr = Speed::from_meters_per_second(0.1);
         let rh = Humidity::from_percent(50.0);
-        let met = 1.2;
-        let clo = 0.5;
+        let met = MetabolicRate::from_met(1.2);
+        let clo = ClothingInsulation::from_clo(0.5);
 
         let result = pmv_ppd_iso_typed(tdb, tr, vr, rh, met, clo, Default::default());
 
@@ -127,8 +126,8 @@ mod tests {
         let tr = Temperature::from_celsius(25.0);
         let vr = Speed::from_meters_per_second(0.1);
         let rh = Humidity::from_percent(50.0);
-        let met = 1.2;
-        let clo = 0.5;
+        let met = MetabolicRate::from_met(1.2);
+        let clo = ClothingInsulation::from_clo(0.5);
 
         let result_f = pmv_ppd_iso_typed(tdb_f, tr, vr, rh, met, clo, Default::default());
         let result_c = pmv_ppd_iso_typed(tdb_c, tr, vr, rh, met, clo, Default::default());
@@ -145,8 +144,8 @@ mod tests {
         let vr_mps = Speed::from_meters_per_second(0.1);
         let vr_kmh = Speed::from_kilometers_per_hour(0.1 * 3.6); // 0.1 m/s = 0.36 km/h
         let rh = Humidity::from_percent(50.0);
-        let met = 1.2;
-        let clo = 0.5;
+        let met = MetabolicRate::from_met(1.2);
+        let clo = ClothingInsulation::from_clo(0.5);
 
         let result_mps = pmv_ppd_iso_typed(tdb, tr, vr_mps, rh, met, clo, Default::default());
         let result_kmh = pmv_ppd_iso_typed(tdb, tr, vr_kmh, rh, met, clo, Default::default());

@@ -3,7 +3,8 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv::pmv_ppd_ashrae;
-use measurements::{Humidity, Speed, Temperature};
+use crate::{ClothingInsulation, MetabolicRate};
+use measurements::{Humidity, Length, Speed, Temperature};
 
 /// Calculate percentage dissatisfied due to ankle draft
 ///
@@ -16,8 +17,8 @@ use measurements::{Humidity, Speed, Temperature};
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar, must be < 0.2 m/s)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `ankle_air_speed` - Air speed at 0.1m above floor (use `Speed::from_meters_per_second()` or similar)
 ///
 /// # Returns
@@ -28,15 +29,15 @@ use measurements::{Humidity, Speed, Temperature};
 ///
 /// ```
 /// use thermalcomfort::models::ankle_draft;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let (ppd, acceptable) = ankle_draft(
 ///     Temperature::from_celsius(23.0),
 ///     Temperature::from_celsius(23.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(45.0),
-///     1.1,
-///     0.7,
+///     MetabolicRate::from_met(1.1),
+///     ClothingInsulation::from_clo(0.7),
 ///     Speed::from_meters_per_second(0.15)  // ankle draft
 /// );
 /// println!("PPD ankle draft: {:.1}%, Acceptable: {}", ppd, acceptable);
@@ -51,8 +52,8 @@ pub fn ankle_draft(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     ankle_air_speed: Speed,
 ) -> (f64, bool) {
     // Calculate PMV value for use in ankle draft equation
@@ -90,8 +91,8 @@ pub fn ankle_draft(
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m [°C]
 ///
 /// # Returns
@@ -102,15 +103,15 @@ pub fn ankle_draft(
 ///
 /// ```
 /// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     Temperature::from_celsius(25.0),
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.1),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     MetabolicRate::from_met(1.2),
+///     ClothingInsulation::from_clo(0.5),
 ///     2.0  // 2°C temperature gradient
 /// );
 /// println!("PPD vertical gradient: {:.1}%, Acceptable: {}", ppd, acceptable);
@@ -125,8 +126,8 @@ pub fn vertical_tmp_grad_ppd(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     vertical_temp_gradient: f64,
 ) -> (f64, bool) {
     // Calculate PMV value for use in vertical temperature gradient equation
@@ -158,14 +159,27 @@ pub fn vertical_tmp_grad_ppd(
 ///
 /// # Arguments
 ///
-/// * `w` - Width of the window (m)
-/// * `h` - Height of the window (m)
-/// * `d` - Distance between occupant and window (m)
+/// * `w` - Width of the window
+/// * `h` - Height of the window
+/// * `d` - Distance between occupant and window
 ///
 /// # Returns
 ///
 /// Sky-vault view fraction (0-1)
-pub fn f_svv(w: f64, h: f64, d: f64) -> f64 {
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::f_svv;
+/// use thermalcomfort::Length;
+///
+/// let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
+/// assert!(svv > 0.0 && svv <= 1.0);
+/// ```
+pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
+    let w = w.as_meters();
+    let h = h.as_meters();
+    let d = d.as_meters();
     let angle_h = libm::atan(h / (2.0 * d));
     let angle_w = libm::atan(w / (2.0 * d));
 
@@ -206,8 +220,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.2),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Speed::from_meters_per_second(0.3),
         );
         assert!((0.0..=100.0).contains(&ppd));
@@ -222,8 +236,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             2.0,
         );
         // PPD can be negative for comfortable conditions (formula artifact)
@@ -233,7 +247,11 @@ mod tests {
 
     #[test]
     fn test_f_svv() {
-        let svv = f_svv(2.0, 1.5, 3.0);
+        let svv = f_svv(
+            Length::from_meters(2.0),
+            Length::from_meters(1.5),
+            Length::from_meters(3.0),
+        );
         assert!(svv > 0.0 && svv <= 1.0);
     }
 

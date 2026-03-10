@@ -6,15 +6,16 @@
 use crate::models::set_tmp::{SetOptions, set_tmp};
 use crate::numerical::brentq;
 use crate::utilities::Posture;
+use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Options for cooling effect calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoolingEffectOptions {
-    /// External work (met)
-    pub wme: f64,
-    /// Still air threshold [m/s]
-    pub still_air_threshold: f64,
+    /// External work
+    pub wme: MetabolicRate,
+    /// Still air threshold
+    pub still_air_threshold: Speed,
     /// Body surface area
     pub body_surface_area: Area,
     /// Atmospheric pressure
@@ -26,8 +27,8 @@ pub struct CoolingEffectOptions {
 impl Default for CoolingEffectOptions {
     fn default() -> Self {
         Self {
-            wme: 0.0,
-            still_air_threshold: 0.1,
+            wme: MetabolicRate::from_met(0.0),
+            still_air_threshold: Speed::from_meters_per_second(0.1),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Standing,
@@ -50,8 +51,8 @@ impl Default for CoolingEffectOptions {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
 /// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (met)
-/// * `clothing_insulation` - Clothing insulation (clo)
+/// * `metabolic_rate` - Metabolic rate
+/// * `clothing_insulation` - Clothing insulation
 /// * `options` - Cooling effect options
 ///
 /// # Returns
@@ -63,7 +64,7 @@ impl Default for CoolingEffectOptions {
 ///
 /// ```
 /// use thermalcomfort::models::cooling_effect::{cooling_effect, CoolingEffectOptions};
-/// use thermalcomfort::{Temperature, Speed, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// // Calculate cooling effect with elevated air speed
 /// let ce = cooling_effect(
@@ -71,8 +72,8 @@ impl Default for CoolingEffectOptions {
 ///     Temperature::from_celsius(25.0),
 ///     Speed::from_meters_per_second(0.5),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
+///     MetabolicRate::from_met(1.2),
+///     ClothingInsulation::from_clo(0.5),
 ///     Default::default()
 /// );
 /// println!("Cooling effect: {:.2}°C", ce);
@@ -82,14 +83,15 @@ pub fn cooling_effect(
     mean_radiant_temp: Temperature,
     relative_air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
     options: CoolingEffectOptions,
 ) -> f64 {
     let air_speed = relative_air_speed.as_meters_per_second();
+    let still_air = options.still_air_threshold.as_meters_per_second();
 
     // No cooling effect if air speed is at or below still air threshold
-    if air_speed <= options.still_air_threshold {
+    if air_speed <= still_air {
         return 0.0;
     }
 
@@ -127,7 +129,7 @@ pub fn cooling_effect(
         let set_still = set_tmp(
             Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
             Temperature::from_celsius(radiant_celsius - cooling_effect_delta),
-            Speed::from_meters_per_second(options.still_air_threshold),
+            options.still_air_threshold,
             relative_humidity,
             metabolic_rate,
             clothing_insulation,
@@ -153,8 +155,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.1),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert_eq!(ce, 0.0);
@@ -165,8 +167,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.05),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert_eq!(ce, 0.0);
@@ -180,8 +182,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(ce > 0.0);
@@ -196,8 +198,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.3),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         let ce2 = cooling_effect(
@@ -205,8 +207,8 @@ mod tests {
             Temperature::from_celsius(25.0),
             Speed::from_meters_per_second(0.8),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
 
@@ -221,8 +223,8 @@ mod tests {
             Temperature::from_celsius(30.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
             Default::default(),
         );
         assert!(ce > 0.0);

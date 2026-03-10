@@ -5,6 +5,7 @@
 
 use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
+use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// Result of fan use during heatwaves assessment
@@ -58,9 +59,9 @@ pub struct UseFansHeatwavesResult {
 /// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
 /// * `air_speed` - Air speed (use `Speed::from_meters_per_second()`, recommended range: 0.1-4.5 m/s)
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate [met, 0.7-2.0]
-/// * `clothing_insulation` - Clothing insulation [clo, 0-1]
-/// * `wme` - External work [met, default 0]
+/// * `metabolic_rate` - Metabolic rate (recommended range: 0.7-2.0 met)
+/// * `clothing_insulation` - Clothing insulation (recommended range: 0-1 clo)
+/// * `wme` - External work (default 0)
 /// * `body_surface_area` - Body surface area (use `Area::from_square_meters()`, default 1.8258 m²)
 /// * `p_atm` - Atmospheric pressure (use `Pressure::from_pascals()`, default 101325 Pa)
 /// * `posture` - Body posture
@@ -76,16 +77,16 @@ pub struct UseFansHeatwavesResult {
 /// ```
 /// use thermalcomfort::models::use_fans_heatwaves::use_fans_heatwaves;
 /// use thermalcomfort::utilities::Posture;
-/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity};
+/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let result = use_fans_heatwaves(
 ///     Temperature::from_celsius(35.0),
 ///     Temperature::from_celsius(35.0),
 ///     Speed::from_meters_per_second(1.0),
 ///     Humidity::from_percent(50.0),
-///     1.2,
-///     0.5,
-///     0.0,
+///     MetabolicRate::from_met(1.2),
+///     ClothingInsulation::from_clo(0.5),
+///     MetabolicRate::from_met(0.0),
 ///     Area::from_square_meters(1.8258),
 ///     Pressure::from_pascals(101325.0),
 ///     Posture::Standing,
@@ -100,9 +101,9 @@ pub fn use_fans_heatwaves(
     mean_radiant_temp: Temperature,
     air_speed: Speed,
     relative_humidity: Humidity,
-    metabolic_rate: f64,
-    clothing_insulation: f64,
-    wme: f64,
+    metabolic_rate: MetabolicRate,
+    clothing_insulation: ClothingInsulation,
+    wme: MetabolicRate,
     body_surface_area: Area,
     p_atm: Pressure,
     posture: Posture,
@@ -167,9 +168,9 @@ mod tests {
             Temperature::from_celsius(35.0),
             Speed::from_meters_per_second(1.0),
             Humidity::from_percent(50.0),
-            1.2,
-            0.5,
-            0.0,
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            MetabolicRate::from_met(0.0),
             Area::from_square_meters(1.8258),
             Pressure::from_pascals(101325.0),
             Posture::Standing,
@@ -188,9 +189,9 @@ mod tests {
             Temperature::from_celsius(45.0),
             Speed::from_meters_per_second(0.5),
             Humidity::from_percent(70.0),
-            1.8,
-            0.3,
-            0.0,
+            MetabolicRate::from_met(1.8),
+            ClothingInsulation::from_clo(0.3),
+            MetabolicRate::from_met(0.0),
             Area::from_square_meters(1.8258),
             Pressure::from_pascals(101325.0),
             Posture::Standing,
