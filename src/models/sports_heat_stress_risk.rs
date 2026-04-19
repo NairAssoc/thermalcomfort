@@ -12,10 +12,10 @@
 //!
 //! ## Risk Levels
 //!
-//! - **0.0 - 1.0**: Low risk - Increase hydration & modify clothing
-//! - **1.0 - 2.0**: Moderate risk - Increase frequency/duration of rest breaks
-//! - **2.0 - 3.0**: High risk - Apply active cooling strategies
-//! - **3.0**: Extreme risk - Consider suspending play
+//! - **1.0 - 2.0**: Low risk - Increase hydration & modify clothing
+//! - **2.0 - 3.0**: Moderate risk - Increase frequency/duration of rest breaks
+//! - **3.0 - 4.0**: High risk - Apply active cooling strategies
+//! - **4.0**: Extreme risk - Consider suspending play
 //!
 //! ## References
 //!
@@ -73,7 +73,8 @@ impl SportsValues {
 ///     Speed::from_meters_per_second(0.1),
 ///     Sports::RUNNING,
 /// );
-/// assert_eq!(result.risk_level_interpolated, 3.0);
+/// // vr=0.1 is clamped to sport minimum (2.0 for running)
+/// assert_eq!(result.risk_level_interpolated, 2.1);
 /// ```
 pub struct Sports;
 
@@ -281,8 +282,8 @@ impl Sports {
 /// Result of sports heat stress risk calculation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SportsHeatStressRisk {
-    /// Interpolated risk level (0.0-3.0), truncated to one decimal place.
-    /// Risk levels: 0-1 = low, 1-2 = moderate, 2-3 = high, 3+ = extreme.
+    /// Interpolated risk level (1.0-4.0), truncated to one decimal place.
+    /// Risk levels: 1-2 = low, 2-3 = moderate, 3-4 = high, 4 = extreme.
     pub risk_level_interpolated: f64,
     /// Temperature threshold for medium risk level [°C]
     pub t_medium: f64,
@@ -308,11 +309,11 @@ const T_CR_EXTREME: f64 = 40.0; // core temperature for extreme risk
 
 /// Get recommendation text for a given risk level.
 fn get_recommendation(risk_level: f64) -> &'static str {
-    if risk_level < 1.0 {
+    if risk_level < 2.0 {
         "Increase hydration & modify clothing"
-    } else if risk_level < 2.0 {
-        "Increase frequency and/or duration of rest breaks"
     } else if risk_level < 3.0 {
+        "Increase frequency and/or duration of rest breaks"
+    } else if risk_level < 4.0 {
         "Apply active cooling strategies"
     } else {
         "Consider suspending play"
@@ -395,7 +396,7 @@ fn floor1(x: f64) -> f64 {
 /// # Returns
 ///
 /// [`SportsHeatStressRisk`] containing:
-/// - Risk level (0.0-3.0, truncated to one decimal place)
+/// - Risk level (1.0-4.0, truncated to one decimal place)
 /// - Temperature thresholds for medium, high, and extreme risk
 /// - Recommendation text
 ///
@@ -413,10 +414,10 @@ fn floor1(x: f64) -> f64 {
 ///     Speed::from_meters_per_second(0.1),
 ///     Sports::RUNNING,
 /// );
-/// assert_eq!(result.risk_level_interpolated, 3.0);
-/// assert_eq!(result.t_medium, 23.0);
-/// assert_eq!(result.t_extreme, 28.6);
-/// assert_eq!(result.recommendation, "Consider suspending play");
+/// assert_eq!(result.risk_level_interpolated, 2.1);
+/// assert_eq!(result.t_medium, 34.5);
+/// assert_eq!(result.t_extreme, 41.6);
+/// assert_eq!(result.recommendation, "Increase frequency and/or duration of rest breaks");
 ///
 /// // Soccer at moderate conditions
 /// let result = sports_heat_stress_risk(
@@ -426,7 +427,7 @@ fn floor1(x: f64) -> f64 {
 ///     Speed::from_meters_per_second(0.5),
 ///     Sports::SOCCER,
 /// );
-/// assert!(result.risk_level_interpolated < 1.0); // Low risk
+/// assert!(result.risk_level_interpolated < 2.0); // Low risk
 /// ```
 ///
 /// # References
@@ -443,26 +444,30 @@ pub fn sports_heat_stress_risk(
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let rh_pct = rh.as_percent();
-    let vr_ms = vr.as_meters_per_second();
+    // Enforce sport-specific minimum air speed
+    let vr_ms = {
+        let v = vr.as_meters_per_second();
+        if v < sport.vr { sport.vr } else { v }
+    };
 
     // Early returns for temperatures outside the threshold range
     if tdb_c < MIN_T_MEDIUM {
         return SportsHeatStressRisk {
-            risk_level_interpolated: 0.0,
+            risk_level_interpolated: 1.0,
             t_medium: MIN_T_MEDIUM,
             t_high: MIN_T_HIGH,
             t_extreme: MIN_T_EXTREME,
-            recommendation: get_recommendation(0.0),
+            recommendation: get_recommendation(1.0),
         };
     }
 
     if tdb_c > MAX_T_HIGH {
         return SportsHeatStressRisk {
-            risk_level_interpolated: 3.0,
+            risk_level_interpolated: 4.0,
             t_medium: MAX_T_LOW,
             t_high: MAX_T_MEDIUM,
             t_extreme: MAX_T_HIGH,
-            recommendation: get_recommendation(3.0),
+            recommendation: get_recommendation(4.0),
         };
     }
 
@@ -505,16 +510,16 @@ pub fn sports_heat_stress_risk(
         t_medium = MIN_T_MEDIUM;
     }
 
-    // Calculate interpolated risk level
+    // Calculate interpolated risk level (1.0-4.0 scale)
     let risk_level = if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
-        (tdb_c - MIN_T_MEDIUM) / (t_medium - MIN_T_MEDIUM)
+        1.0 + (tdb_c - MIN_T_MEDIUM) / (t_medium - MIN_T_MEDIUM)
     } else if t_medium <= tdb_c && tdb_c < t_high {
-        1.0 + (tdb_c - t_medium) / (t_high - t_medium)
+        2.0 + (tdb_c - t_medium) / (t_high - t_medium)
     } else if t_high <= tdb_c && tdb_c < t_extreme {
-        2.0 + (tdb_c - t_high) / (t_extreme - t_high)
+        3.0 + (tdb_c - t_high) / (t_extreme - t_high)
     } else {
         // tdb >= t_extreme
-        3.0
+        4.0
     };
 
     // Floor-truncate to one decimal place
@@ -571,7 +576,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_running_extreme() {
+    fn test_running_vr_clamped() {
+        // vr=0.1 is clamped to sport minimum (2.0 for running)
         let result = sports_heat_stress_risk(
             Temperature::from_celsius(35.0),
             Temperature::from_celsius(35.0),
@@ -579,11 +585,14 @@ mod tests {
             Speed::from_meters_per_second(0.1),
             Sports::RUNNING,
         );
-        assert_eq!(result.risk_level_interpolated, 3.0);
-        assert_eq!(result.t_medium, 23.0);
-        assert_eq!(result.t_high, 25.0);
-        assert_eq!(result.t_extreme, 28.6);
-        assert_eq!(result.recommendation, "Consider suspending play");
+        assert_eq!(result.risk_level_interpolated, 2.1);
+        assert_eq!(result.t_medium, 34.5);
+        assert_eq!(result.t_high, 39.0);
+        assert_eq!(result.t_extreme, 41.6);
+        assert_eq!(
+            result.recommendation,
+            "Increase frequency and/or duration of rest breaks"
+        );
     }
 
     #[test]
@@ -595,10 +604,10 @@ mod tests {
             Speed::from_meters_per_second(0.5),
             Sports::SOCCER,
         );
-        assert_eq!(result.risk_level_interpolated, 0.7);
-        assert_eq!(result.t_medium, 32.7);
-        assert_eq!(result.t_high, 34.9);
-        assert_eq!(result.t_extreme, 37.1);
+        assert_eq!(result.risk_level_interpolated, 1.6);
+        assert_eq!(result.t_medium, 34.5);
+        assert_eq!(result.t_high, 38.2);
+        assert_eq!(result.t_extreme, 39.9);
         assert_eq!(
             result.recommendation,
             "Increase hydration & modify clothing"
@@ -614,7 +623,7 @@ mod tests {
             Speed::from_meters_per_second(0.5),
             Sports::WALKING,
         );
-        assert_eq!(result.risk_level_interpolated, 0.0);
+        assert_eq!(result.risk_level_interpolated, 1.0);
         assert_eq!(result.t_medium, 23.0);
         assert_eq!(result.t_high, 25.0);
         assert_eq!(result.t_extreme, 26.0);
@@ -633,7 +642,7 @@ mod tests {
             Speed::from_meters_per_second(0.5),
             Sports::CYCLING,
         );
-        assert_eq!(result.risk_level_interpolated, 3.0);
+        assert_eq!(result.risk_level_interpolated, 4.0);
         assert_eq!(result.t_medium, 34.5);
         assert_eq!(result.t_high, 39.0);
         assert_eq!(result.t_extreme, 43.5);
@@ -649,10 +658,10 @@ mod tests {
             Speed::from_meters_per_second(0.1),
             Sports::TENNIS,
         );
-        assert_eq!(result.risk_level_interpolated, 3.0);
+        assert_eq!(result.risk_level_interpolated, 4.0);
         assert_eq!(result.t_medium, 23.0);
         assert_eq!(result.t_high, 25.0);
-        assert_eq!(result.t_extreme, 26.0);
+        assert_eq!(result.t_extreme, 29.5);
         assert_eq!(result.recommendation, "Consider suspending play");
     }
 
