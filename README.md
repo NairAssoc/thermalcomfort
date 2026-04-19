@@ -260,7 +260,11 @@ cargo test --test python_comparison
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/CenterForTheBuiltEnvironment/pythermalcomfort) (v3.9.2), developed by the Center for the Built Environment at UC Berkeley.
+Rust port of [pythermalcomfort](https://github.com/CenterForTheBuiltEnvironment/pythermalcomfort) (v3.9.2), developed by Federico Tartarini and Stefano Schiavon at the Center for the Built Environment, UC Berkeley.
+
+If you use this crate in your research, please cite the original work:
+
+> Tartarini, F., Schiavon, S., 2020. pythermalcomfort: A Python package for thermal comfort research. SoftwareX 12, 100578. https://doi.org/10.1016/j.softx.2020.100578
 
 ## License
 
