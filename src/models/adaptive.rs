@@ -55,11 +55,16 @@ pub struct AdaptiveEnResult {
 pub struct AdaptiveOptions {
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
+    /// Round `tmp_cmf` to one decimal place before deriving comfort bounds
+    pub round_output: bool,
 }
 
 impl Default for AdaptiveOptions {
     fn default() -> Self {
-        Self { limit_inputs: true }
+        Self {
+            limit_inputs: true,
+            round_output: true,
+        }
     }
 }
 
@@ -159,8 +164,9 @@ pub fn adaptive_ashrae(
         t_cmf = f64::NAN;
     }
 
-    // Round to 1 decimal place
-    t_cmf = libm::round(t_cmf * 10.0) / 10.0;
+    if options.round_output {
+        t_cmf = libm::round(t_cmf * 10.0) / 10.0;
+    }
 
     // Calculate acceptability bounds (ASHRAE 55-2023)
     // 80% acceptability: ±3.5°C from comfort temperature
@@ -264,8 +270,9 @@ pub fn adaptive_en(
         t_cmf = f64::NAN;
     }
 
-    // Round to 1 decimal place
-    t_cmf = libm::round(t_cmf * 10.0) / 10.0;
+    if options.round_output {
+        t_cmf = libm::round(t_cmf * 10.0) / 10.0;
+    }
 
     // Calculate category bounds (EN 16798-1:2019)
     // Category I (high expectation): ±2°C from comfort temperature
@@ -335,6 +342,7 @@ mod tests {
         // Test with limits disabled
         let options = AdaptiveOptions {
             limit_inputs: false,
+            ..Default::default()
         };
         let result = adaptive_ashrae(
             Temperature::from_celsius(25.0),
@@ -402,5 +410,87 @@ mod tests {
         );
         assert!(result.tmp_cmf.is_nan());
         assert!(!result.acceptability_cat_ii);
+    }
+
+    #[test]
+    fn test_adaptive_ashrae_round_output() {
+        // trm=27 yields t_cmf = 0.31*27 + 17.8 = 26.17, which rounds to 26.2.
+        // The 0.03 gap lets us detect whether rounding was applied.
+        let inputs = (
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(27.0),
+            Speed::from_meters_per_second(0.1),
+        );
+
+        let rounded = adaptive_ashrae(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            AdaptiveOptions {
+                round_output: true,
+                ..Default::default()
+            },
+        );
+        assert!((rounded.tmp_cmf - 26.2).abs() < 1e-9);
+        // Derived bounds inherit the rounded value.
+        assert!((rounded.tmp_cmf_80_low - 22.7).abs() < 1e-9);
+        assert!((rounded.tmp_cmf_80_up - 29.7).abs() < 1e-9);
+
+        let unrounded = adaptive_ashrae(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            AdaptiveOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        assert!((unrounded.tmp_cmf - 26.17).abs() < 1e-9);
+        assert!((unrounded.tmp_cmf_80_low - (26.17 - 3.5)).abs() < 1e-9);
+        assert!((unrounded.tmp_cmf_80_up - (26.17 + 3.5)).abs() < 1e-9);
+
+        // The two paths must differ — proves round_output=false actually changes behavior.
+        assert!((rounded.tmp_cmf - unrounded.tmp_cmf).abs() > 0.01);
+    }
+
+    #[test]
+    fn test_adaptive_en_round_output() {
+        // trm=22 yields t_cmf = 0.33*22 + 18.8 = 26.06, which rounds to 26.1.
+        let inputs = (
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(22.0),
+            Speed::from_meters_per_second(0.1),
+        );
+
+        let rounded = adaptive_en(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            AdaptiveOptions {
+                round_output: true,
+                ..Default::default()
+            },
+        );
+        assert!((rounded.tmp_cmf - 26.1).abs() < 1e-9);
+
+        let unrounded = adaptive_en(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            AdaptiveOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        assert!((unrounded.tmp_cmf - 26.06).abs() < 1e-9);
+
+        // The two paths must differ.
+        assert!((rounded.tmp_cmf - unrounded.tmp_cmf).abs() > 0.01);
     }
 }

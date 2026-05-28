@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v3.9.7) for thermal comfort calculations. All 38 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v3.9.8) for thermal comfort calculations. All 38 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,7 +12,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **100% Feature Complete**: All 38 core models from pythermalcomfort v3.9.7
+- **100% Feature Complete**: All 38 core models from pythermalcomfort v3.9.8
 - **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std` compatible**: Works in embedded and WASM environments (default)
 - **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
@@ -47,7 +47,7 @@ For applications requiring perfect Python accuracy matching in extreme PET condi
 
 ```toml
 [dependencies]
-thermalcomfort = { version = "3.9.7", features = ["std"] }
+thermalcomfort = { version = "3.9.8", features = ["std"] }
 ```
 
 This uses nalgebra for numerically stable linear algebra (LU decomposition), matching Python's scipy.optimize.fsolve. The trade-off is breaking `no_std` compatibility and a slightly larger binary (~100KB). Only needed when extreme cold+wind PET accuracy is critical (< 5°C, > 2 m/s).
@@ -58,7 +58,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "3.9.7"
+thermalcomfort = "3.9.8"
 ```
 
 ## Usage
@@ -221,7 +221,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce identical results to pythermalcomfort v3.9.7. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
+All models produce identical results to pythermalcomfort v3.9.8. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
 
 | Condition | Python | Rust (`no_std`) | Rust (`std`) |
 |-----------|--------|-----------------|--------------|
@@ -260,7 +260,7 @@ cargo test --test python_comparison
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v3.9.7), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v3.9.8), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

@@ -8,6 +8,7 @@ use measurements::{Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::adaptive::AdaptiveOptions;
 use thermalcomfort::models::{
     Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft,
     at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, humidex, net,
@@ -29,13 +30,16 @@ fn test_pmv_ppd_iso_standard_conditions() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Test cases: (tdb, tr, vr, rh, met, clo)
+        // Sweep spans cold → warm so the `tsv` band assignment is exercised
+        // across SlightlyCool / Neutral / SlightlyWarm at minimum.
         let test_cases = vec![
             (25.0, 25.0, 0.1, 50.0, 1.2, 0.5),
             (20.0, 20.0, 0.1, 50.0, 1.0, 1.0),
             (28.0, 28.0, 0.3, 60.0, 1.5, 0.3),
             (22.0, 24.0, 0.15, 40.0, 1.1, 0.7),
             (26.0, 26.0, 0.2, 55.0, 1.3, 0.6),
+            (18.0, 18.0, 0.1, 50.0, 1.0, 0.7),
+            (29.0, 29.0, 0.1, 50.0, 1.4, 0.4),
         ];
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
@@ -53,6 +57,7 @@ fn test_pmv_ppd_iso_standard_conditions() {
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
+            let py_tsv: String = py_result.getattr("tsv").unwrap().extract().unwrap();
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
@@ -74,6 +79,13 @@ fn test_pmv_ppd_iso_standard_conditions() {
             // Compare results (allow small floating point differences)
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
+            assert_eq!(
+                rust_result.tsv.as_str(),
+                py_tsv,
+                "tsv mismatch at tdb={tdb} tr={tr} vr={vr} rh={rh} met={met} clo={clo}",
+            );
+            // ISO does not populate the ASHRAE compliance check.
+            assert_eq!(rust_result.compliance, None);
         }
     });
 }
@@ -135,8 +147,16 @@ fn test_pmv_ppd_iso_extreme_conditions() {
                 rust_result.pmv, rust_result.ppd
             );
 
+            let py_tsv: String = py_result.getattr("tsv").unwrap().extract().unwrap();
+
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
+            assert_eq!(
+                rust_result.tsv.as_str(),
+                py_tsv,
+                "tsv mismatch at tdb={tdb} tr={tr} vr={vr} rh={rh} met={met} clo={clo}",
+            );
+            assert_eq!(rust_result.compliance, None);
         }
     });
 }
@@ -147,13 +167,20 @@ fn test_pmv_ppd_ashrae() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Note: ASHRAE applies a cooling effect correction when vr > 0.1
-        // We haven't implemented that yet, so we only test cases with vr <= 0.1
+        // Inputs are chosen to span compliant (-0.5 < PMV < 0.5) and non-compliant
+        // outcomes, and to include vr > 0.1 cases so the ASHRAE Appendix H3
+        // cooling-effect correction is exercised against the Python reference.
         let test_cases = vec![
             (25.0, 25.0, 0.1, 50.0, 1.2, 0.5),
             (23.0, 23.0, 0.1, 45.0, 1.1, 0.7),
             (27.0, 27.0, 0.1, 55.0, 1.4, 0.4),
             (20.0, 20.0, 0.1, 50.0, 1.0, 1.0),
+            (30.0, 30.0, 0.1, 60.0, 1.4, 0.3),
+            (18.0, 18.0, 0.1, 40.0, 1.1, 0.6),
+            // Cooling-effect path (vr > 0.1):
+            (28.0, 28.0, 0.4, 50.0, 1.2, 0.5),
+            (26.0, 26.0, 0.8, 55.0, 1.4, 0.4),
+            (30.0, 30.0, 1.2, 50.0, 1.2, 0.5),
         ];
 
         for (tdb, tr, vr, rh, met, clo) in test_cases {
@@ -171,6 +198,10 @@ fn test_pmv_ppd_ashrae() {
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
+            // `compliance` is bool or NaN; extract via Option<bool> so the NaN
+            // sentinel falls through to None.
+            let py_compliance: Option<bool> =
+                py_result.getattr("compliance").unwrap().extract().ok();
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_ashrae(
@@ -191,6 +222,11 @@ fn test_pmv_ppd_ashrae() {
 
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
+            assert_eq!(
+                rust_result.compliance, py_compliance,
+                "PMV ASHRAE compliance mismatch at tdb={} tr={} vr={} rh={} met={} clo={}",
+                tdb, tr, vr, rh, met, clo,
+            );
         }
     });
 }
@@ -497,12 +533,17 @@ fn test_compare_two_nodes_gagge() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Test cases: (tdb, tr, v, rh, met, clo)
+        // Broadened sweep: cool/comfortable/hot conditions across the activity
+        // (met) and clothing (clo) ranges, with low and elevated air speeds and
+        // varied humidity. Loose ε reflects the iterative nature of the model.
         let test_cases = vec![
             (25.0, 25.0, 0.1, 50.0, 1.2, 0.5),
             (20.0, 20.0, 0.1, 50.0, 1.0, 1.0),
             (28.0, 28.0, 0.3, 60.0, 1.5, 0.3),
             (22.0, 24.0, 0.15, 40.0, 1.1, 0.7),
+            (32.0, 32.0, 0.5, 70.0, 1.6, 0.3),
+            (18.0, 18.0, 0.1, 30.0, 1.0, 1.2),
+            (26.0, 26.0, 0.8, 50.0, 2.0, 0.4),
         ];
 
         for (tdb, tr, v, rh, met, clo) in test_cases {
@@ -518,10 +559,27 @@ fn test_compare_two_nodes_gagge() {
                 .call1((tdb, tr, v, rh, met, clo))
                 .unwrap();
 
-            let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
-            let py_t_skin: f64 = py_result.getattr("t_skin").unwrap().extract().unwrap();
-            let py_t_core: f64 = py_result.getattr("t_core").unwrap().extract().unwrap();
-            let py_w: f64 = py_result.getattr("w").unwrap().extract().unwrap();
+            let get = |name: &str| -> f64 {
+                py_result.getattr(name).unwrap().extract::<f64>().unwrap()
+            };
+            let py_set = get("set");
+            let py_e_skin = get("e_skin");
+            let py_e_rsw = get("e_rsw");
+            let py_e_max = get("e_max");
+            let py_q_sensible = get("q_sensible");
+            let py_q_skin = get("q_skin");
+            let py_q_res = get("q_res");
+            let py_t_core = get("t_core");
+            let py_t_skin = get("t_skin");
+            let py_m_bl = get("m_bl");
+            let py_m_rsw = get("m_rsw");
+            let py_w = get("w");
+            let py_w_max = get("w_max");
+            let py_et = get("et");
+            let py_pmv_gagge = get("pmv_gagge");
+            let py_pmv_set = get("pmv_set");
+            let py_disc = get("disc");
+            let py_t_sens = get("t_sens");
 
             // Call Rust function with measurement types
             let rust_result = two_nodes_gagge(
@@ -534,21 +592,25 @@ fn test_compare_two_nodes_gagge() {
                 Default::default(),
             );
 
-            println!(
-                "  Python - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
-                py_set, py_t_skin, py_t_core, py_w
-            );
-            println!(
-                "  Rust   - SET: {:.2}, t_skin: {:.2}, t_core: {:.2}, w: {:.2}",
-                rust_result.set, rust_result.t_skin, rust_result.t_core, rust_result.w
-            );
-
-            // Compare results (allow small floating point differences)
-            // Note: Two-node model has iterative simulation, so small differences expected
+            // Two-node model is iterative — tolerances scale with field magnitude.
             assert_abs_diff_eq!(rust_result.set, py_set, epsilon = 0.15);
-            assert_abs_diff_eq!(rust_result.t_skin, py_t_skin, epsilon = 0.3);
+            assert_abs_diff_eq!(rust_result.e_skin, py_e_skin, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.e_rsw, py_e_rsw, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.e_max, py_e_max, epsilon = 1.5);
+            assert_abs_diff_eq!(rust_result.q_sensible, py_q_sensible, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.q_skin, py_q_skin, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.q_res, py_q_res, epsilon = 0.5);
             assert_abs_diff_eq!(rust_result.t_core, py_t_core, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.t_skin, py_t_skin, epsilon = 0.3);
+            assert_abs_diff_eq!(rust_result.m_bl, py_m_bl, epsilon = 2.0);
+            assert_abs_diff_eq!(rust_result.m_rsw, py_m_rsw, epsilon = 5.0);
             assert_abs_diff_eq!(rust_result.w, py_w, epsilon = 0.03);
+            assert_abs_diff_eq!(rust_result.w_max, py_w_max, epsilon = 0.02);
+            assert_abs_diff_eq!(rust_result.et, py_et, epsilon = 0.3);
+            assert_abs_diff_eq!(rust_result.pmv_gagge, py_pmv_gagge, epsilon = 0.05);
+            assert_abs_diff_eq!(rust_result.pmv_set, py_pmv_set, epsilon = 0.05);
+            assert_abs_diff_eq!(rust_result.disc, py_disc, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.t_sens, py_t_sens, epsilon = 0.2);
         }
     });
 }
@@ -559,13 +621,21 @@ fn test_compare_utci() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Test cases: (tdb, tr, v, rh)
+        // Sweep covers every UTCI stress band so the categorical mapping is
+        // exercised end-to-end.
+        // Bands (°C): <-40, [-40,-27), [-27,-13), [-13,0), [0,9), [9,26),
+        //             [26,32), [32,38), [38,46), >=46
         let test_cases = vec![
-            (25.0, 25.0, 1.0, 50.0),
-            (20.0, 20.0, 2.0, 50.0),
-            (30.0, 30.0, 0.5, 60.0),
+            (-45.0, -45.0, 3.0, 70.0),
+            (-30.0, -30.0, 4.0, 60.0),
+            (-15.0, -15.0, 3.0, 70.0),
             (-5.0, -5.0, 3.0, 80.0),
+            (5.0, 5.0, 2.0, 70.0),
+            (20.0, 20.0, 2.0, 50.0),
+            (25.0, 25.0, 1.0, 50.0),
+            (30.0, 30.0, 0.5, 60.0),
             (35.0, 35.0, 1.5, 40.0),
+            (42.0, 42.0, 1.0, 50.0),
         ];
 
         for (tdb, tr, v, rh) in test_cases {
@@ -577,6 +647,11 @@ fn test_compare_utci() {
                 .unwrap();
 
             let py_utci: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
+            let py_stress: String = py_result
+                .getattr("stress_category")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             // Call Rust function with measurement types
             let rust_result = utci(
@@ -589,6 +664,11 @@ fn test_compare_utci() {
 
             // Compare results (UTCI polynomial should match very closely)
             assert_abs_diff_eq!(rust_result.utci, py_utci, epsilon = 0.1);
+            assert_eq!(
+                rust_result.stress_category.as_str(),
+                py_stress,
+                "UTCI stress_category mismatch at tdb={tdb} tr={tr} v={v} rh={rh}",
+            );
         }
     });
 }
@@ -779,10 +859,20 @@ fn test_compare_adaptive_ashrae() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
+        // Sweep covers:
+        //   - t_running_mean across the model's [10, 33.5] range
+        //   - air speed below and above the 0.6/0.9/1.2 cooling-effect thresholds
+        //   - operative temperatures both inside and outside the 80%/90% bands so
+        //     `acceptability_*` flips both ways
         let test_cases = vec![
             (25.0, 25.0, 0.1, 20.0),
             (28.0, 28.0, 0.3, 25.0),
             (22.0, 22.0, 0.2, 18.0),
+            (24.0, 24.0, 0.7, 22.0), // ce tier 1 (0.6 <= v < 0.9)
+            (26.0, 26.0, 1.0, 28.0), // ce tier 2 (0.9 <= v < 1.2)
+            (27.0, 27.0, 1.5, 30.0), // ce tier 3 (v >= 1.2)
+            (32.0, 32.0, 0.1, 32.0), // top end (outside 90% band)
+            (15.0, 15.0, 0.1, 12.0), // low end
         ];
 
         for (tdb, tr, v, t_running_mean) in test_cases {
@@ -793,6 +883,20 @@ fn test_compare_adaptive_ashrae() {
                 .unwrap();
 
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
+            let py_80_low: f64 = py_result.getattr("tmp_cmf_80_low").unwrap().extract().unwrap();
+            let py_80_up: f64 = py_result.getattr("tmp_cmf_80_up").unwrap().extract().unwrap();
+            let py_90_low: f64 = py_result.getattr("tmp_cmf_90_low").unwrap().extract().unwrap();
+            let py_90_up: f64 = py_result.getattr("tmp_cmf_90_up").unwrap().extract().unwrap();
+            let py_acc_80: bool = py_result
+                .getattr("acceptability_80")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_acc_90: bool = py_result
+                .getattr("acceptability_90")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             let rust_result = adaptive_ashrae(
                 Temperature::from_celsius(tdb),
@@ -803,6 +907,18 @@ fn test_compare_adaptive_ashrae() {
             );
 
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_80_low, py_80_low, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_80_up, py_80_up, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_90_low, py_90_low, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_90_up, py_90_up, epsilon = 0.1);
+            assert_eq!(
+                rust_result.acceptability_80, py_acc_80,
+                "acceptability_80 mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
+            );
+            assert_eq!(
+                rust_result.acceptability_90, py_acc_90,
+                "acceptability_90 mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
+            );
         }
     });
 }
@@ -813,7 +929,16 @@ fn test_compare_adaptive_en() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![(25.0, 25.0, 0.1, 20.0), (28.0, 28.0, 0.3, 25.0)];
+        // Sweep covers operating points inside Category I, II, III and outside
+        // all categories so acceptability bools flip across the cases.
+        let test_cases = vec![
+            (25.0, 25.0, 0.1, 20.0),
+            (28.0, 28.0, 0.3, 25.0),
+            (22.0, 22.0, 0.1, 18.0),
+            (24.0, 24.0, 0.1, 22.0),
+            (28.0, 28.0, 0.7, 26.0),
+            (29.0, 29.0, 1.0, 28.0),
+        ];
 
         for (tdb, tr, v, t_running_mean) in test_cases {
             let py_result = pythermal
@@ -823,6 +948,51 @@ fn test_compare_adaptive_en() {
                 .unwrap();
 
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
+            let py_cat_i_low: f64 = py_result
+                .getattr("tmp_cmf_cat_i_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_i_up: f64 = py_result
+                .getattr("tmp_cmf_cat_i_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_ii_low: f64 = py_result
+                .getattr("tmp_cmf_cat_ii_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_ii_up: f64 = py_result
+                .getattr("tmp_cmf_cat_ii_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_iii_low: f64 = py_result
+                .getattr("tmp_cmf_cat_iii_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_iii_up: f64 = py_result
+                .getattr("tmp_cmf_cat_iii_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_acc_i: bool = py_result
+                .getattr("acceptability_cat_i")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_acc_ii: bool = py_result
+                .getattr("acceptability_cat_ii")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_acc_iii: bool = py_result
+                .getattr("acceptability_cat_iii")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             let rust_result = adaptive_en(
                 Temperature::from_celsius(tdb),
@@ -833,6 +1003,128 @@ fn test_compare_adaptive_en() {
             );
 
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_low, py_cat_i_low, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_up, py_cat_i_up, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_low, py_cat_ii_low, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_up, py_cat_ii_up, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_iii_low, py_cat_iii_low, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_iii_up, py_cat_iii_up, epsilon = 0.15);
+            assert_eq!(
+                rust_result.acceptability_cat_i, py_acc_i,
+                "acceptability_cat_i mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
+            );
+            assert_eq!(
+                rust_result.acceptability_cat_ii, py_acc_ii,
+                "acceptability_cat_ii mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
+            );
+            assert_eq!(
+                rust_result.acceptability_cat_iii, py_acc_iii,
+                "acceptability_cat_iii mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
+            );
+        }
+    });
+}
+
+#[test]
+fn test_compare_adaptive_round_output_false() {
+    // Mirrors the headline 3.9.8 change for the adaptive models: when
+    // round_output=False the unrounded t_cmf and derived bounds must agree with
+    // pythermalcomfort. Inputs are chosen so the unrounded value differs from
+    // the rounded one (e.g. trm=27 → ashrae t_cmf=26.17, not 26.2).
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let test_cases = vec![
+            (25.0, 25.0, 0.1, 22.0), // ashrae 24.62, en 26.06
+            (25.0, 25.0, 0.1, 27.0), // ashrae 26.17, en 27.71
+            (25.0, 25.0, 0.1, 23.5), // ashrae 25.085, en 26.555
+        ];
+
+        let opts = AdaptiveOptions {
+            round_output: false,
+            ..Default::default()
+        };
+
+        for (tdb, tr, v, trm) in test_cases {
+            // ASHRAE
+            let kwargs = [("round_output", false)].into_py_dict(py).unwrap();
+            let py_result = pythermal
+                .getattr("adaptive_ashrae")
+                .unwrap()
+                .call((tdb, tr, trm, v), Some(&kwargs))
+                .unwrap();
+            let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
+            let py_80_low: f64 = py_result.getattr("tmp_cmf_80_low").unwrap().extract().unwrap();
+            let py_80_up: f64 = py_result.getattr("tmp_cmf_80_up").unwrap().extract().unwrap();
+            let py_90_low: f64 = py_result.getattr("tmp_cmf_90_low").unwrap().extract().unwrap();
+            let py_90_up: f64 = py_result.getattr("tmp_cmf_90_up").unwrap().extract().unwrap();
+
+            let rust_result = adaptive_ashrae(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Temperature::from_celsius(trm),
+                Speed::from_meters_per_second(v),
+                opts,
+            );
+
+            // Tight ε: with rounding disabled we should match to floating-point precision.
+            assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_80_low, py_80_low, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_80_up, py_80_up, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_90_low, py_90_low, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_90_up, py_90_up, epsilon = 1e-9);
+
+            // EN
+            let py_result = pythermal
+                .getattr("adaptive_en")
+                .unwrap()
+                .call((tdb, tr, trm, v), Some(&kwargs))
+                .unwrap();
+            let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
+            let py_cat_i_low: f64 = py_result
+                .getattr("tmp_cmf_cat_i_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_i_up: f64 = py_result
+                .getattr("tmp_cmf_cat_i_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_ii_low: f64 = py_result
+                .getattr("tmp_cmf_cat_ii_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_cat_ii_up: f64 = py_result
+                .getattr("tmp_cmf_cat_ii_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_result = adaptive_en(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Temperature::from_celsius(trm),
+                Speed::from_meters_per_second(v),
+                opts,
+            );
+
+            assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_low, py_cat_i_low, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_up, py_cat_i_up, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_low, py_cat_ii_low, epsilon = 1e-9);
+            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_up, py_cat_ii_up, epsilon = 1e-9);
+
+            // Sanity: confirm the unrounded value is NOT just the rounded value
+            // (otherwise this test wouldn't be exercising the false branch).
+            let rounded_tmp_cmf = libm::round(rust_result.tmp_cmf * 10.0) / 10.0;
+            assert!(
+                (rust_result.tmp_cmf - rounded_tmp_cmf).abs() > 0.0
+                    || (rust_result.tmp_cmf * 10.0).fract().abs() < 1e-9,
+                "round_output=false should preserve sub-0.1 precision (trm={trm})",
+            );
         }
     });
 }
@@ -872,7 +1164,17 @@ fn test_compare_heat_index_rothfusz() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![(30.0, 50.0), (35.0, 60.0), (28.0, 70.0)];
+        // Sweep covers every stress band: no_risk, caution, extreme caution,
+        // danger, extreme danger.
+        let test_cases = vec![
+            (28.0, 70.0),
+            (30.0, 50.0),
+            (33.0, 60.0),
+            (35.0, 60.0),
+            (38.0, 70.0),
+            (40.0, 80.0),
+            (45.0, 90.0),
+        ];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
@@ -882,6 +1184,11 @@ fn test_compare_heat_index_rothfusz() {
                 .unwrap();
 
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+            let py_category: Option<String> = py_result
+                .getattr("stress_category")
+                .unwrap()
+                .extract()
+                .ok();
 
             let rust_result = heat_index_rothfusz(
                 Temperature::from_celsius(tdb),
@@ -890,7 +1197,14 @@ fn test_compare_heat_index_rothfusz() {
                 true,
             );
 
-            assert_abs_diff_eq!(rust_result, py_hi, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 0.5);
+            assert_eq!(
+                rust_result.stress_category.map(|c| c.as_str()),
+                py_category.as_deref(),
+                "heat_index_rothfusz stress_category mismatch at tdb={} rh={}",
+                tdb,
+                rh,
+            );
         }
     });
 }
@@ -916,7 +1230,9 @@ fn test_compare_heat_index_lu() {
                 heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             // Lu model uses iterative solver, allow larger tolerance
-            assert_abs_diff_eq!(rust_result, py_hi, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 1.0);
+            // pythermalcomfort leaves stress_category unset for the Lu model.
+            assert!(rust_result.stress_category.is_none());
         }
     });
 }
@@ -927,7 +1243,16 @@ fn test_compare_humidex() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![(25.0, 50.0), (30.0, 60.0)];
+        // Sweep covers all six discomfort bands so the categorical mapping is exercised.
+        let test_cases = vec![
+            (20.0, 30.0),
+            (25.0, 50.0),
+            (30.0, 60.0),
+            (32.0, 70.0),
+            (35.0, 80.0),
+            (38.0, 85.0),
+            (42.0, 90.0),
+        ];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
@@ -937,6 +1262,11 @@ fn test_compare_humidex() {
                 .unwrap();
 
             let py_humidex: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
+            let py_discomfort: String = py_result
+                .getattr("discomfort")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             let rust_result = humidex(
                 Temperature::from_celsius(tdb),
@@ -944,7 +1274,14 @@ fn test_compare_humidex() {
                 true,
             );
 
-            assert_abs_diff_eq!(rust_result, py_humidex, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.humidex, py_humidex, epsilon = 0.1);
+            assert_eq!(
+                rust_result.discomfort.as_str(),
+                py_discomfort,
+                "humidex discomfort mismatch at tdb={} rh={}",
+                tdb,
+                rh,
+            );
         }
     });
 }
@@ -979,7 +1316,17 @@ fn test_compare_discomfort_index() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        let test_cases = vec![(25.0, 50.0), (28.0, 60.0)];
+        // Sweep spans every band so the categorical mapping is exercised.
+        let test_cases = vec![
+            (18.0, 40.0),
+            (22.0, 50.0),
+            (25.0, 50.0),
+            (26.0, 70.0),
+            (28.0, 60.0),
+            (30.0, 70.0),
+            (33.0, 80.0),
+            (38.0, 80.0),
+        ];
 
         for (tdb, rh) in test_cases {
             let py_result = pythermal
@@ -989,11 +1336,23 @@ fn test_compare_discomfort_index() {
                 .unwrap();
 
             let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
+            let py_condition: String = py_result
+                .getattr("discomfort_condition")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             let rust_result =
                 discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
-            assert_abs_diff_eq!(rust_result, py_di, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.di, py_di, epsilon = 0.1);
+            assert_eq!(
+                rust_result.discomfort_condition.as_str(),
+                py_condition,
+                "DI discomfort_condition mismatch at tdb={} rh={}",
+                tdb,
+                rh,
+            );
         }
     });
 }
@@ -1278,6 +1637,7 @@ fn test_compare_ankle_draft() {
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
                 Speed::from_meters_per_second(v_ankle),
+                true,
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -1313,6 +1673,7 @@ fn test_compare_vertical_tmp_grad_ppd() {
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
                 grad,
+                true,
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -1326,9 +1687,15 @@ fn test_compare_solar_gain() {
         let pythermal = PyModule::import(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
+        // Sweep solar altitudes from horizon to overhead, varied SHARP, beam
+        // radiation, transmittance, view fractions, posture, and floor reflectance
+        // so both `erf` and `delta_mrt` are exercised over a broad range.
         let test_cases = vec![
             (0.0, 120.0, 800.0, 0.5, 0.5, 0.5, 0.7, "sitting", 0.6),
             (45.0, 90.0, 600.0, 0.7, 0.6, 0.7, 0.7, "standing", 0.6),
+            (15.0, 0.0, 400.0, 0.5, 0.3, 0.4, 0.6, "sitting", 0.4),
+            (60.0, 180.0, 900.0, 0.8, 0.7, 0.8, 0.5, "standing", 0.7),
+            (30.0, 45.0, 500.0, 0.6, 0.5, 0.6, 0.8, "sitting", 0.5),
         ];
 
         for (alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture_str, floor_refl) in
@@ -1351,6 +1718,7 @@ fn test_compare_solar_gain() {
                 .unwrap();
 
             let py_erf: f64 = py_result.getattr("erf").unwrap().extract().unwrap();
+            let py_delta_mrt: f64 = py_result.getattr("delta_mrt").unwrap().extract().unwrap();
 
             let posture = match posture_str {
                 "sitting" => Posture::Sitting,
@@ -1363,6 +1731,7 @@ fn test_compare_solar_gain() {
             );
 
             assert_abs_diff_eq!(rust_result.erf, py_erf, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.delta_mrt, py_delta_mrt, epsilon = 0.5);
         }
     });
 }

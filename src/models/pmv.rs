@@ -17,6 +17,11 @@ pub struct PmvPpdResult {
     pub ppd: f64,
     /// Thermal sensation vote category
     pub tsv: ThermalSensation,
+    /// ASHRAE 55:2023 compliance: `Some(true)` when -0.5 < PMV < 0.5, `Some(false)`
+    /// otherwise. Only populated by [`pmv_ppd_ashrae`]; ISO and other variants
+    /// leave this as `None` because compliance with the ASHRAE comfort criterion
+    /// is meaningful only for the ASHRAE model.
+    pub compliance: Option<bool>,
 }
 
 /// Thermal sensation categories based on PMV value
@@ -46,6 +51,19 @@ impl ThermalSensation {
             p if p < 1.5 => ThermalSensation::SlightlyWarm,
             p if p < 2.5 => ThermalSensation::Warm,
             _ => ThermalSensation::Hot,
+        }
+    }
+
+    /// String form matching pythermalcomfort's `tsv` field exactly.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThermalSensation::Cold => "Cold",
+            ThermalSensation::Cool => "Cool",
+            ThermalSensation::SlightlyCool => "Slightly Cool",
+            ThermalSensation::Neutral => "Neutral",
+            ThermalSensation::SlightlyWarm => "Slightly Warm",
+            ThermalSensation::Warm => "Warm",
+            ThermalSensation::Hot => "Hot",
         }
     }
 }
@@ -161,6 +179,7 @@ pub fn pmv_ppd_iso(
                 pmv: f64::NAN,
                 ppd: f64::NAN,
                 tsv: ThermalSensation::Neutral,
+                compliance: None,
             };
         }
     }
@@ -184,6 +203,7 @@ pub fn pmv_ppd_iso(
                 pmv: f64::NAN,
                 ppd: f64::NAN,
                 tsv: ThermalSensation::Neutral,
+                compliance: None,
             };
         }
         pmv_valid
@@ -210,6 +230,8 @@ pub fn pmv_ppd_iso(
         pmv: pmv_out,
         ppd: ppd_out,
         tsv: ThermalSensation::from_pmv(pmv_out),
+        // ISO 7730 does not define an ASHRAE-style compliance check.
+        compliance: None,
     }
 }
 
@@ -263,15 +285,43 @@ pub fn pmv_ppd_ashrae(
                 pmv: f64::NAN,
                 ppd: f64::NAN,
                 tsv: ThermalSensation::Neutral,
+                compliance: None,
             };
         }
     }
 
-    // Calculate PMV (same algorithm as ISO)
+    // ASHRAE 55 Appendix H, H3: when relative air speed exceeds 0.1 m/s,
+    // apply the cooling-effect correction. The cooling effect (ce) is the
+    // temperature reduction at still air that yields the same SET as the
+    // elevated-airspeed environment. We then compute PMV against the adjusted
+    // (tdb-ce, tr-ce, 0.1 m/s) environment, matching pythermalcomfort.
+    let (tdb_adj, tr_adj, vr_adj) = if air_speed > 0.1 {
+        let ce = crate::models::cooling_effect::cooling_effect(
+            dry_bulb_temp,
+            mean_radiant_temp,
+            relative_air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+            crate::models::cooling_effect::CoolingEffectOptions {
+                wme: options.wme,
+                ..Default::default()
+            },
+        );
+        if ce > 0.0 {
+            (dry_bulb_celsius - ce, radiant_celsius - ce, 0.1)
+        } else {
+            (dry_bulb_celsius, radiant_celsius, air_speed)
+        }
+    } else {
+        (dry_bulb_celsius, radiant_celsius, air_speed)
+    };
+
+    // Calculate PMV (same algorithm as ISO) on the cooling-effect-adjusted inputs
     let pmv = pmv_optimized(
-        dry_bulb_celsius,
-        radiant_celsius,
-        air_speed,
+        tdb_adj,
+        tr_adj,
+        vr_adj,
         rh_percent,
         met,
         clo,
@@ -288,10 +338,19 @@ pub fn pmv_ppd_ashrae(
         (pmv, ppd)
     };
 
+    // ASHRAE 55:2023 comfort criterion: -0.5 < PMV < 0.5.
+    // pythermalcomfort evaluates this on the unrounded PMV (before round_output).
+    let compliance = if pmv.is_nan() {
+        None
+    } else {
+        Some(pmv > -0.5 && pmv < 0.5)
+    };
+
     PmvPpdResult {
         pmv: pmv_out,
         ppd: ppd_out,
         tsv: ThermalSensation::from_pmv(pmv_out),
+        compliance,
     }
 }
 
@@ -719,6 +778,79 @@ mod tests {
         // Should be approximately neutral comfort
         assert!(result.pmv.abs() < 0.5);
         assert!(result.ppd < 10.0);
+        // ISO never populates the ASHRAE compliance field.
+        assert_eq!(result.compliance, None);
+    }
+
+    #[test]
+    fn test_pmv_ppd_ashrae_cooling_effect_triggers() {
+        // With vr > 0.1, ASHRAE Appendix H3 cooling-effect correction kicks in,
+        // lowering effective tdb/tr and pulling PMV closer to neutral.
+        let base = pmv_ppd_ashrae(
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            Default::default(),
+        );
+        let breezy = pmv_ppd_ashrae(
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Speed::from_meters_per_second(0.8),
+            Humidity::from_percent(50.0),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            Default::default(),
+        );
+        // Warm conditions: elevated airspeed must reduce PMV.
+        assert!(
+            breezy.pmv < base.pmv,
+            "expected cooling effect to lower PMV: base={}, breezy={}",
+            base.pmv,
+            breezy.pmv,
+        );
+    }
+
+    #[test]
+    fn test_pmv_ppd_ashrae_compliance() {
+        // Compliant case: PMV near 0 should be within -0.5..0.5.
+        let result = pmv_ppd_ashrae(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            Default::default(),
+        );
+        assert_eq!(result.compliance, Some(true));
+
+        // Non-compliant case: hot conditions push PMV beyond +0.5.
+        let result = pmv_ppd_ashrae(
+            Temperature::from_celsius(30.0),
+            Temperature::from_celsius(30.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(60.0),
+            MetabolicRate::from_met(1.4),
+            ClothingInsulation::from_clo(0.3),
+            Default::default(),
+        );
+        assert_eq!(result.compliance, Some(false));
+
+        // Out-of-applicability case: limit_inputs=true and tdb < 10 → NaN/None.
+        let result = pmv_ppd_ashrae(
+            Temperature::from_celsius(5.0),
+            Temperature::from_celsius(5.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            Default::default(),
+        );
+        assert!(result.pmv.is_nan());
+        assert_eq!(result.compliance, None);
     }
 
     #[test]
