@@ -51,6 +51,7 @@ use measurements::{Humidity, Length, Speed, Temperature};
 ///
 /// - Liu et al. (2017)
 /// - ASHRAE 55-2023
+#[allow(clippy::too_many_arguments)]
 pub fn ankle_draft(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
@@ -166,6 +167,7 @@ fn ashrae55_ankle_inputs_valid(
 ///
 /// - ISO 7730:2005
 /// - ASHRAE 55-2023
+#[allow(clippy::too_many_arguments)]
 pub fn vertical_tmp_grad_ppd(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,

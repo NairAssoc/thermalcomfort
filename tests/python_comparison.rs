@@ -7,8 +7,8 @@ use approx::assert_abs_diff_eq;
 use measurements::{Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
-use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::adaptive::AdaptiveOptions;
+use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
     Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft,
     at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, humidex, net,
@@ -559,9 +559,8 @@ fn test_compare_two_nodes_gagge() {
                 .call1((tdb, tr, v, rh, met, clo))
                 .unwrap();
 
-            let get = |name: &str| -> f64 {
-                py_result.getattr(name).unwrap().extract::<f64>().unwrap()
-            };
+            let get =
+                |name: &str| -> f64 { py_result.getattr(name).unwrap().extract::<f64>().unwrap() };
             let py_set = get("set");
             let py_e_skin = get("e_skin");
             let py_e_rsw = get("e_rsw");
@@ -883,10 +882,26 @@ fn test_compare_adaptive_ashrae() {
                 .unwrap();
 
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
-            let py_80_low: f64 = py_result.getattr("tmp_cmf_80_low").unwrap().extract().unwrap();
-            let py_80_up: f64 = py_result.getattr("tmp_cmf_80_up").unwrap().extract().unwrap();
-            let py_90_low: f64 = py_result.getattr("tmp_cmf_90_low").unwrap().extract().unwrap();
-            let py_90_up: f64 = py_result.getattr("tmp_cmf_90_up").unwrap().extract().unwrap();
+            let py_80_low: f64 = py_result
+                .getattr("tmp_cmf_80_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_80_up: f64 = py_result
+                .getattr("tmp_cmf_80_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_90_low: f64 = py_result
+                .getattr("tmp_cmf_90_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_90_up: f64 = py_result
+                .getattr("tmp_cmf_90_up")
+                .unwrap()
+                .extract()
+                .unwrap();
             let py_acc_80: bool = py_result
                 .getattr("acceptability_80")
                 .unwrap()
@@ -1005,10 +1020,22 @@ fn test_compare_adaptive_en() {
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 0.15);
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_low, py_cat_i_low, epsilon = 0.15);
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_up, py_cat_i_up, epsilon = 0.15);
-            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_low, py_cat_ii_low, epsilon = 0.15);
+            assert_abs_diff_eq!(
+                rust_result.tmp_cmf_cat_ii_low,
+                py_cat_ii_low,
+                epsilon = 0.15
+            );
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_up, py_cat_ii_up, epsilon = 0.15);
-            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_iii_low, py_cat_iii_low, epsilon = 0.15);
-            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_iii_up, py_cat_iii_up, epsilon = 0.15);
+            assert_abs_diff_eq!(
+                rust_result.tmp_cmf_cat_iii_low,
+                py_cat_iii_low,
+                epsilon = 0.15
+            );
+            assert_abs_diff_eq!(
+                rust_result.tmp_cmf_cat_iii_up,
+                py_cat_iii_up,
+                epsilon = 0.15
+            );
             assert_eq!(
                 rust_result.acceptability_cat_i, py_acc_i,
                 "acceptability_cat_i mismatch at tdb={tdb} tr={tr} v={v} trm={t_running_mean}",
@@ -1055,10 +1082,26 @@ fn test_compare_adaptive_round_output_false() {
                 .call((tdb, tr, trm, v), Some(&kwargs))
                 .unwrap();
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
-            let py_80_low: f64 = py_result.getattr("tmp_cmf_80_low").unwrap().extract().unwrap();
-            let py_80_up: f64 = py_result.getattr("tmp_cmf_80_up").unwrap().extract().unwrap();
-            let py_90_low: f64 = py_result.getattr("tmp_cmf_90_low").unwrap().extract().unwrap();
-            let py_90_up: f64 = py_result.getattr("tmp_cmf_90_up").unwrap().extract().unwrap();
+            let py_80_low: f64 = py_result
+                .getattr("tmp_cmf_80_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_80_up: f64 = py_result
+                .getattr("tmp_cmf_80_up")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_90_low: f64 = py_result
+                .getattr("tmp_cmf_90_low")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_90_up: f64 = py_result
+                .getattr("tmp_cmf_90_up")
+                .unwrap()
+                .extract()
+                .unwrap();
 
             let rust_result = adaptive_ashrae(
                 Temperature::from_celsius(tdb),
@@ -1114,7 +1157,11 @@ fn test_compare_adaptive_round_output_false() {
             assert_abs_diff_eq!(rust_result.tmp_cmf, py_tmp_cmf, epsilon = 1e-9);
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_low, py_cat_i_low, epsilon = 1e-9);
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_i_up, py_cat_i_up, epsilon = 1e-9);
-            assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_low, py_cat_ii_low, epsilon = 1e-9);
+            assert_abs_diff_eq!(
+                rust_result.tmp_cmf_cat_ii_low,
+                py_cat_ii_low,
+                epsilon = 1e-9
+            );
             assert_abs_diff_eq!(rust_result.tmp_cmf_cat_ii_up, py_cat_ii_up, epsilon = 1e-9);
 
             // Sanity: confirm the unrounded value is NOT just the rounded value
@@ -1184,11 +1231,8 @@ fn test_compare_heat_index_rothfusz() {
                 .unwrap();
 
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
-            let py_category: Option<String> = py_result
-                .getattr("stress_category")
-                .unwrap()
-                .extract()
-                .ok();
+            let py_category: Option<String> =
+                py_result.getattr("stress_category").unwrap().extract().ok();
 
             let rust_result = heat_index_rothfusz(
                 Temperature::from_celsius(tdb),
@@ -1262,11 +1306,7 @@ fn test_compare_humidex() {
                 .unwrap();
 
             let py_humidex: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
-            let py_discomfort: String = py_result
-                .getattr("discomfort")
-                .unwrap()
-                .extract()
-                .unwrap();
+            let py_discomfort: String = py_result.getattr("discomfort").unwrap().extract().unwrap();
 
             let rust_result = humidex(
                 Temperature::from_celsius(tdb),

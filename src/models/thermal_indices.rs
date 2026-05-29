@@ -894,10 +894,16 @@ mod tests {
             HeatIndexStress::from_hi(32.1),
             HeatIndexStress::ExtremeCaution
         );
-        assert_eq!(HeatIndexStress::from_hi(41.0), HeatIndexStress::ExtremeCaution);
+        assert_eq!(
+            HeatIndexStress::from_hi(41.0),
+            HeatIndexStress::ExtremeCaution
+        );
         assert_eq!(HeatIndexStress::from_hi(41.1), HeatIndexStress::Danger);
         assert_eq!(HeatIndexStress::from_hi(54.0), HeatIndexStress::Danger);
-        assert_eq!(HeatIndexStress::from_hi(54.1), HeatIndexStress::ExtremeDanger);
+        assert_eq!(
+            HeatIndexStress::from_hi(54.1),
+            HeatIndexStress::ExtremeDanger
+        );
     }
 
     #[test]
