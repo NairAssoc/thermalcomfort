@@ -23,32 +23,20 @@ fn main() {
     );
 
     // Heat Index (Rothfusz)
-    let hi = heat_index_rothfusz(hot_temp, hot_rh, true, true);
+    let hi_result = heat_index_rothfusz(hot_temp, hot_rh, true, true);
     println!("Heat Index (Rothfusz):");
-    println!("  {:.1}°C", hi);
-    if hi < 27.0 {
-        println!("  Caution: Fatigue possible with prolonged exposure");
-    } else if hi < 32.0 {
-        println!("  Extreme caution: Heat exhaustion possible");
-    } else if hi < 41.0 {
-        println!("  Danger: Heat cramps and exhaustion likely");
+    println!("  {:.1}°C", hi_result.hi);
+    if let Some(cat) = hi_result.stress_category {
+        println!("  {}", cat.as_str());
     } else {
-        println!("  Extreme danger: Heat stroke imminent");
+        println!("  (outside applicability range)");
     }
 
     // Humidex
-    let humidex_val = humidex(hot_temp, hot_rh, true);
+    let humidex_result = humidex(hot_temp, hot_rh, true);
     println!("\nHumidex (Canadian):");
-    println!("  {:.0}", humidex_val);
-    if humidex_val < 30.0 {
-        println!("  No discomfort");
-    } else if humidex_val < 40.0 {
-        println!("  Some discomfort");
-    } else if humidex_val < 45.0 {
-        println!("  Great discomfort; avoid exertion");
-    } else {
-        println!("  Dangerous; heat stroke possible");
-    }
+    println!("  {:.0}", humidex_result.humidex);
+    println!("  {}", humidex_result.discomfort.as_str());
 
     // Temperature-Humidity Index (THI)
     let thi_val = thi(hot_temp, hot_rh, true);
@@ -65,20 +53,10 @@ fn main() {
     }
 
     // Discomfort Index
-    let di = discomfort_index(hot_temp, hot_rh);
+    let di_result = discomfort_index(hot_temp, hot_rh);
     println!("\nDiscomfort Index:");
-    println!("  {:.1}", di);
-    if di < 21.0 {
-        println!("  No discomfort");
-    } else if di < 24.0 {
-        println!("  Less than 50% feel discomfort");
-    } else if di < 27.0 {
-        println!("  More than 50% feel discomfort");
-    } else if di < 29.0 {
-        println!("  Most people uncomfortable");
-    } else {
-        println!("  Everyone feels severe stress");
-    }
+    println!("  {:.1}", di_result.di);
+    println!("  {}", di_result.discomfort_condition.as_str());
 
     // COLD STRESS INDICES
     println!("\n\n--- Cold Stress Assessment ---\n");
@@ -136,7 +114,7 @@ fn main() {
 
         println!(
             "  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",
-            rh_val, hi, hum
+            rh_val, hi.hi, hum.humidex
         );
     }
 

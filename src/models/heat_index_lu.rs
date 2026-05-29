@@ -2,6 +2,7 @@
 //!
 //! Advanced heat index model based on thermodynamic and thermoregulatory principles.
 
+use crate::models::thermal_indices::HeatIndexResult;
 use measurements::{Humidity, Temperature};
 
 /// Calculate Heat Index using Lu and Romps (2022) model
@@ -16,7 +17,9 @@ use measurements::{Humidity, Temperature};
 ///
 /// # Returns
 ///
-/// Heat Index [°C]
+/// [`HeatIndexResult`] with the heat index [°C]. `stress_category` is always
+/// `None` for the Lu model, mirroring pythermalcomfort which leaves the field
+/// unset for this variant.
 ///
 /// # Examples
 ///
@@ -24,14 +27,15 @@ use measurements::{Humidity, Temperature};
 /// use thermalcomfort::models::heat_index_lu::heat_index_lu;
 /// use thermalcomfort::{Temperature, Humidity};
 ///
-/// let hi = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
-/// assert!((hi - 25.0).abs() < 1.0);
+/// let result = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
+/// assert!((result.hi - 25.0).abs() < 1.0);
+/// assert!(result.stress_category.is_none());
 /// ```
 ///
 /// # References
 ///
 /// - Lu and Romps (2022)
-pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) -> f64 {
+pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) -> HeatIndexResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let tdb_k = dry_bulb_celsius + 273.15;
     let rh_frac = relative_humidity.as_percent() / 100.0;
@@ -39,7 +43,10 @@ pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) ->
     let hi_k = lu_heat_index_core(tdb_k, rh_frac);
     let hi = hi_k - 273.15;
 
-    libm::round(hi * 10.0) / 10.0
+    HeatIndexResult {
+        hi: libm::round(hi * 10.0) / 10.0,
+        stress_category: None,
+    }
 }
 
 fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
@@ -345,21 +352,23 @@ mod tests {
 
     #[test]
     fn test_heat_index_lu() {
-        let hi = heat_index_lu(
+        let result = heat_index_lu(
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
         );
         // Should be close to 25.9°C
-        assert!(hi > 24.0 && hi < 27.0);
+        assert!(result.hi > 24.0 && result.hi < 27.0);
+        assert!(result.stress_category.is_none());
     }
 
     #[test]
     fn test_heat_index_lu_high_temp() {
-        let hi = heat_index_lu(
+        let result = heat_index_lu(
             Temperature::from_celsius(35.0),
             Humidity::from_percent(70.0),
         );
         // Should be significantly higher than air temperature
-        assert!(hi > 35.0);
+        assert!(result.hi > 35.0);
+        assert!(result.stress_category.is_none());
     }
 }

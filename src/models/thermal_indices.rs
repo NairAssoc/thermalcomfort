@@ -101,6 +101,65 @@ pub fn wind_chill_temperature(
     wct
 }
 
+/// Humidex result with discomfort category
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HumidexResult {
+    /// Humidex value [°C]
+    pub humidex: f64,
+    /// Discomfort category derived from the humidex value
+    pub discomfort: HumidexDiscomfort,
+}
+
+/// Discomfort categories for the humidex index.
+///
+/// Mapping follows Masterson and Richardson (1979) as used by pythermalcomfort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HumidexDiscomfort {
+    /// `hi <= 30`
+    LittleOrNone,
+    /// `30 < hi <= 35`
+    Noticeable,
+    /// `35 < hi <= 40`
+    Evident,
+    /// `40 < hi <= 45`
+    Intense,
+    /// `45 < hi <= 54`
+    Dangerous,
+    /// `hi > 54`
+    HeatStrokeProbable,
+}
+
+impl HumidexDiscomfort {
+    /// Categorize a humidex value.
+    pub fn from_humidex(hi: f64) -> Self {
+        if hi <= 30.0 {
+            HumidexDiscomfort::LittleOrNone
+        } else if hi <= 35.0 {
+            HumidexDiscomfort::Noticeable
+        } else if hi <= 40.0 {
+            HumidexDiscomfort::Evident
+        } else if hi <= 45.0 {
+            HumidexDiscomfort::Intense
+        } else if hi <= 54.0 {
+            HumidexDiscomfort::Dangerous
+        } else {
+            HumidexDiscomfort::HeatStrokeProbable
+        }
+    }
+
+    /// String form matching the pythermalcomfort `discomfort` field exactly.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HumidexDiscomfort::LittleOrNone => "Little or no discomfort",
+            HumidexDiscomfort::Noticeable => "Noticeable discomfort",
+            HumidexDiscomfort::Evident => "Evident discomfort",
+            HumidexDiscomfort::Intense => "Intense discomfort; avoid exertion",
+            HumidexDiscomfort::Dangerous => "Dangerous discomfort",
+            HumidexDiscomfort::HeatStrokeProbable => "Heat stroke probable",
+        }
+    }
+}
+
 /// Calculate the Canadian Humidex
 ///
 /// The humidex describes how hot, humid weather is felt by the average person.
@@ -115,22 +174,27 @@ pub fn wind_chill_temperature(
 ///
 /// # Returns
 ///
-/// Humidex value [°C]
+/// [`HumidexResult`] with the humidex value [°C] and discomfort category.
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::humidex;
+/// use thermalcomfort::models::thermal_indices::{humidex, HumidexDiscomfort};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = humidex(Temperature::from_celsius(25.0), Humidity::from_percent(50.0), true);
-/// assert!((result - 28.2).abs() < 0.2);
+/// assert!((result.humidex - 28.2).abs() < 0.2);
+/// assert_eq!(result.discomfort, HumidexDiscomfort::LittleOrNone);
 /// ```
 ///
 /// # References
 ///
 /// - Masterson and Richardson (1979)
-pub fn humidex(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output: bool) -> f64 {
+pub fn humidex(
+    dry_bulb_temp: Temperature,
+    relative_humidity: Humidity,
+    round_output: bool,
+) -> HumidexResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let rh_percent = relative_humidity.as_percent();
 
@@ -150,7 +214,10 @@ pub fn humidex(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_ou
         hi = libm::round(hi * 10.0) / 10.0;
     }
 
-    hi
+    HumidexResult {
+        humidex: hi,
+        discomfort: HumidexDiscomfort::from_humidex(hi),
+    }
 }
 
 /// Calculate the Canadian Humidex (Masterson model)
@@ -222,6 +289,65 @@ pub fn thi(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output
     thi_value
 }
 
+/// Discomfort Index result with categorical condition
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DiscomfortIndexResult {
+    /// Discomfort Index [°C]
+    pub di: f64,
+    /// Discomfort condition derived from the index value
+    pub discomfort_condition: DiscomfortCondition,
+}
+
+/// Discomfort categories for the Discomfort Index.
+///
+/// Bands per Polydoros (2015) as used by pythermalcomfort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscomfortCondition {
+    /// `di < 21`
+    NoDiscomfort,
+    /// `21 <= di < 24`
+    LessThan50PercentFeels,
+    /// `24 <= di < 27`
+    MoreThan50PercentFeels,
+    /// `27 <= di < 29`
+    MostFeelDiscomfort,
+    /// `29 <= di < 32`
+    EveryoneFeelsSevereStress,
+    /// `di >= 32`
+    MedicalEmergency,
+}
+
+impl DiscomfortCondition {
+    /// Categorize a discomfort-index value.
+    pub fn from_di(di: f64) -> Self {
+        if di < 21.0 {
+            DiscomfortCondition::NoDiscomfort
+        } else if di < 24.0 {
+            DiscomfortCondition::LessThan50PercentFeels
+        } else if di < 27.0 {
+            DiscomfortCondition::MoreThan50PercentFeels
+        } else if di < 29.0 {
+            DiscomfortCondition::MostFeelDiscomfort
+        } else if di < 32.0 {
+            DiscomfortCondition::EveryoneFeelsSevereStress
+        } else {
+            DiscomfortCondition::MedicalEmergency
+        }
+    }
+
+    /// String form matching the pythermalcomfort `discomfort_condition` field exactly.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DiscomfortCondition::NoDiscomfort => "No discomfort",
+            DiscomfortCondition::LessThan50PercentFeels => "Less than 50% feels discomfort",
+            DiscomfortCondition::MoreThan50PercentFeels => "More than 50% feels discomfort",
+            DiscomfortCondition::MostFeelDiscomfort => "Most of the population feels discomfort",
+            DiscomfortCondition::EveryoneFeelsSevereStress => "Everyone feels severe stress",
+            DiscomfortCondition::MedicalEmergency => "State of medical emergency",
+        }
+    }
+}
+
 /// Calculate Discomfort Index (DI)
 ///
 /// The index is essentially an effective temperature based on air temperature
@@ -234,16 +360,17 @@ pub fn thi(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output
 ///
 /// # Returns
 ///
-/// Discomfort Index [°C]
+/// [`DiscomfortIndexResult`] with the DI value [°C] and discomfort condition.
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::discomfort_index;
+/// use thermalcomfort::models::thermal_indices::{discomfort_index, DiscomfortCondition};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = discomfort_index(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
-/// assert!((result - 22.1).abs() < 0.1);
+/// assert!((result.di - 22.1).abs() < 0.1);
+/// assert_eq!(result.discomfort_condition, DiscomfortCondition::LessThan50PercentFeels);
 /// ```
 ///
 /// # Discomfort Categories
@@ -254,12 +381,77 @@ pub fn thi(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output
 /// - 27 <= DI < 29°C: Most of the population feels discomfort
 /// - 29 <= DI < 32°C: Everyone feels severe stress
 /// - DI >= 32°C: State of medical emergency
-pub fn discomfort_index(dry_bulb_temp: Temperature, relative_humidity: Humidity) -> f64 {
+pub fn discomfort_index(
+    dry_bulb_temp: Temperature,
+    relative_humidity: Humidity,
+) -> DiscomfortIndexResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let rh_percent = relative_humidity.as_percent();
 
     let di = dry_bulb_celsius - 0.55 * (1.0 - 0.01 * rh_percent) * (dry_bulb_celsius - 14.5);
-    libm::round(di * 10.0) / 10.0
+    let di = libm::round(di * 10.0) / 10.0;
+
+    DiscomfortIndexResult {
+        di,
+        discomfort_condition: DiscomfortCondition::from_di(di),
+    }
+}
+
+/// Heat Index result with optional stress category.
+///
+/// `stress_category` is `Some(_)` when the model populates a category (e.g.,
+/// Rothfusz) and `None` when it does not (e.g., Lu and Romps), matching the
+/// `Optional[str]` field on Python's `HI` dataclass.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeatIndexResult {
+    /// Heat Index [°C]
+    pub hi: f64,
+    /// Stress category derived from the heat index value
+    pub stress_category: Option<HeatIndexStress>,
+}
+
+/// Heat Index stress categories per NWS / Rothfusz bands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeatIndexStress {
+    /// `hi <= 27` — no risk
+    NoRisk,
+    /// `27 < hi <= 32` — caution
+    Caution,
+    /// `32 < hi <= 41` — extreme caution
+    ExtremeCaution,
+    /// `41 < hi <= 54` — danger
+    Danger,
+    /// `hi > 54` — extreme danger
+    ExtremeDanger,
+}
+
+impl HeatIndexStress {
+    /// Categorize a heat-index value. Bands are right-inclusive to match
+    /// pythermalcomfort's `mapping(..., right=True)` semantics.
+    pub fn from_hi(hi: f64) -> Self {
+        if hi <= 27.0 {
+            HeatIndexStress::NoRisk
+        } else if hi <= 32.0 {
+            HeatIndexStress::Caution
+        } else if hi <= 41.0 {
+            HeatIndexStress::ExtremeCaution
+        } else if hi <= 54.0 {
+            HeatIndexStress::Danger
+        } else {
+            HeatIndexStress::ExtremeDanger
+        }
+    }
+
+    /// String form matching the pythermalcomfort `stress_category` field exactly.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HeatIndexStress::NoRisk => "no risk",
+            HeatIndexStress::Caution => "caution",
+            HeatIndexStress::ExtremeCaution => "extreme caution",
+            HeatIndexStress::Danger => "danger",
+            HeatIndexStress::ExtremeDanger => "extreme danger",
+        }
+    }
 }
 
 /// Calculate Heat Index using Rothfusz (1990) model
@@ -269,29 +461,31 @@ pub fn discomfort_index(dry_bulb_temp: Temperature, relative_humidity: Humidity)
 /// * `dry_bulb_temp` - Dry bulb air temperature
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `round_output` - Whether to round output to 1 decimal place
-/// * `limit_inputs` - If true, returns NaN for tdb < 27°C
+/// * `limit_inputs` - If true, returns NaN/None for tdb < 27°C
 ///
 /// # Returns
 ///
-/// Heat Index [°C]
+/// [`HeatIndexResult`] with the heat index [°C] and stress category (None when
+/// `limit_inputs` is true and the input falls below the applicability range).
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::heat_index_rothfusz;
+/// use thermalcomfort::models::thermal_indices::{heat_index_rothfusz, HeatIndexStress};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = heat_index_rothfusz(Temperature::from_celsius(29.0), Humidity::from_percent(50.0), true, true);
-/// assert!((result - 29.7).abs() < 0.2);
+/// assert!((result.hi - 29.7).abs() < 0.2);
+/// assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
 /// ```
 ///
-/// # Heat Index Categories
+/// # Heat Index Categories (right-inclusive)
 ///
-/// - HI < 27°C: No risk
-/// - 27-32°C: Caution
-/// - 32-41°C: Extreme caution
-/// - 41-54°C: Danger
-/// - HI >= 54°C: Extreme danger
+/// - HI <= 27°C: no risk
+/// - 27 < HI <= 32°C: caution
+/// - 32 < HI <= 41°C: extreme caution
+/// - 41 < HI <= 54°C: danger
+/// - HI > 54°C: extreme danger
 ///
 /// # References
 ///
@@ -301,7 +495,7 @@ pub fn heat_index_rothfusz(
     relative_humidity: Humidity,
     round_output: bool,
     limit_inputs: bool,
-) -> f64 {
+) -> HeatIndexResult {
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let rh_percent = relative_humidity.as_percent();
 
@@ -330,14 +524,20 @@ pub fn heat_index_rothfusz(
     // Heat index should only be calculated for temperatures above 27°C
     // This is the applicability limit from NWS (≈80°F)
     if limit_inputs && dry_bulb_celsius < 27.0 {
-        return f64::NAN;
+        return HeatIndexResult {
+            hi: f64::NAN,
+            stress_category: None,
+        };
     }
 
     if round_output {
         hi = libm::round(hi * 10.0) / 10.0;
     }
 
-    hi
+    HeatIndexResult {
+        hi,
+        stress_category: Some(HeatIndexStress::from_hi(hi)),
+    }
 }
 
 /// Calculate Apparent Temperature (AT)
@@ -566,7 +766,38 @@ mod tests {
             Humidity::from_percent(50.0),
             true,
         );
-        assert!((result - 28.2).abs() < 0.3);
+        assert!((result.humidex - 28.2).abs() < 0.3);
+        assert_eq!(result.discomfort, HumidexDiscomfort::LittleOrNone);
+    }
+
+    #[test]
+    fn test_humidex_categories() {
+        // Boundaries: <=30 LittleOrNone, <=35 Noticeable, <=40 Evident,
+        // <=45 Intense, <=54 Dangerous, >54 HeatStrokeProbable.
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(30.0),
+            HumidexDiscomfort::LittleOrNone
+        );
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(30.0001),
+            HumidexDiscomfort::Noticeable
+        );
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(38.0),
+            HumidexDiscomfort::Evident
+        );
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(45.0),
+            HumidexDiscomfort::Intense
+        );
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(54.0),
+            HumidexDiscomfort::Dangerous
+        );
+        assert_eq!(
+            HumidexDiscomfort::from_humidex(60.0),
+            HumidexDiscomfort::HeatStrokeProbable
+        );
     }
 
     #[test]
@@ -585,7 +816,40 @@ mod tests {
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
         );
-        assert!((result - 22.1).abs() < 0.2);
+        assert!((result.di - 22.1).abs() < 0.2);
+        assert_eq!(
+            result.discomfort_condition,
+            DiscomfortCondition::LessThan50PercentFeels
+        );
+    }
+
+    #[test]
+    fn test_discomfort_index_categories() {
+        // Bands are left-inclusive: [21,24) [24,27) [27,29) [29,32) [32,inf)
+        assert_eq!(
+            DiscomfortCondition::from_di(20.9),
+            DiscomfortCondition::NoDiscomfort
+        );
+        assert_eq!(
+            DiscomfortCondition::from_di(21.0),
+            DiscomfortCondition::LessThan50PercentFeels
+        );
+        assert_eq!(
+            DiscomfortCondition::from_di(24.0),
+            DiscomfortCondition::MoreThan50PercentFeels
+        );
+        assert_eq!(
+            DiscomfortCondition::from_di(27.0),
+            DiscomfortCondition::MostFeelDiscomfort
+        );
+        assert_eq!(
+            DiscomfortCondition::from_di(29.0),
+            DiscomfortCondition::EveryoneFeelsSevereStress
+        );
+        assert_eq!(
+            DiscomfortCondition::from_di(32.0),
+            DiscomfortCondition::MedicalEmergency
+        );
     }
 
     #[test]
@@ -596,25 +860,50 @@ mod tests {
             true,
             true,
         );
-        assert!((result - 29.7).abs() < 0.5);
+        assert!((result.hi - 29.7).abs() < 0.5);
+        assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
 
-        // Test limit_inputs
+        // Below the applicability range with limit_inputs=true → NaN and no category
         let result = heat_index_rothfusz(
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
             true,
             true,
         );
-        assert!(result.is_nan());
+        assert!(result.hi.is_nan());
+        assert_eq!(result.stress_category, None);
 
-        // Test without limits
+        // Same inputs with limits disabled → numeric value and a category
         let result = heat_index_rothfusz(
             Temperature::from_celsius(25.0),
             Humidity::from_percent(50.0),
             true,
             false,
         );
-        assert!(!result.is_nan());
+        assert!(!result.hi.is_nan());
+        assert!(result.stress_category.is_some());
+    }
+
+    #[test]
+    fn test_heat_index_stress_categories() {
+        // Right-inclusive bands per pythermalcomfort: <=27, <=32, <=41, <=54, >54.
+        assert_eq!(HeatIndexStress::from_hi(27.0), HeatIndexStress::NoRisk);
+        assert_eq!(HeatIndexStress::from_hi(27.1), HeatIndexStress::Caution);
+        assert_eq!(HeatIndexStress::from_hi(32.0), HeatIndexStress::Caution);
+        assert_eq!(
+            HeatIndexStress::from_hi(32.1),
+            HeatIndexStress::ExtremeCaution
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(41.0),
+            HeatIndexStress::ExtremeCaution
+        );
+        assert_eq!(HeatIndexStress::from_hi(41.1), HeatIndexStress::Danger);
+        assert_eq!(HeatIndexStress::from_hi(54.0), HeatIndexStress::Danger);
+        assert_eq!(
+            HeatIndexStress::from_hi(54.1),
+            HeatIndexStress::ExtremeDanger
+        );
     }
 
     #[test]
