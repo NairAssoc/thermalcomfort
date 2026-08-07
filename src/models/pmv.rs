@@ -40,13 +40,18 @@ pub enum ThermalSensation {
 }
 
 impl ThermalSensation {
-    /// Map PMV value to thermal sensation category
-    pub fn from_pmv(pmv: f64) -> Self {
+    /// Map a PMV value to a thermal sensation category, or `None` when the PMV is not
+    /// available (NaN). Python yields `nan` for `tsv` in that case rather than a band.
+    ///
+    /// There is deliberately no infallible `from_pmv`: mapping NaN to a band reports a
+    /// comfort category for a calculation that did not produce one, which is the defect
+    /// the `Option` on [`PmvPpdResult::tsv`] exists to fix.
+    pub fn from_pmv_opt(pmv: f64) -> Option<Self> {
         if pmv.is_nan() {
-            return ThermalSensation::Neutral;
+            return None;
         }
 
-        match pmv {
+        Some(match pmv {
             p if p < -2.5 => ThermalSensation::Cold,
             p if p < -1.5 => ThermalSensation::Cool,
             p if p < -0.5 => ThermalSensation::SlightlyCool,
@@ -54,17 +59,7 @@ impl ThermalSensation {
             p if p < 1.5 => ThermalSensation::SlightlyWarm,
             p if p < 2.5 => ThermalSensation::Warm,
             _ => ThermalSensation::Hot,
-        }
-    }
-
-    /// Map a PMV value to a thermal sensation category, or `None` when the PMV is not
-    /// available (NaN). Python yields `nan` for `tsv` in that case rather than a band.
-    pub fn from_pmv_opt(pmv: f64) -> Option<Self> {
-        if pmv.is_nan() {
-            None
-        } else {
-            Some(Self::from_pmv(pmv))
-        }
+        })
     }
 
     /// String form matching pythermalcomfort's `tsv` field exactly.
@@ -773,19 +768,20 @@ mod tests {
 
     #[test]
     fn test_thermal_sensation_mapping() {
-        assert_eq!(ThermalSensation::from_pmv(-3.0), ThermalSensation::Cold);
-        assert_eq!(ThermalSensation::from_pmv(-2.0), ThermalSensation::Cool);
-        assert_eq!(
-            ThermalSensation::from_pmv(-1.0),
-            ThermalSensation::SlightlyCool
-        );
-        assert_eq!(ThermalSensation::from_pmv(0.0), ThermalSensation::Neutral);
-        assert_eq!(
-            ThermalSensation::from_pmv(1.0),
-            ThermalSensation::SlightlyWarm
-        );
-        assert_eq!(ThermalSensation::from_pmv(2.0), ThermalSensation::Warm);
-        assert_eq!(ThermalSensation::from_pmv(3.0), ThermalSensation::Hot);
+        for (pmv, expected) in [
+            (-3.0, ThermalSensation::Cold),
+            (-2.0, ThermalSensation::Cool),
+            (-1.0, ThermalSensation::SlightlyCool),
+            (0.0, ThermalSensation::Neutral),
+            (1.0, ThermalSensation::SlightlyWarm),
+            (2.0, ThermalSensation::Warm),
+            (3.0, ThermalSensation::Hot),
+        ] {
+            assert_eq!(ThermalSensation::from_pmv_opt(pmv), Some(expected));
+        }
+
+        // A PMV that was never computed has no band
+        assert_eq!(ThermalSensation::from_pmv_opt(f64::NAN), None);
     }
 
     #[test]
@@ -909,60 +905,5 @@ mod tests {
             options,
         );
         assert!(!result.pmv.is_nan());
-    }
-
-    #[cfg(test)]
-    #[test]
-    fn test_compare_with_python() {
-        use pyo3::prelude::*;
-        use pyo3::types::PyModule;
-
-        Python::with_gil(|py| {
-            // Import pythermalcomfort
-            let pythermal = PyModule::import(py, "pythermalcomfort.models").unwrap();
-
-            // Test case 1: Standard conditions
-            let tdb = 25.0;
-            let tr = 25.0;
-            let vr = 0.22; // v_relative(0.1, 1.4)
-            let rh = 50.0;
-            let met = 1.4;
-            let clo = 0.5;
-
-            // Call Python function
-            let py_result = pythermal
-                .getattr("pmv_ppd_iso")
-                .unwrap()
-                .call1((tdb, tr, vr, rh, met, clo))
-                .unwrap();
-
-            let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
-            let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
-
-            // Call Rust function
-            let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                Default::default(),
-            );
-
-            // Compare results (allow small floating point differences)
-            assert!(
-                (rust_result.pmv - py_pmv).abs() < 0.01,
-                "PMV mismatch: Rust={}, Python={}",
-                rust_result.pmv,
-                py_pmv
-            );
-            assert!(
-                (rust_result.ppd - py_ppd).abs() < 0.1,
-                "PPD mismatch: Rust={}, Python={}",
-                rust_result.ppd,
-                py_ppd
-            );
-        });
     }
 }

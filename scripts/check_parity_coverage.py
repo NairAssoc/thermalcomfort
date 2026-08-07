@@ -19,6 +19,11 @@ REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 PARITY_TESTS = REPO / "tests" / "python_comparison.rs"
 
+# Matches a module-level public function, including the qualifiers Rust allows between
+# `pub` and `fn`. Anchored at column 0 so `impl` methods (which rustfmt indents, and
+# `cargo fmt --check` enforces) are excluded.
+PUB_FN_RE = r'^pub (?:(?:const|unsafe|async|extern\s+"[^"]*")\s+)*fn (\w+)'
+
 # Functions with NO pythermalcomfort counterpart, so there is nothing to compare against.
 # Each entry needs a reason. "Not done yet" is not a reason — that is KNOWN_GAPS.
 EXEMPT: dict[str, str] = {
@@ -55,7 +60,46 @@ KNOWN_GAPS: dict[str, str] = {
     "running_mean_outdoor_temperature": "pythermalcomfort.utilities.running_mean_outdoor_temperature",
     "f_svv": "pythermalcomfort.utilities.f_svv",
     "transpose_sharp_altitude": "pythermalcomfort.utilities.transpose_sharp_altitude",
+    # Surfaced once `is_tested` began requiring a call rather than a mention: `p_sat`
+    # is compared only as a field of the psy_ta_rh result, never invoked directly.
+    "p_sat": "pythermalcomfort.utilities.p_sat",
+    "p_sat_torr": "pythermalcomfort.utilities.p_sat_torr",
 }
+
+
+def executable_test_source(text: str) -> str:
+    """Reduce the parity test file to code that actually runs.
+
+    Removes `use` statements, comments, and `#[ignore]`d test bodies. Each has been
+    observed to make an untested function look covered.
+
+    String literals are deliberately NOT stripped: doing so requires pairing quotes,
+    and one unbalanced quote makes the regex swallow the rest of the file (which
+    silently marked all 50 functions untested when tried). The call-shaped match in
+    `is_tested` already ignores prose, and a name inside a string is not call-shaped.
+    """
+    text = re.sub(r"^use [^;]+;", "", text, flags=re.MULTILINE)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    text = re.sub(r"//[^\n]*", "", text)
+    # An #[ignore]d test cannot verify anything, so drop those bodies too.
+    out, i = [], 0
+    for match in re.finditer(r"#\[ignore[^\]]*\]", text):
+        brace = text.find("{", match.end())
+        if brace == -1:
+            continue
+        depth, j = 0, brace
+        while j < len(text):
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        out.append(text[i:match.start()])
+        i = j
+    out.append(text[i:])
+    return "".join(out)
 
 
 def public_function_names() -> set[str]:
@@ -76,8 +120,10 @@ def public_function_names() -> set[str]:
     for path in rust_files:
         text = path.read_text()
 
-        # Module-level free functions
-        names.update(re.findall(r"^pub fn (\w+)", text, re.MULTILINE))
+        # Module-level free functions. The qualifier group matters: `pub const fn` is
+        # already used in this crate, and a bare `^pub fn` regex would let the next
+        # module-level one into the public API with no parity requirement at all.
+        names.update(re.findall(PUB_FN_RE, text, re.MULTILINE))
 
         # Re-exports. Take only the items being imported, not the path segments, so a
         # function sharing its name with its module (e.g. `ireq`) is not lost.
@@ -106,7 +152,9 @@ def public_function_names() -> set[str]:
 
 def _is_defined_fn(name: str, rust_files: list[Path]) -> bool:
     """True if `name` is defined as a module-level `pub fn` anywhere in the crate."""
-    pattern = re.compile(rf"^pub fn {re.escape(name)}\b", re.MULTILINE)
+    pattern = re.compile(
+        PUB_FN_RE.replace(r"(\w+)", re.escape(name)) + r"\b", re.MULTILINE
+    )
     return any(pattern.search(p.read_text()) for p in rust_files)
 
 
@@ -115,13 +163,15 @@ def main() -> int:
         print(f"error: {PARITY_TESTS} not found", file=sys.stderr)
         return 1
 
-    # Strip `use ...;` statements first: a name appearing only in an import is not
-    # evidence of a parity test, and counting it would hide exactly the gap we look for.
-    tests = re.sub(r"^use [^;]+;", "", PARITY_TESTS.read_text(), flags=re.MULTILINE)
+    tests = executable_test_source(PARITY_TESTS.read_text())
     functions = public_function_names()
 
     def is_tested(name: str) -> bool:
-        return bool(re.search(rf"\b{re.escape(name)}\b", tests))
+        # Require a call, not a mention. A bare-word match treats prose as evidence:
+        # `at` matched 28 times in comments and assertion messages - including this
+        # checker's own rationale - so `at()` counted as covered with its only parity
+        # test deleted.
+        return bool(re.search(rf"\b{re.escape(name)}\s*\(", tests))
 
     untested = {n for n in functions if n not in EXEMPT and not is_tested(n)}
 

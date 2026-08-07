@@ -16,7 +16,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 - **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std` compatible**: Works in embedded and WASM environments (default)
 - **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
-- **Rigorously Validated**: 226 tests (108 unit + 57 Python comparison + 61 doctests)
+- **Rigorously Validated**: 230 tests (107 unit + 62 Python comparison + 61 doctests)
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 

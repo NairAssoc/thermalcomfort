@@ -3,7 +3,13 @@
 # The crate version IS the pythermalcomfort version this port targets. Deriving the pin
 # from Cargo.toml means CI and local runs can never drift from what is being ported,
 # which is what previously let CI validate 3.9.x work against a 3.8.0 reference.
-PTC_VERSION := $(shell grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+#
+# Parsed via cargo, not grep: `grep -m1 '^version = '` picked up whichever table came
+# first, so a [dependencies] block above [package] silently yielded a dependency's
+# version. A trailing `-rc.1` marks a revision of the port, not of upstream, so it is
+# stripped - PEP 440 spells pre-releases differently and no such upstream sdist exists.
+PTC_VERSION := $(firstword $(subst -, ,$(shell cargo metadata --no-deps --format-version 1 \
+	| sed -n 's/.*"name":"thermalcomfort","version":"\([^"]*\)".*/\1/p')))
 
 # Virtualenv holding the reference pythermalcomfort. Kept inside the repo (gitignored)
 # rather than /tmp so it survives reboots. Override with PARITY_VENV=... if needed.
@@ -15,8 +21,22 @@ PYTHON ?= python3
 # CI, where pythermalcomfort is installed into the runner's system python. Either way the
 # test_pythermalcomfort_version_matches_crate guard fails the run if the version is wrong,
 # so this only decides *where* the reference comes from, never *whether* it is checked.
-PARITY_SITE_PACKAGES = $(shell ls -d $(PARITY_VENV)/lib/python*/site-packages 2>/dev/null)
+#
+# Asks the venv's own interpreter rather than globbing `lib/python*/site-packages`:
+# after a Python minor upgrade the glob matches several directories, and make then
+# tries to execute the second one as a command.
+PARITY_SITE_PACKAGES = $(shell $(PARITY_VENV)/bin/python -c \
+	'import site; print(site.getsitepackages()[0])' 2>/dev/null)
 PARITY_ENV = $(if $(PARITY_SITE_PACKAGES),PYTHONPATH=$(PARITY_SITE_PACKAGES),)
+
+ifeq ($(strip $(PTC_VERSION)),)
+$(error Could not determine the crate version from cargo metadata. The parity \
+        reference version is derived from it, so refusing to continue.)
+endif
+
+# `make -j2 verify` would otherwise interleave lint and test, defeating the intended
+# ordering and contending on the cargo target-dir lock.
+.NOTPARALLEL:
 
 # Default target
 help:

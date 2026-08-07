@@ -49,16 +49,16 @@ pub enum DurationLimitedExposure {
     NotApplicable,
 }
 
-impl DurationLimitedExposure {
-    /// String form matching the pythermalcomfort `dle` field.
+impl core::fmt::Display for DurationLimitedExposure {
+    /// Renders the same way pythermalcomfort's mixed-type `dle` field prints.
     ///
-    /// Returns `None` for [`DurationLimitedExposure::Hours`], which has no fixed
-    /// string representation.
-    pub fn as_str(&self) -> Option<&'static str> {
+    /// Replaces an `as_str` whose contract was inverted: it returned `None` for
+    /// `Hours` (a real value) and `Some("nan")` for `NotApplicable` (the absent case).
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DurationLimitedExposure::MoreThanEight => Some("more than 8"),
-            DurationLimitedExposure::NotApplicable => Some("nan"),
-            DurationLimitedExposure::Hours(_) => None,
+            DurationLimitedExposure::Hours(h) => write!(f, "{h}"),
+            DurationLimitedExposure::MoreThanEight => f.write_str("more than 8"),
+            DurationLimitedExposure::NotApplicable => f.write_str("nan"),
         }
     }
 }
