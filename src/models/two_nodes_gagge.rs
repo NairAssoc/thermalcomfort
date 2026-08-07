@@ -209,7 +209,7 @@ fn gagge_two_nodes_optimized(
 
     let temp_skin_neutral = 33.7;
     let temp_core_neutral = 36.8;
-    let alfa = 0.1;
+    let mut alfa = 0.1;
     let temp_body_neutral = alfa * temp_skin_neutral + (1.0 - alfa) * temp_core_neutral;
     let skin_blood_flow_neutral = 6.3;
 
@@ -240,7 +240,7 @@ fn gagge_two_nodes_optimized(
     let f_a_cl = 1.0 + 0.15 * clo; // increase in body surface area due to clothing
     let lr = 2.2 / pressure_in_atmospheres; // Lewis ratio
     let rm = (met - wme) * met_factor; // metabolic rate
-    let m = met * met_factor; // metabolic rate
+    let mut m = met * met_factor; // metabolic rate
 
     let mut e_comfort = 0.42 * (rm - met_factor); // evaporative heat loss during comfort
     e_comfort = fmax(e_comfort, 0.0);
@@ -339,7 +339,7 @@ fn gagge_two_nodes_optimized(
         // c_reg_sig thermoregulatory control signal from the core, °C
         let c_reg_sig = t_core - temp_core_neutral;
         let c_warm = fmax(c_reg_sig, 0.0); // vasodilation signal
-        let _c_cold = fmax(-c_reg_sig, 0.0); // vasoconstriction signal (unused but kept for clarity)
+        let c_cold = fmax(-c_reg_sig, 0.0); // vasoconstriction signal
         // bd_sig thermoregulatory control signal from the body
         let bd_sig = t_body - temp_body_neutral;
         let warm_b = fmax(bd_sig, 0.0);
@@ -373,6 +373,12 @@ fn gagge_two_nodes_optimized(
         }
         e_skin = e_rsw + e_diff; // total evaporative heat loss sweating and vapor diffusion
         m_rsw = e_rsw / 0.68; // back calculating the mass of regulatory sweating
+
+        let met_shivering = 19.4 * colds * c_cold; // met shivering W/m²
+        m = rm + met_shivering;
+        // alfa (skin fraction of body mass) tracks skin blood flow each minute; it
+        // must be re-derived inside the loop or the whole t_skin/t_core trajectory drifts
+        alfa = 0.0417737 + 0.7451833 / (m_bl + 0.585417);
     }
 
     let q_skin = q_sensible + e_skin; // total heat loss from skin, W
@@ -447,7 +453,7 @@ fn gagge_two_nodes_optimized(
         t_sens = w_max * 4.7 + 0.4685 * (t_body - tbm_h);
     }
 
-    let mut disc = if t_sens > 0.0 && (e_max * w_max - e_comfort - e_diff) <= 0.0 {
+    let mut disc = if t_sens > 0.0 && (e_max * w_max - e_comfort - e_diff) < 0.0 {
         6.0
     } else {
         4.7 * (e_rsw - e_comfort) / (e_max * w_max - e_comfort - e_diff) // predicted thermal discomfort

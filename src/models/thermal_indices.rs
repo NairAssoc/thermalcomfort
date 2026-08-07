@@ -540,6 +540,64 @@ pub fn heat_index_rothfusz(
     }
 }
 
+/// Calculate the Temperature Humidity Index (THI) using the Schoen (2005) model
+///
+/// Also known as the Heat Index Schoen. The THI is a simplified scale of apparent
+/// temperature considering only dry-bulb temperature and humidity; it is another
+/// formulation of the heat index.
+///
+/// # Arguments
+///
+/// * `dry_bulb_temp` - Dry bulb air temperature
+/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
+/// * `round_output` - Whether to round output to 1 decimal place
+///
+/// # Returns
+///
+/// [`HeatIndexResult`] with the heat index [°C] and stress category. Unlike
+/// [`heat_index_rothfusz`], this model has no dry-bulb applicability gate, so the
+/// stress category is always populated.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::thermal_indices::{heat_index_schoen, HeatIndexStress};
+/// use thermalcomfort::{Temperature, Humidity};
+///
+/// let result = heat_index_schoen(Temperature::from_celsius(29.0), Humidity::from_percent(50.0), true);
+/// assert!((result.hi - 30.0).abs() < 0.2);
+/// assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
+/// ```
+///
+/// # References
+///
+/// - Schoen, C. (2005). A new empirical model of the temperature-humidity index.
+///   Journal of Applied Meteorology, 44(9), 1413-1420.
+pub fn heat_index_schoen(
+    dry_bulb_temp: Temperature,
+    relative_humidity: Humidity,
+    round_output: bool,
+) -> HeatIndexResult {
+    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
+    let t_dew_celsius = dew_point_temperature(dry_bulb_temp, relative_humidity).as_celsius();
+
+    // Schoen (2005) empirical THI formulation:
+    // hi = tdb - 1.0799 * exp(0.03755 * tdb) * (1 - exp(0.0801 * (t_dew - 14)))
+    let mut hi = dry_bulb_celsius
+        - 1.0799
+            * libm::exp(0.03755 * dry_bulb_celsius)
+            * (1.0 - libm::exp(0.0801 * (t_dew_celsius - 14.0)));
+
+    if round_output {
+        hi = libm::round(hi * 10.0) / 10.0;
+    }
+
+    HeatIndexResult {
+        hi,
+        stress_category: Some(HeatIndexStress::from_hi(hi)),
+    }
+}
+
 /// Calculate Apparent Temperature (AT)
 ///
 /// The AT is defined as the temperature at the reference humidity level producing
@@ -879,6 +937,37 @@ mod tests {
             Humidity::from_percent(50.0),
             true,
             false,
+        );
+        assert!(!result.hi.is_nan());
+        assert!(result.stress_category.is_some());
+    }
+
+    #[test]
+    fn test_heat_index_schoen() {
+        // Reference values from pythermalcomfort 4.4.0 heat_index_schoen
+        for (tdb, rh, expected_hi, expected_cat) in [
+            (29.0, 50.0, 30.0, HeatIndexStress::Caution),
+            (35.0, 60.0, 41.6, HeatIndexStress::Danger),
+            (20.0, 40.0, 18.9, HeatIndexStress::NoRisk),
+        ] {
+            let result = heat_index_schoen(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                true,
+            );
+            assert!(
+                (result.hi - expected_hi).abs() < 0.05,
+                "schoen({tdb}, {rh}) = {} expected {expected_hi}",
+                result.hi
+            );
+            assert_eq!(result.stress_category, Some(expected_cat));
+        }
+
+        // Unlike Rothfusz, Schoen has no applicability gate: low tdb still yields a value
+        let result = heat_index_schoen(
+            Temperature::from_celsius(10.0),
+            Humidity::from_percent(50.0),
+            true,
         );
         assert!(!result.hi.is_nan());
         assert!(result.stress_category.is_some());

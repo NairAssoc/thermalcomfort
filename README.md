@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v3.9.8) for thermal comfort calculations. All 38 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. All 40 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,11 +12,11 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **100% Feature Complete**: All 38 core models from pythermalcomfort v3.9.8
+- **100% Feature Complete**: All 40 core models from pythermalcomfort v4.4.0
 - **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std` compatible**: Works in embedded and WASM environments (default)
 - **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
-- **Rigorously Validated**: 202 tests (88 unit + 56 Python comparison + 58 doctests)
+- **Rigorously Validated**: 226 tests (108 unit + 57 Python comparison + 61 doctests)
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
@@ -47,7 +47,7 @@ For applications requiring perfect Python accuracy matching in extreme PET condi
 
 ```toml
 [dependencies]
-thermalcomfort = { version = "3.9.8", features = ["std"] }
+thermalcomfort = { version = "4.4.0", features = ["std"] }
 ```
 
 This uses nalgebra for numerically stable linear algebra (LU decomposition), matching Python's scipy.optimize.fsolve. The trade-off is breaking `no_std` compatibility and a slightly larger binary (~100KB). Only needed when extreme cold+wind PET accuracy is critical (< 5°C, > 2 m/s).
@@ -58,7 +58,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "3.9.8"
+thermalcomfort = "4.4.0"
 ```
 
 ## Usage
@@ -169,6 +169,39 @@ fn main() {
 }
 ```
 
+### IREQ (Required Clothing Insulation, ISO 11079)
+
+For cold environments: the clothing insulation required for thermal equilibrium, and how
+long exposure can last when the clothing available is not enough.
+
+```rust
+use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::models::{ireq, IreqOptions, DurationLimitedExposure};
+
+fn main() {
+    let result = ireq(
+        Temperature::from_celsius(-15.0),
+        Temperature::from_celsius(-15.0),
+        Speed::from_meters_per_second(2.0),
+        Humidity::from_percent(55.0),
+        MetabolicRate::from_met(175.0 / 58.15),
+        ClothingInsulation::from_clo(2.8),
+        50.0, // air permeability of clothing [l/(m²·s)]
+        Speed::from_meters_per_second(1.1),
+        IreqOptions::default()
+    );
+
+    println!("Required insulation (minimal): {:.1} clo", result.ireq_min);
+    println!("Required insulation (neutral): {:.1} clo", result.ireq_neutral);
+
+    match result.dle_min {
+        DurationLimitedExposure::Hours(h) => println!("Exposure limit: {h:.1} h"),
+        DurationLimitedExposure::MoreThanEight => println!("Exposure limit: more than 8 h"),
+        DurationLimitedExposure::NotApplicable => println!("Outside ISO 11079 limits"),
+    }
+}
+```
+
 ### Unit Conversions
 
 All measurement types support automatic unit conversion:
@@ -221,7 +254,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce identical results to pythermalcomfort v3.9.8. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
+All models produce identical results to pythermalcomfort v4.4.0. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
 
 | Condition | Python | Rust (`no_std`) | Rust (`std`) |
 |-----------|--------|-----------------|--------------|
@@ -251,8 +284,9 @@ cargo test --test python_comparison
 
 ## Standards Compliance
 
-- **ISO 7730:2005** - PMV/PPD
+- **ISO 7730:2025** - PMV/PPD (formulae unchanged from ISO 7730:2005)
 - **ISO 7933:2004/2023** - Predicted Heat Strain
+- **ISO 11079:2007** - Required clothing insulation (IREQ) and duration limited exposure
 - **ASHRAE 55** - Thermal Environmental Conditions for Human Occupancy
 - **ISO 7726:1998** - Instruments for measuring physical quantities
 - **ISO 9920:2007** - Clothing insulation estimation
@@ -260,7 +294,7 @@ cargo test --test python_comparison
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v3.9.8), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.4.0), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

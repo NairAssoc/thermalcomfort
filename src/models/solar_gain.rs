@@ -61,6 +61,16 @@ pub fn solar_gain(
     posture: Posture,
     floor_reflectance: f64,
 ) -> SolarGainResult {
+    // The fp lookup table only covers altitudes 0-90° and azimuths 0-180°. Outside that
+    // there is no valid span to interpolate within, so return NaN rather than
+    // extrapolating from the first span.
+    if !(0.0..=90.0).contains(&sol_altitude) || !(0.0..=180.0).contains(&sharp) {
+        return SolarGainResult {
+            erf: f64::NAN,
+            delta_mrt: f64::NAN,
+        };
+    }
+
     let deg_to_rad = core::f64::consts::PI / 180.0;
     // Radiative heat transfer coefficient (W/(m²·K))
     // Typical value for human body in indoor environment
@@ -204,6 +214,38 @@ fn find_span(arr: &[f64], x: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_solar_gain_out_of_range_is_nan() {
+        // The fp table covers altitude 0-90° and azimuth 0-180°; outside that both
+        // outputs are NaN, matching pythermalcomfort 4.4.0.
+        for (alt, sharp) in [(-10.0, 120.0), (100.0, 120.0), (45.0, 200.0), (45.0, -5.0)] {
+            let result = solar_gain(alt, sharp, 800.0, 0.5, 0.5, 0.5, 0.7, Posture::Sitting, 0.6);
+            assert!(
+                result.erf.is_nan() && result.delta_mrt.is_nan(),
+                "expected NaN at sol_altitude={alt}, sharp={sharp}"
+            );
+        }
+
+        // In-range case still computes (reference: erf=59.5, delta_mrt=14.2)
+        let result = solar_gain(
+            45.0,
+            120.0,
+            800.0,
+            0.5,
+            0.5,
+            0.5,
+            0.7,
+            Posture::Sitting,
+            0.6,
+        );
+        assert!((result.erf - 59.5).abs() < 0.5, "erf = {}", result.erf);
+        assert!(
+            (result.delta_mrt - 14.2).abs() < 0.5,
+            "delta_mrt = {}",
+            result.delta_mrt
+        );
+    }
 
     #[test]
     fn test_solar_gain_sitting() {

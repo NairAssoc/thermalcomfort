@@ -311,6 +311,36 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
     Pressure::from_pascals(p_pa)
 }
 
+/// Convert humidity ratio to relative humidity
+///
+/// Algebraic inverse of the humidity-ratio formula used by
+/// [`crate::psychrometrics::psy_ta_rh`].
+///
+/// # Arguments
+///
+/// * `hr` - Humidity ratio [kg water / kg dry air]
+/// * `tdb` - Dry bulb air temperature
+/// * `p_atm` - Atmospheric pressure
+///
+/// # Returns
+///
+/// Relative humidity [%]
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::utilities::hr_to_rh;
+/// use thermalcomfort::{Temperature, Pressure};
+///
+/// let rh = hr_to_rh(0.01, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
+/// assert!((rh - 50.5).abs() < 0.5);
+/// ```
+pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> f64 {
+    // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
+    let p_vap = hr * p_atm.as_pascals() / (0.62198 + hr);
+    p_vap / p_sat(tdb).as_pascals() * 100.0
+}
+
 /// Formula options for body surface area calculation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BsaFormula {
@@ -606,9 +636,14 @@ pub fn clo_dynamic_iso(
     // Total insulation under static conditions
     let i_t = clo_val + i_a.as_clo() / f_cl;
 
-    // Calculate walking speed and relative air speed
+    // Relative air speed for the whole-body heat balance
     let v_r = v_relative(v, met);
-    let v_walk_ms = v_r.as_meters_per_second() - v.as_meters_per_second();
+
+    // Walking speed when undefined, per ISO 7730 Annex C / ISO 9920:
+    // v_walk = 0.0052 * (M - 58), clipped to [0, 0.7] m/s, where M is metabolic rate
+    // in W/m². This is a distinct formula from `v_relative`'s activity-generated air
+    // speed, which the previous implementation incorrectly reused here.
+    let v_walk_ms = (0.0052 * (met.as_met() * MET_TO_W_M2 - 58.0)).clamp(0.0, 0.7);
     let v_walk = Speed::from_meters_per_second(v_walk_ms);
 
     // Calculate total dynamic insulation
@@ -903,6 +938,49 @@ pub fn clo_individual_garment(garment_name: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_clo_dynamic_iso_matches_python() {
+        // Reference values from pythermalcomfort 4.4.0 clo_dynamic_iso (i_a defaults to 0.7).
+        // These exercise the ISO 7730 Annex C / ISO 9920 walking-speed formula.
+        for (clo, met, v, expected) in [
+            (0.5, 1.2, 0.1, 0.417585),
+            (1.0, 2.0, 0.3, 0.817727),
+            (0.7, 1.5, 0.2, 0.640019),
+            (1.5, 3.0, 0.5, 1.000017),
+        ] {
+            let got = clo_dynamic_iso(
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+                Speed::from_meters_per_second(v),
+                ClothingInsulation::from_clo(0.7),
+            );
+            assert!(
+                (got - expected).abs() < 1e-5,
+                "clo_dynamic_iso({clo}, {met}, {v}) = {got}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_hr_to_rh_matches_python() {
+        // Reference values from pythermalcomfort 4.4.0 hr_to_rh
+        for (hr, tdb, expected) in [
+            (0.01, 25.0, 50.589615),
+            (0.005, 20.0, 34.549292),
+            (0.02, 30.0, 74.343333),
+        ] {
+            let got = hr_to_rh(
+                hr,
+                Temperature::from_celsius(tdb),
+                Pressure::from_pascals(101325.0),
+            );
+            assert!(
+                (got - expected).abs() < 1e-4,
+                "hr_to_rh({hr}, {tdb}) = {got}, expected {expected}"
+            );
+        }
+    }
 
     #[test]
     fn test_v_relative() {

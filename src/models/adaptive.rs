@@ -68,6 +68,40 @@ impl Default for AdaptiveOptions {
     }
 }
 
+/// Round to 1 decimal place
+fn round1(x: f64) -> f64 {
+    libm::round(x * 10.0) / 10.0
+}
+
+/// Cooling effect of elevated air speed, shared by the ASHRAE 55 and EN 16798 adaptive
+/// models.
+///
+/// Per ASHRAE 55-2023 Section 5.4.3 the allowance is a three-tier step function of air
+/// speed, and applies only once the operative temperature reaches 25 °C.
+///
+/// # Arguments
+///
+/// * `v_ms` - Air speed [m/s]
+/// * `to_celsius` - Operative temperature [°C]
+///
+/// # Returns
+///
+/// Cooling effect [°C]: 0.0, 1.2, 1.8 or 2.2
+fn adaptive_cooling_effect(v_ms: f64, to_celsius: f64) -> f64 {
+    if to_celsius < 25.0 {
+        return 0.0;
+    }
+    if v_ms >= 1.2 {
+        2.2
+    } else if v_ms >= 0.9 {
+        1.8
+    } else if v_ms >= 0.6 {
+        1.2
+    } else {
+        0.0
+    }
+}
+
 /// Calculate adaptive thermal comfort based on ASHRAE 55
 ///
 /// The adaptive model can only be used in occupant-controlled naturally conditioned
@@ -127,22 +161,7 @@ pub fn adaptive_ashrae(
     // Calculate operative temperature (use_ashrae=true for adaptive models)
     let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
 
-    // Calculate cooling effect for elevated air speed when to > 25°C
-    // From ASHRAE 55-2023 Section 5.4.3
-    // Thresholds: 0.6 m/s, 0.9 m/s, 1.2 m/s
-    // Cooling effects: 1.2°C, 1.8°C, 2.2°C respectively
-    // Only applies when operative temperature >= 25°C
-    let ce = if speed_mps >= 0.6 && to.as_celsius() >= 25.0 {
-        if speed_mps < 0.9 {
-            1.2 // First tier cooling effect
-        } else if speed_mps < 1.2 {
-            1.8 // Second tier cooling effect
-        } else {
-            2.2 // Third tier cooling effect
-        }
-    } else {
-        0.0
-    };
+    let ce = adaptive_cooling_effect(speed_mps, to.as_celsius());
 
     // Comfort temperature based on running mean outdoor temperature
     // ASHRAE 55-2023 adaptive comfort equation:
@@ -241,13 +260,13 @@ pub fn adaptive_en(
     air_speed: Speed,
     options: AdaptiveOptions,
 ) -> AdaptiveEnResult {
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
     let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
     let speed_mps = air_speed.as_meters_per_second();
 
-    // Calculate operative temperature (use_ashrae=true for adaptive models)
-    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
+    // EN 16798 uses the ISO operative temperature formulation, unlike adaptive_ashrae
+    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, false);
+
+    let ce = adaptive_cooling_effect(speed_mps, to.as_celsius());
 
     // Comfort temperature based on running mean outdoor temperature
     // EN 16798-1:2019 adaptive comfort equation:
@@ -256,43 +275,41 @@ pub fn adaptive_en(
     // and 18.8°C is the base comfort temperature
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
-    // Apply input limits if requested (EN 16798-1:2019 applicability limits)
-    // Dry bulb temperature: 10-30°C
-    // Mean radiant temperature: 10-40°C
-    // Air speed: 0-2 m/s
-    // Running mean outdoor temperature: 10-30°C
-    if options.limit_inputs
-        && (!(10.0..=30.0).contains(&dry_bulb_celsius)
-            || !(10.0..=40.0).contains(&radiant_celsius)
-            || !(0.0..=2.0).contains(&speed_mps)
-            || !(10.0..=30.0).contains(&running_mean_celsius))
-    {
+    // Apply input limits if requested. EN 16798-1:2019 bounds only the running mean
+    // outdoor temperature; tdb, tr and v are not gated.
+    if options.limit_inputs && !(10.0..=33.5).contains(&running_mean_celsius) {
         t_cmf = f64::NAN;
     }
 
-    if options.round_output {
-        t_cmf = libm::round(t_cmf * 10.0) / 10.0;
-    }
+    // Category bounds (EN 16798-1:2019). The bands are asymmetric, and the elevated
+    // air speed allowance widens only the upper bound.
+    // Category I (high expectation): -3 / +2 °C
+    // Category II (medium expectation): -4 / +3 °C
+    // Category III (moderate expectation): -5 / +4 °C
+    let mut tmp_cmf_cat_i_low = t_cmf - 3.0;
+    let mut tmp_cmf_cat_i_up = t_cmf + 2.0 + ce;
+    let mut tmp_cmf_cat_ii_low = t_cmf - 4.0;
+    let mut tmp_cmf_cat_ii_up = t_cmf + 3.0 + ce;
+    let mut tmp_cmf_cat_iii_low = t_cmf - 5.0;
+    let mut tmp_cmf_cat_iii_up = t_cmf + 4.0 + ce;
 
-    // Calculate category bounds (EN 16798-1:2019)
-    // Category I (high expectation): ±2°C from comfort temperature
-    // Category II (medium expectation): ±3°C from comfort temperature
-    // Category III (moderate expectation): ±4°C from comfort temperature
-    let tmp_cmf_cat_i_low = t_cmf - 2.0;
-    let tmp_cmf_cat_i_up = t_cmf + 2.0;
-    let tmp_cmf_cat_ii_low = t_cmf - 3.0;
-    let tmp_cmf_cat_ii_up = t_cmf + 3.0;
-    let tmp_cmf_cat_iii_low = t_cmf - 4.0;
-    let tmp_cmf_cat_iii_up = t_cmf + 4.0;
-
-    // Check acceptability for each category
+    // Acceptability is evaluated against the unrounded bounds
     let to_celsius = to.as_celsius();
-    let acceptability_cat_i =
-        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
-    let acceptability_cat_ii =
-        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
+    let acceptability_cat_i = to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
+    let acceptability_cat_ii = to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
     let acceptability_cat_iii =
-        !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+        to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+
+    // Rounding is applied to each bound independently, after the bands are derived
+    if options.round_output {
+        t_cmf = round1(t_cmf);
+        tmp_cmf_cat_i_low = round1(tmp_cmf_cat_i_low);
+        tmp_cmf_cat_i_up = round1(tmp_cmf_cat_i_up);
+        tmp_cmf_cat_ii_low = round1(tmp_cmf_cat_ii_low);
+        tmp_cmf_cat_ii_up = round1(tmp_cmf_cat_ii_up);
+        tmp_cmf_cat_iii_low = round1(tmp_cmf_cat_iii_low);
+        tmp_cmf_cat_iii_up = round1(tmp_cmf_cat_iii_up);
+    }
 
     AdaptiveEnResult {
         tmp_cmf: t_cmf,

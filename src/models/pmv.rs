@@ -15,8 +15,11 @@ pub struct PmvPpdResult {
     pub pmv: f64,
     /// Predicted Percentage of Dissatisfied (PPD) [%]
     pub ppd: f64,
-    /// Thermal sensation vote category
-    pub tsv: ThermalSensation,
+    /// Thermal sensation vote category.
+    ///
+    /// `None` when the PMV is not available (NaN) because the inputs fell outside the
+    /// model's applicability limits, matching Python's `nan` for this field.
+    pub tsv: Option<ThermalSensation>,
     /// ASHRAE 55:2023 compliance: `Some(true)` when -0.5 < PMV < 0.5, `Some(false)`
     /// otherwise. Only populated by [`pmv_ppd_ashrae`]; ISO and other variants
     /// leave this as `None` because compliance with the ASHRAE comfort criterion
@@ -51,6 +54,16 @@ impl ThermalSensation {
             p if p < 1.5 => ThermalSensation::SlightlyWarm,
             p if p < 2.5 => ThermalSensation::Warm,
             _ => ThermalSensation::Hot,
+        }
+    }
+
+    /// Map a PMV value to a thermal sensation category, or `None` when the PMV is not
+    /// available (NaN). Python yields `nan` for `tsv` in that case rather than a band.
+    pub fn from_pmv_opt(pmv: f64) -> Option<Self> {
+        if pmv.is_nan() {
+            None
+        } else {
+            Some(Self::from_pmv(pmv))
         }
     }
 
@@ -89,7 +102,11 @@ impl Default for PmvPpdOptions {
     }
 }
 
-/// Calculate PMV and PPD according to ISO 7730:2005
+/// Calculate PMV and PPD according to ISO 7730:2025
+///
+/// ISO 7730:2025 is the current edition of the standard. The PMV/PPD formulae are
+/// unchanged from ISO 7730:2005, so results are identical under either edition and
+/// no edition selector is exposed.
 ///
 /// Returns the Predicted Mean Vote (PMV) and Predicted Percentage of Dissatisfied (PPD)
 /// calculated in accordance with ISO 7730. The ISO uses the same formulation of PMV
@@ -109,7 +126,7 @@ impl Default for PmvPpdOptions {
 ///
 /// `PmvPpdResult` containing PMV, PPD, and thermal sensation category
 ///
-/// # Standard Compliance Limits (ISO 7730:2005)
+/// # Standard Compliance Limits (ISO 7730 Clause 4)
 ///
 /// When `limit_inputs` is true:
 /// - 10 < tdb [°C] < 30
@@ -117,6 +134,7 @@ impl Default for PmvPpdOptions {
 /// - 0 < vr [m/s] < 1
 /// - 0.8 < met < 4
 /// - 0 < clo < 2
+/// - 0 < pa [Pa] < 2700 (water vapour partial pressure, derived from tdb and rh)
 /// - -2 < PMV < 2
 ///
 /// # Example
@@ -168,17 +186,22 @@ pub fn pmv_ppd_iso(
         let speed_valid = valid_range(air_speed, 0.0, 1.0);
         let metabolic_valid = valid_range(met, 0.8, 4.0);
         let clothing_valid = valid_range(clo, 0.0, 2.0);
+        // ISO 7730 Clause 4 also bounds water vapour partial pressure to 0-2700 Pa.
+        // e.g. tdb=30, rh=100 gives pa ~4243 Pa, outside the standard's applicability.
+        let pa = rh_percent * 10.0 * exp(16.6536 - 4030.183 / (dry_bulb_celsius + 235.0));
+        let pa_valid = valid_range(pa, 0.0, 2700.0);
 
         if dry_bulb_valid.is_nan()
             || radiant_valid.is_nan()
             || speed_valid.is_nan()
             || metabolic_valid.is_nan()
             || clothing_valid.is_nan()
+            || pa_valid.is_nan()
         {
             return PmvPpdResult {
                 pmv: f64::NAN,
                 ppd: f64::NAN,
-                tsv: ThermalSensation::Neutral,
+                tsv: None,
                 compliance: None,
             };
         }
@@ -202,7 +225,7 @@ pub fn pmv_ppd_iso(
             return PmvPpdResult {
                 pmv: f64::NAN,
                 ppd: f64::NAN,
-                tsv: ThermalSensation::Neutral,
+                tsv: None,
                 compliance: None,
             };
         }
@@ -229,7 +252,7 @@ pub fn pmv_ppd_iso(
     PmvPpdResult {
         pmv: pmv_out,
         ppd: ppd_out,
-        tsv: ThermalSensation::from_pmv(pmv_out),
+        tsv: ThermalSensation::from_pmv_opt(pmv_out),
         // ISO 7730 does not define an ASHRAE-style compliance check.
         compliance: None,
     }
@@ -284,7 +307,7 @@ pub fn pmv_ppd_ashrae(
             return PmvPpdResult {
                 pmv: f64::NAN,
                 ppd: f64::NAN,
-                tsv: ThermalSensation::Neutral,
+                tsv: None,
                 compliance: None,
             };
         }
@@ -349,7 +372,7 @@ pub fn pmv_ppd_ashrae(
     PmvPpdResult {
         pmv: pmv_out,
         ppd: ppd_out,
-        tsv: ThermalSensation::from_pmv(pmv_out),
+        tsv: ThermalSensation::from_pmv_opt(pmv_out),
         compliance,
     }
 }
@@ -401,8 +424,11 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     let taa = tdb + 273.0;
     let tra = tr + 273.0;
     // Initial clothing surface temperature estimate
-    // 35.5°C is approximate skin temperature, 3.5 and 0.1 are thermal resistance factors
-    let tcla = taa + (35.5 - tdb) / (3.5 * icl + 0.1);
+    // 35.5°C is approximate skin temperature, 3.5 and 0.1 are thermal resistance factors.
+    // The 6.45 factor is present in the corrected ISO 7730:2025 Annex D formula but was
+    // missing from the ISO 7730:2005 Annex D listing. This only shifts the starting point
+    // of the iterative solve below, so converged results are unchanged.
+    let tcla = taa + (35.5 - tdb) / (3.5 * (6.45 * icl + 0.1));
 
     // Pre-computed factors for iterative calculation
     let p1 = icl * fcl;

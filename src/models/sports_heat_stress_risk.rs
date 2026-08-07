@@ -15,7 +15,8 @@
 //! - **1.0 - 2.0**: Low risk - Increase hydration & modify clothing
 //! - **2.0 - 3.0**: Moderate risk - Increase frequency/duration of rest breaks
 //! - **3.0 - 4.0**: High risk - Apply active cooling strategies
-//! - **4.0**: Extreme risk - Consider suspending play
+//! - **4.0 - 4.9**: Extreme risk - Consider suspending play. The level ramps from 4.0 at
+//!   `t_extreme` to 4.9 at `t_extreme + 5°C`, and is capped there.
 //!
 //! ## References
 //!
@@ -126,6 +127,12 @@ impl Sports {
         MetabolicRate::from_met(6.0),
         0.75,
         120,
+    );
+    pub const CROQUET: SportsValues = SportsValues::new(
+        ClothingInsulation::from_clo(0.7),
+        MetabolicRate::from_met(4.5),
+        0.5,
+        90,
     );
     pub const CYCLING: SportsValues = SportsValues::new(
         ClothingInsulation::from_clo(0.4),
@@ -282,7 +289,7 @@ impl Sports {
 /// Result of sports heat stress risk calculation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SportsHeatStressRisk {
-    /// Interpolated risk level (1.0-4.0), truncated to one decimal place.
+    /// Interpolated risk level (1.0-4.9), truncated to one decimal place.
     /// Risk levels: 1-2 = low, 2-3 = moderate, 3-4 = high, 4 = extreme.
     pub risk_level_interpolated: f64,
     /// Temperature threshold for medium risk level [°C]
@@ -303,6 +310,8 @@ const MIN_T_LOW: f64 = 21.0;
 const MIN_T_MEDIUM: f64 = 23.0;
 const MIN_T_HIGH: f64 = 25.0;
 const MIN_T_EXTREME: f64 = 26.0;
+/// Width of the extreme band above `t_extreme` over which risk ramps 4.0 -> 4.9 [°C]
+const T_UPPER_EXTREME_DELTA: f64 = 5.0;
 
 const SWEAT_LOSS_G: f64 = 850.0; // g per hour
 const T_CR_EXTREME: f64 = 40.0; // core temperature for extreme risk
@@ -396,7 +405,7 @@ fn floor1(x: f64) -> f64 {
 /// # Returns
 ///
 /// [`SportsHeatStressRisk`] containing:
-/// - Risk level (1.0-4.0, truncated to one decimal place)
+/// - Risk level (1.0-4.9, truncated to one decimal place)
 /// - Temperature thresholds for medium, high, and extreme risk
 /// - Recommendation text
 ///
@@ -461,16 +470,6 @@ pub fn sports_heat_stress_risk(
         };
     }
 
-    if tdb_c > MAX_T_HIGH {
-        return SportsHeatStressRisk {
-            risk_level_interpolated: 4.0,
-            t_medium: MAX_T_LOW,
-            t_high: MAX_T_MEDIUM,
-            t_extreme: MAX_T_HIGH,
-            recommendation: get_recommendation(4.0),
-        };
-    }
-
     // Find t_medium: temperature where sweat loss rate equals threshold
     let t_medium = find_threshold_water_loss(tr_c, rh_pct, vr_ms, &sport);
 
@@ -510,20 +509,27 @@ pub fn sports_heat_stress_risk(
         t_medium = MIN_T_MEDIUM;
     }
 
-    // Calculate interpolated risk level (1.0-4.0 scale)
+    // The extreme band is entered at the *rounded* t_extreme — the same value returned
+    // to callers — so the reported threshold and the risk level stay consistent.
+    let extreme_entry_t = round1(t_extreme).min(MAX_T_HIGH);
+
+    // Calculate interpolated risk level (1.0-4.9 scale)
     let risk_level = if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
         1.0 + (tdb_c - MIN_T_MEDIUM) / (t_medium - MIN_T_MEDIUM)
     } else if t_medium <= tdb_c && tdb_c < t_high {
         2.0 + (tdb_c - t_medium) / (t_high - t_medium)
-    } else if t_high <= tdb_c && tdb_c < t_extreme {
-        3.0 + (tdb_c - t_high) / (t_extreme - t_high)
+    } else if t_high <= tdb_c && tdb_c < extreme_entry_t {
+        3.0 + (tdb_c - t_high) / (extreme_entry_t - t_high)
     } else {
-        // tdb >= t_extreme
-        4.0
+        // tdb >= extreme_entry_t. Scale to [4.0, 4.9] so risk reaches 4.9 exactly at
+        // extreme_entry_t + T_UPPER_EXTREME_DELTA. Without the 0.9 factor the formula
+        // would hit 4.9 already at +4.5°C, leaving the last 0.5°C of the range dead.
+        4.0 + (tdb_c - extreme_entry_t) / T_UPPER_EXTREME_DELTA * 0.9
     };
 
-    // Floor-truncate to one decimal place
-    let risk_level_floor = floor1(risk_level);
+    // Floor-truncate to one decimal place. The 1e-9 epsilon guards against the float
+    // representation of 4.9 (e.g. 4.8999…) flooring to 4.8.
+    let risk_level_floor = floor1(risk_level + 1e-9).min(4.9);
 
     SportsHeatStressRisk {
         risk_level_interpolated: risk_level_floor,
@@ -642,7 +648,9 @@ mod tests {
             Speed::from_meters_per_second(0.5),
             Sports::CYCLING,
         );
-        assert_eq!(result.risk_level_interpolated, 4.0);
+        // 45°C is 1.5°C above t_extreme (43.5), so risk ramps into the extreme band:
+        // 4.0 + 1.5/5.0*0.9 = 4.27 -> floored to 4.2
+        assert_eq!(result.risk_level_interpolated, 4.2);
         assert_eq!(result.t_medium, 34.5);
         assert_eq!(result.t_high, 39.0);
         assert_eq!(result.t_extreme, 43.5);
@@ -658,11 +666,40 @@ mod tests {
             Speed::from_meters_per_second(0.1),
             Sports::TENNIS,
         );
-        assert_eq!(result.risk_level_interpolated, 4.0);
+        // 33°C is 3.5°C above t_extreme (29.5): 4.0 + 3.5/5.0*0.9 = 4.63 -> floored to 4.6
+        assert_eq!(result.risk_level_interpolated, 4.6);
         assert_eq!(result.t_medium, 23.0);
         assert_eq!(result.t_high, 25.0);
         assert_eq!(result.t_extreme, 29.5);
         assert_eq!(result.recommendation, "Consider suspending play");
+    }
+
+    #[test]
+    fn test_croquet_preset() {
+        let result = sports_heat_stress_risk(
+            Temperature::from_celsius(35.0),
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(40.0),
+            Speed::from_meters_per_second(0.1),
+            Sports::CROQUET,
+        );
+        assert_eq!(result.risk_level_interpolated, 2.1);
+        assert_eq!(result.t_medium, 34.5);
+        assert_eq!(result.t_high, 39.0);
+        assert_eq!(result.t_extreme, 43.3);
+    }
+
+    #[test]
+    fn test_extreme_band_caps_at_4_9() {
+        // Far above t_extreme the risk level must clamp at 4.9, not grow without bound.
+        let result = sports_heat_stress_risk(
+            Temperature::from_celsius(70.0),
+            Temperature::from_celsius(70.0),
+            Humidity::from_percent(30.0),
+            Speed::from_meters_per_second(0.5),
+            Sports::CYCLING,
+        );
+        assert_eq!(result.risk_level_interpolated, 4.9);
     }
 
     #[test]

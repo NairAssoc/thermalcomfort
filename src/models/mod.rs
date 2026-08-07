@@ -3,6 +3,7 @@
 pub mod adaptive;
 pub mod cooling_effect;
 pub mod heat_index_lu;
+pub mod ireq;
 pub mod pet;
 pub mod phs;
 pub mod pmv;
@@ -28,6 +29,7 @@ pub use adaptive::{
 };
 pub use cooling_effect::{CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
+pub use ireq::{DurationLimitedExposure, IreqOptions, IreqResult, ireq};
 pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
 pub use phs::{Iso7933Model, PhsOptions, PhsPosture, PhsResult, phs};
 pub use pmv::{PmvPpdResult, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso};
@@ -41,8 +43,8 @@ pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsValues, sports_heat_stress_risk,
 };
 pub use thermal_indices::{
-    at, discomfort_index, esi, heat_index_rothfusz, humidex, humidex_masterson, net, thi, wci,
-    wind_chill_temperature,
+    at, discomfort_index, esi, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson,
+    net, thi, wci, wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
     GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult, GaggeTwoNodesOptions, GaggeTwoNodesResult,

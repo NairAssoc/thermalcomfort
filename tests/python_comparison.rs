@@ -24,6 +24,37 @@ use thermalcomfort::utilities::{
 };
 use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
 
+/// Extract a category/label field from a pythermalcomfort result.
+///
+/// Since the 4.x `NumericInput` retyping these fields come back as 0-dimensional numpy
+/// object arrays rather than plain `str`, so a direct `extract::<String>()` fails.
+/// Returns `None` when the field is `nan`, which is what Python yields for a category
+/// whose underlying value fell outside the model's applicability limits.
+fn extract_category(obj: &Bound<'_, PyAny>) -> Option<String> {
+    // Plain Python str
+    if let Ok(s) = obj.extract::<String>() {
+        return Some(s);
+    }
+    // 0-d numpy array wrapping either a str or a nan
+    if let Ok(item) = obj.call_method0("item") {
+        if let Ok(s) = item.extract::<String>() {
+            return Some(s);
+        }
+        if let Ok(f) = item.extract::<f64>() {
+            if f.is_nan() {
+                return None;
+            }
+        }
+    }
+    // Bare float nan
+    if let Ok(f) = obj.extract::<f64>() {
+        if f.is_nan() {
+            return None;
+        }
+    }
+    panic!("could not interpret category field: {obj:?}");
+}
+
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
     Python::with_gil(|py| {
@@ -57,7 +88,7 @@ fn test_pmv_ppd_iso_standard_conditions() {
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
-            let py_tsv: String = py_result.getattr("tsv").unwrap().extract().unwrap();
+            let py_tsv = extract_category(&py_result.getattr("tsv").unwrap());
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
@@ -76,11 +107,19 @@ fn test_pmv_ppd_iso_standard_conditions() {
                 rust_result.pmv, rust_result.ppd
             );
 
-            // Compare results (allow small floating point differences)
-            assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
-            assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
+            // Inputs outside the ISO 7730 applicability limits yield NaN on both sides;
+            // NaN never compares equal, so check that case explicitly.
+            if py_pmv.is_nan() {
+                assert!(
+                    rust_result.pmv.is_nan() && rust_result.ppd.is_nan(),
+                    "Python returned NaN but Rust did not at tdb={tdb} tr={tr} vr={vr} rh={rh} met={met} clo={clo}",
+                );
+            } else {
+                assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
+                assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
+            }
             assert_eq!(
-                rust_result.tsv.as_str(),
+                rust_result.tsv.map(|t| t.as_str().to_string()),
                 py_tsv,
                 "tsv mismatch at tdb={tdb} tr={tr} vr={vr} rh={rh} met={met} clo={clo}",
             );
@@ -147,12 +186,12 @@ fn test_pmv_ppd_iso_extreme_conditions() {
                 rust_result.pmv, rust_result.ppd
             );
 
-            let py_tsv: String = py_result.getattr("tsv").unwrap().extract().unwrap();
+            let py_tsv = extract_category(&py_result.getattr("tsv").unwrap());
 
             assert_abs_diff_eq!(rust_result.pmv, py_pmv, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.ppd, py_ppd, epsilon = 0.2);
             assert_eq!(
-                rust_result.tsv.as_str(),
+                rust_result.tsv.map(|t| t.as_str().to_string()),
                 py_tsv,
                 "tsv mismatch at tdb={tdb} tr={tr} vr={vr} rh={rh} met={met} clo={clo}",
             );
@@ -1306,7 +1345,8 @@ fn test_compare_humidex() {
                 .unwrap();
 
             let py_humidex: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
-            let py_discomfort: String = py_result.getattr("discomfort").unwrap().extract().unwrap();
+            let py_discomfort = extract_category(&py_result.getattr("discomfort").unwrap())
+                .expect("humidex always yields a discomfort category");
 
             let rust_result = humidex(
                 Temperature::from_celsius(tdb),
