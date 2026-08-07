@@ -10,19 +10,68 @@ use pyo3::types::{IntoPyDict, PyAnyMethods};
 use thermalcomfort::models::adaptive::AdaptiveOptions;
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    Iso7933Model, PhsOptions, PhsPosture, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft,
-    at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, humidex, net,
-    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, utci,
+    DurationLimitedExposure, IreqOptions, Iso7933Model, PhsOptions, PhsPosture, WorkIntensity,
+    adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
+    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
+    pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
+    solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, utci,
     vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
     work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
 use thermalcomfort::utilities::{
     CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
-    clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, v_relative,
+    clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, hr_to_rh, v_relative,
 };
 use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
+
+/// Guard against validating the port against the wrong pythermalcomfort.
+///
+/// Every other test in this file compares against whatever `pythermalcomfort` happens to
+/// be importable. If that is a stale version, those comparisons quietly stop meaning
+/// anything — the suite can go green while the port matches a version nobody is targeting,
+/// or fail in ways that look like Rust bugs. This has bitten this repo twice: CI was
+/// pinned to 3.8.0 for four releases, and the local install sat at 2.7.0.
+///
+/// The crate version IS the pythermalcomfort version being ported, by convention (see the
+/// version-bump workflow), so `CARGO_PKG_VERSION` is the single source of truth.
+#[test]
+fn test_pythermalcomfort_version_matches_crate() {
+    let expected = env!("CARGO_PKG_VERSION");
+
+    Python::with_gil(|py| {
+        let ptc = PyModule::import(py, "pythermalcomfort").unwrap_or_else(|e| {
+            panic!(
+                "could not import pythermalcomfort, so no parity test in this suite is \
+                 actually verifying anything.\n\
+                 Expected version {expected}. Set one up with:\n  \
+                 python3 -m venv /tmp/ptc_venv && \
+                 /tmp/ptc_venv/bin/pip install pythermalcomfort=={expected}\n  \
+                 PYTHONPATH=/tmp/ptc_venv/lib/python3.*/site-packages cargo test\n\
+                 Underlying error: {e}"
+            )
+        });
+
+        let actual: String = ptc
+            .getattr("__version__")
+            .expect("pythermalcomfort has no __version__")
+            .extract()
+            .expect("pythermalcomfort.__version__ is not a string");
+
+        assert_eq!(
+            actual, expected,
+            "\n\npythermalcomfort version mismatch: the parity tests in this suite are \
+             comparing against {actual}, but this crate ports {expected}.\n\
+             Every parity result below is therefore meaningless.\n\
+             Fix with:\n  \
+             python3 -m venv /tmp/ptc_venv && \
+             /tmp/ptc_venv/bin/pip install pythermalcomfort=={expected}\n  \
+             PYTHONPATH=/tmp/ptc_venv/lib/python3.*/site-packages cargo test\n\
+             If you are intentionally bumping the port, update Cargo.toml and README \
+             together with the models.\n"
+        );
+    });
+}
 
 /// Extract a category/label field from a pythermalcomfort result.
 ///
@@ -266,6 +315,206 @@ fn test_pmv_ppd_ashrae() {
                 "PMV ASHRAE compliance mismatch at tdb={} tr={} vr={} rh={} met={} clo={}",
                 tdb, tr, vr, rh, met, clo,
             );
+        }
+    });
+}
+
+#[test]
+fn test_compare_heat_index_schoen() {
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // Spans the no risk / caution / extreme caution / danger bands
+        let test_cases = vec![
+            (20.0, 40.0),
+            (25.0, 50.0),
+            (29.0, 50.0),
+            (32.0, 45.0),
+            (35.0, 60.0),
+            (38.0, 70.0),
+            (40.0, 80.0),
+        ];
+
+        for (tdb, rh) in test_cases {
+            let py_result = pythermal
+                .getattr("heat_index_schoen")
+                .unwrap()
+                .call1((tdb, rh))
+                .unwrap();
+
+            let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+            let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+            let rust_result = heat_index_schoen(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                true,
+            );
+
+            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 0.05);
+            assert_eq!(
+                rust_result.stress_category.map(|c| c.as_str().to_string()),
+                py_category,
+                "stress_category mismatch at tdb={tdb} rh={rh}",
+            );
+        }
+    });
+}
+
+#[test]
+fn test_compare_ireq() {
+    Python::with_gil(|py| {
+        let pythermal = PyModule::import(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, tr, vr, rh, met, clo, p, walk_sp). Covers unlimited exposure, limited
+        // exposure, and the tdb > 10 °C applicability cutoff.
+        let test_cases = vec![
+            (-15.0, -15.0, 2.0, 55.0, 175.0 / 58.15, 2.8, 50.0, 1.1),
+            (-5.0, -5.0, 0.5, 80.0, 2.0, 1.5, 50.0, 0.5),
+            (-30.0, -30.0, 5.0, 40.0, 3.0, 4.0, 100.0, 1.2),
+            (0.0, 0.0, 1.0, 60.0, 1.5, 2.0, 20.0, 0.3),
+            (10.0, 10.0, 0.4, 50.0, 2.5, 1.0, 50.0, 0.6),
+            (-20.0, -25.0, 3.0, 70.0, 2.2, 3.5, 75.0, 0.9),
+            // Outside applicability (tdb > 10) -> NaN on both sides
+            (20.0, 20.0, 2.0, 55.0, 2.0, 2.8, 50.0, 1.1),
+        ];
+
+        for (tdb, tr, vr, rh, met, clo, p, walk_sp) in test_cases {
+            let py_result = pythermal
+                .getattr("ireq")
+                .unwrap()
+                .call1((tdb, tr, vr, rh, met, clo, p, walk_sp))
+                .unwrap();
+
+            let rust_result = ireq(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                p,
+                Speed::from_meters_per_second(walk_sp),
+                IreqOptions::default(),
+            );
+
+            for (field, rust_value) in [
+                ("ireq_min", rust_result.ireq_min),
+                ("ireq_neutral", rust_result.ireq_neutral),
+                ("icl_min", rust_result.icl_min),
+                ("icl_neutral", rust_result.icl_neutral),
+            ] {
+                let py_value: f64 = py_result.getattr(field).unwrap().extract().unwrap();
+                if py_value.is_nan() {
+                    assert!(
+                        rust_value.is_nan(),
+                        "{field}: Python NaN but Rust {rust_value} at tdb={tdb} vr={vr}",
+                    );
+                } else {
+                    assert_abs_diff_eq!(rust_value, py_value, epsilon = 0.05);
+                }
+            }
+
+            // dle is a mixed type upstream: a float, the string "more than 8", or nan
+            for (field, rust_dle) in [
+                ("dle_min", rust_result.dle_min),
+                ("dle_neutral", rust_result.dle_neutral),
+            ] {
+                let py_dle = py_result.getattr(field).unwrap();
+                match rust_dle {
+                    DurationLimitedExposure::MoreThanEight => assert_eq!(
+                        extract_category(&py_dle).as_deref(),
+                        Some("more than 8"),
+                        "{field} at tdb={tdb} vr={vr}",
+                    ),
+                    DurationLimitedExposure::NotApplicable => assert_eq!(
+                        extract_category(&py_dle),
+                        None,
+                        "{field} expected nan at tdb={tdb} vr={vr}",
+                    ),
+                    DurationLimitedExposure::Hours(h) => {
+                        let py_hours: f64 = py_dle.extract().unwrap_or_else(|_| {
+                            panic!("{field} expected a number at tdb={tdb} vr={vr}")
+                        });
+                        assert_abs_diff_eq!(h, py_hours, epsilon = 0.05);
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_hr_to_rh() {
+    Python::with_gil(|py| {
+        let pythermal_utils = PyModule::import(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        let test_cases = vec![
+            (0.001, 5.0),
+            (0.005, 20.0),
+            (0.01, 25.0),
+            (0.015, 28.0),
+            (0.02, 30.0),
+            (0.025, 35.0),
+        ];
+
+        for (hr, tdb) in test_cases {
+            let py_rh: f64 = pythermal_utils
+                .getattr("hr_to_rh")
+                .unwrap()
+                .call1((hr, tdb))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_rh = hr_to_rh(
+                hr,
+                Temperature::from_celsius(tdb),
+                Pressure::from_pascals(101325.0),
+            );
+
+            assert_abs_diff_eq!(rust_rh, py_rh, epsilon = 1e-4);
+        }
+    });
+}
+
+#[test]
+fn test_compare_clo_dynamic_iso() {
+    Python::with_gil(|py| {
+        let pythermal_utils = PyModule::import(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        // met spans the range where the ISO 9920 walking-speed formula clips at both
+        // ends: 0 below ~1.19 met, and 0.7 m/s above ~3.3 met.
+        let test_cases = vec![
+            (0.5, 1.0, 0.1),
+            (0.5, 1.2, 0.1),
+            (0.7, 1.5, 0.2),
+            (1.0, 2.0, 0.3),
+            (1.5, 3.0, 0.5),
+            (1.0, 4.0, 0.2),
+        ];
+
+        for (clo, met, v) in test_cases {
+            let py_clo_dyn: f64 = pythermal_utils
+                .getattr("clo_dynamic_iso")
+                .unwrap()
+                .call1((clo, met, v))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_clo_dyn = thermalcomfort::utilities::clo_dynamic_iso(
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+                Speed::from_meters_per_second(v),
+                ClothingInsulation::from_clo(0.7),
+            );
+
+            assert_abs_diff_eq!(rust_clo_dyn, py_clo_dyn, epsilon = 1e-5);
         }
     });
 }

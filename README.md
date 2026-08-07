@@ -268,19 +268,45 @@ All other models (PMV/PPD, UTCI, PHS, SET, Gagge variants, sports heat stress ri
 
 ## Testing
 
+The parity tests compare this crate against the real `pythermalcomfort` package through
+pyo3, so they need the **exact version this crate ports** to be importable. The crate
+version is that version — they are kept in lockstep deliberately.
+
 ```bash
-# Run all tests
-cargo test
+# One-time: create a venv holding pythermalcomfort==<crate version>
+make setup-parity
 
-# Run only library tests (88 tests)
-cargo test --lib
+# Run the whole suite in BOTH the no_std and std configurations
+make test
 
-# Run documentation tests (58 tests)
-cargo test --doc
-
-# Run Python comparison tests (56 tests, requires pythermalcomfort)
-cargo test --test python_comparison
+# Lint (fmt + clippy + parity coverage) followed by the full suite
+make verify
 ```
+
+`make` wires up the venv for you. To drive cargo directly, point `PYTHONPATH` at it:
+
+```bash
+export PYTHONPATH=$(ls -d .parity-venv/lib/python*/site-packages)
+
+cargo test --lib                     # library tests (108)
+cargo test --doc                     # documentation tests (61)
+cargo test --test python_comparison  # Python parity tests (62)
+```
+
+Two guards keep the comparison honest:
+
+- `test_pythermalcomfort_version_matches_crate` fails the suite if the importable
+  `pythermalcomfort` is not the version being ported. Without it, a stale install makes
+  every parity assertion silently meaningless — which is exactly what happened when CI
+  sat pinned to 3.8.0 through four releases.
+- `make parity-coverage` fails if any public function has no parity test. New functions
+  must be compared against Python, not just unit-tested against transcribed constants.
+  Functions with no Python counterpart go in `EXEMPT` in `scripts/check_parity_coverage.py`
+  with a reason; the pre-existing untested ones are tracked in `KNOWN_GAPS`.
+
+When bumping to a new pythermalcomfort release, change the version in `Cargo.toml`, re-run
+`make setup-parity`, and CI will follow automatically — it derives the pin from
+`Cargo.toml` rather than hardcoding it.
 
 ## Standards Compliance
 
