@@ -32,7 +32,6 @@ PUB_FN_RE = r'^pub (?:(?:const|unsafe|async|extern\s+"[^"]*")\s+)*fn (\w+)'
 # Functions with NO pythermalcomfort counterpart, so there is nothing to compare against.
 # Each entry needs a reason. "Not done yet" is not a reason — that is KNOWN_GAPS.
 EXEMPT: dict[str, str] = {
-    "humidex_masterson": "variant not present in pythermalcomfort",
     "brentq": "numerical root-finder; Python delegates to scipy",
     "round_to": "formatting helper, no Python equivalent",
     "round_half_even": "mirrors numpy.around's tie rule; numpy, not pythermalcomfort",

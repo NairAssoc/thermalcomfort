@@ -98,7 +98,7 @@ use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
 use crate::{ClothingInsulation, MetabolicRate, Sex};
 use libm::{fabs, log, pow};
-use measurements::{Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
+use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
 #[cfg(feature = "std")]
 use nalgebra::{Matrix3, Vector3};
@@ -138,7 +138,11 @@ pub struct PetOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// External work
-    pub work: Power,
+    ///
+    /// In met, matching every other model's `wme`. This was typed as `Power` in
+    /// watts, which the solver then fed straight into a slot pythermalcomfort
+    /// documents as met, so a caller supplying honest watts got nonsense.
+    pub wme: MetabolicRate,
     /// Posture
     pub posture: Posture,
     /// Round output values
@@ -153,7 +157,7 @@ impl Default for PetOptions {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: Power::from_watts(0.0),
+            wme: MetabolicRate::from_met(0.0),
             posture: Posture::Sitting,
             round_output: true,
         }
@@ -251,7 +255,7 @@ pub fn pet_steady(
         weight_kg,
         options.age,
         sex_bool,
-        options.work.as_watts(),
+        options.wme.as_met(),
         p_atm_hpa,
         options.posture,
     );
@@ -275,15 +279,20 @@ pub fn pet_steady(
             sex_bool,
             p_atm_hpa,
             options.posture,
-            options.work.as_watts(),
+            options.wme.as_met(),
         )
     };
 
-    // Search for PET using brentq
-    // Python uses clothing temperature as initial guess for fsolve
-    // We use brentq which needs a bracket, so try narrower ranges first
-    let pet = brentq(find_pet, -10.0, 50.0, Some(0.0001), Some(300))
-        .or_else(|_| brentq(find_pet, -40.0, 60.0, Some(0.001), Some(200)))
+    // Search for PET using brentq. Python uses the clothing temperature as an initial
+    // guess for an *unconstrained* fsolve, so any finite PET is reachable; brentq needs
+    // a sign change, so widen progressively rather than giving up at the first bracket
+    // that fails. Stopping at 60 degC returned NaN for hot, humid cases whose root
+    // genuinely lies above it - 44 degC at 86% RH solves to 61.17 in Python.
+    // Narrow-first ordering is kept so cases that already bracketed are untouched.
+    const BRACKETS: [(f64, f64); 3] = [(-10.0, 50.0), (-40.0, 60.0), (-120.0, 200.0)];
+    let pet = BRACKETS
+        .iter()
+        .find_map(|&(lo, hi)| brentq(find_pet, lo, hi, Some(0.0001), Some(300)).ok())
         .unwrap_or(f64::NAN);
 
     let pet_rounded = if options.round_output {
@@ -329,6 +338,7 @@ fn solve_3node_system(
     let eps = 0.001; // Perturbation for numerical derivatives
     let max_iter = if tdb < 15.0 || v > 1.5 { 300 } else { 150 };
 
+    let mut converged = false;
     for iter in 0..max_iter {
         let (e1, e2, e3, _) = calculate_energy_balance(
             t_core, t_skin, t_clo, tdb, tr, v, rh, met, clo, a_dubois, height, weight, age, sex,
@@ -342,6 +352,7 @@ fn solve_3node_system(
             0.0001
         };
         if fabs(e1) < tol && fabs(e2) < tol && fabs(e3) < tol {
+            converged = true;
             break;
         }
 
@@ -587,6 +598,15 @@ fn solve_3node_system(
         t_clo = t_clo.clamp(-20.0, 50.0);
     }
 
+    // Falling out of the loop means the tolerance above was never met. Returning the
+    // last iterate would be a silently wrong answer: at 39.8 degC / 82% RH / met 3.9 it
+    // leaves the core balance 67.9 W/m2 from zero while satisfying the other two, and
+    // PET is then off by 0.08 degC with nothing to signal it. Report the failure instead,
+    // which pet_steady already turns into NaN.
+    if !converged {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+
     (t_core, t_skin, t_clo)
 }
 
@@ -624,6 +644,7 @@ fn solve_3node_system(
     // More iterations for challenging cases
     let max_iter = if tdb < 15.0 || v > 1.5 { 300 } else { 150 };
 
+    let mut converged = false;
     for iter in 0..max_iter {
         let (e1, e2, e3, _) = calculate_energy_balance(
             t_core, t_skin, t_clo, tdb, tr, v, rh, met, clo, a_dubois, height, weight, age, sex,
@@ -633,6 +654,7 @@ fn solve_3node_system(
         // Convergence check - tighter for cold conditions
         let tol = if tdb < 15.0 || v > 1.5 { 0.0001 } else { 0.001 };
         if fabs(e1) < tol && fabs(e2) < tol && fabs(e3) < tol {
+            converged = true;
             break;
         }
 
@@ -912,6 +934,15 @@ fn solve_3node_system(
         t_clo = t_clo.clamp(-20.0, 50.0);
     }
 
+    // Falling out of the loop means the tolerance above was never met. Returning the
+    // last iterate would be a silently wrong answer: at 39.8 degC / 82% RH / met 3.9 it
+    // leaves the core balance 67.9 W/m2 from zero while satisfying the other two, and
+    // PET is then off by 0.08 degC with nothing to signal it. Report the failure instead,
+    // which pet_steady already turns into NaN.
+    if !converged {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+
     (t_core, t_skin, t_clo)
 }
 
@@ -1168,6 +1199,7 @@ fn round_to(value: f64, decimals: u32) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use measurements::{Length, Mass};
 
     #[test]
@@ -1211,7 +1243,7 @@ mod tests {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: Power::from_watts(0.0),
+            wme: MetabolicRate::from_met(0.0),
             posture: Posture::Sitting,
             round_output: true,
         };

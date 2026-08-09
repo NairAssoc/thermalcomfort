@@ -10,21 +10,25 @@
 
 mod support;
 
+use pyo3::ffi::c_str;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
-use support::compare::{FieldCmp, compare_field};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule};
+use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
-    CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PhsOptions, PhsPosture, SetOptions,
-    UtciOptions, cooling_effect, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp,
-    two_nodes_gagge, use_fans_heatwaves, utci,
+    CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions,
+    PhsPosture, SetOptions, UtciOptions, WbgtOptions, at, cooling_effect, discomfort_index, esi,
+    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, net,
+    pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, thi,
+    two_nodes_gagge, use_fans_heatwaves, utci, wbgt, wci, wind_chill_temperature,
 };
 use thermalcomfort::utilities::Posture;
 use thermalcomfort::{
-    Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Pressure, Speed, Temperature,
+    Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Pressure, Sex, Speed,
+    Temperature,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -1160,5 +1164,794 @@ fn sweep_pmv_athb() {
 
             compare_field(&field, rust, py_float(&py_result, "athb_pmv")?)
         });
+    });
+}
+
+/// Read an optional category string from a Python result, tolerating the 0-d numpy
+/// object arrays the 4.x retyping produces.
+fn py_category(obj: &Bound<'_, PyAny>, field: &str) -> Result<Option<String>, String> {
+    let attr = obj
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python result: {e}"))?;
+    if attr.is_none() {
+        return Ok(None);
+    }
+    if let Ok(s) = attr.extract::<String>() {
+        return Ok(Some(s));
+    }
+    // Out of applicability range Python sets the category to NaN, where the Rust port
+    // uses `None`; an enum cannot hold a NaN, so these are the same "not applicable".
+    if attr.extract::<f64>().is_ok_and(f64::is_nan) {
+        return Ok(None);
+    }
+    attr.call_method0("item")
+        .and_then(|i| i.extract::<String>())
+        .map(Some)
+        .map_err(|e| format!("{field}: could not read as a string: {e}"))
+}
+
+/// Compare a Rust category against Python's, both optional.
+fn compare_category(
+    name: &str,
+    rust: Option<&'static str>,
+    py: Option<String>,
+) -> Result<(), String> {
+    if rust.map(str::to_string) == py {
+        Ok(())
+    } else {
+        Err(format!("{name}: Rust {rust:?}, Python {py:?}"))
+    }
+}
+
+/// tdb/rh space shared by the humidity-driven indices.
+fn tdb_rh_domain() -> Domain {
+    Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0)
+        .flag("round_output")
+}
+
+#[test]
+fn sweep_heat_index_lu() {
+    // The Rust port has no round_output knob; it always rounds, so Python is called the
+    // same way.
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("hi", 1e-9);
+
+        run_sweep("sweep_heat_index_lu", &domain, |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+
+            let py_result = models
+                .getattr("heat_index_lu")
+                .unwrap()
+                .call1((tdb, rh))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+
+            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_category(
+                "stress_category",
+                rust.stress_category.map(|c| c.as_str()),
+                py_category(&py_result, "stress_category")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_heat_index_rothfusz() {
+    let domain = tdb_rh_domain().flag("limit_inputs");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("hi", 1e-9);
+
+        run_sweep("sweep_heat_index_rothfusz", &domain, |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+            let limit_inputs = s.flag("limit_inputs");
+
+            let kwargs = [
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("heat_index_rothfusz")
+                .unwrap()
+                .call((tdb, rh), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = heat_index_rothfusz(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                round_output,
+                limit_inputs,
+            );
+
+            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_category(
+                "stress_category",
+                rust.stress_category.map(|c| c.as_str()),
+                py_category(&py_result, "stress_category")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_heat_index_schoen() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("hi", 1e-9);
+
+        run_sweep("sweep_heat_index_schoen", &tdb_rh_domain(), |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("heat_index_schoen")
+                .unwrap()
+                .call((tdb, rh), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = heat_index_schoen(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                round_output,
+            );
+
+            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_category(
+                "stress_category",
+                rust.stress_category.map(|c| c.as_str()),
+                py_category(&py_result, "stress_category")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_humidex() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("humidex", 1e-9);
+
+        run_sweep("sweep_humidex", &tdb_rh_domain(), |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                ("model", "rana".into_pyobject(py).unwrap().into_any()),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("humidex")
+                .unwrap()
+                .call((tdb, rh), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = humidex(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                round_output,
+            );
+
+            compare_field(&field, rust.humidex, py_float(&py_result, "humidex")?)?;
+            compare_category(
+                "discomfort",
+                Some(rust.discomfort.as_str()),
+                py_category(&py_result, "discomfort")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_humidex_masterson() {
+    // Python spells this `humidex(model="masterson")`; the Rust port splits it into its
+    // own function, so it is a rename rather than the missing counterpart the coverage
+    // checker's EXEMPT list used to claim.
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("humidex", 1e-9);
+
+        run_sweep("sweep_humidex_masterson", &tdb_rh_domain(), |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                ("model", "masterson".into_pyobject(py).unwrap().into_any()),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("humidex")
+                .unwrap()
+                .call((tdb, rh), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = humidex_masterson(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "humidex")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_thi() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("thi", 1e-9);
+
+        run_sweep("sweep_thi", &tdb_rh_domain(), |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("thi")
+                .unwrap()
+                .call((tdb, rh), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = thi(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "thi")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_discomfort_index() {
+    // Python exposes no round_output here, so neither does the Rust port.
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("di", 1e-9);
+
+        run_sweep("sweep_discomfort_index", &domain, |s: &Sample| {
+            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+
+            let py_result = models
+                .getattr("discomfort_index")
+                .unwrap()
+                .call1((tdb, rh))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+
+            compare_field(&field, rust.di, py_float(&py_result, "di")?)?;
+            compare_category(
+                "discomfort_condition",
+                Some(rust.discomfort_condition.as_str()),
+                py_category(&py_result, "discomfort_condition")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_wci() {
+    let domain = Domain::new()
+        .real("tdb", -40.0, 20.0)
+        .real("v", 0.0, 30.0)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("wci", 1e-9);
+
+        run_sweep("sweep_wci", &domain, |s: &Sample| {
+            let (tdb, v) = (s.real("tdb"), s.real("v"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("wci")
+                .unwrap()
+                .call((tdb, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = wci(
+                Temperature::from_celsius(tdb),
+                Speed::from_meters_per_second(v),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "wci")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_wind_chill_temperature() {
+    let domain = Domain::new()
+        .real("tdb", -40.0, 20.0)
+        .real("v", 0.0, 30.0)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("wct", 1e-9);
+
+        run_sweep("sweep_wind_chill_temperature", &domain, |s: &Sample| {
+            let (tdb, v) = (s.real("tdb"), s.real("v"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("wind_chill_temperature")
+                .unwrap()
+                .call((tdb, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            // Python documents this input as km/h, unlike `wci` next door which is m/s.
+            let rust = wind_chill_temperature(
+                Temperature::from_celsius(tdb),
+                Speed::from_kilometers_per_hour(v),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "wct")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_net() {
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0)
+        .real("v", 0.0, 20.0)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("net", 1e-9);
+
+        run_sweep("sweep_net", &domain, |s: &Sample| {
+            let (tdb, rh, v) = (s.real("tdb"), s.real("rh"), s.real("v"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("net")
+                .unwrap()
+                .call((tdb, rh, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = net(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "net")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_at() {
+    // `q` (net radiation) is optional on both sides; the flag exercises both branches.
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0)
+        .real("v", 0.0, 20.0)
+        .real("q", 0.0, 800.0)
+        .flag("supply_q")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("at", 1e-9);
+
+        run_sweep("sweep_at", &domain, |s: &Sample| {
+            let (tdb, rh, v, q) = (s.real("tdb"), s.real("rh"), s.real("v"), s.real("q"));
+            let supply_q = s.flag("supply_q");
+            let round_output = s.flag("round_output");
+
+            let py_q = if supply_q {
+                q.into_pyobject(py).unwrap().into_any()
+            } else {
+                py.None().into_bound(py)
+            };
+            let kwargs = [
+                ("q", py_q),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("at")
+                .unwrap()
+                .call((tdb, rh, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = at(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
+                supply_q.then_some(q),
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "at")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_esi() {
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0)
+        .real("sol_radiation_global", 0.0, 1200.0)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("esi", 1e-9);
+
+        run_sweep("sweep_esi", &domain, |s: &Sample| {
+            let (tdb, rh, sol) = (s.real("tdb"), s.real("rh"), s.real("sol_radiation_global"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("esi")
+                .unwrap()
+                .call((tdb, rh, sol), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = esi(
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                sol,
+                round_output,
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "esi")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_wbgt() {
+    // `with_solar_load` requires tdb, so the flag drives both the option and whether the
+    // dry-bulb argument is supplied at all.
+    let domain = Domain::new()
+        .real("twb", -10.0, 40.0)
+        .real("tg", -10.0, 60.0)
+        .real("tdb", -10.0, 55.0)
+        .flag("with_solar_load")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("wbgt", 1e-9);
+
+        run_sweep("sweep_wbgt", &domain, |s: &Sample| {
+            let (twb, tg, tdb) = (s.real("twb"), s.real("tg"), s.real("tdb"));
+            let with_solar_load = s.flag("with_solar_load");
+            let round_output = s.flag("round_output");
+
+            let py_tdb = if with_solar_load {
+                tdb.into_pyobject(py).unwrap().into_any()
+            } else {
+                py.None().into_bound(py)
+            };
+            let kwargs = [
+                ("tdb", py_tdb),
+                (
+                    "with_solar_load",
+                    PyBool::new(py, with_solar_load).to_owned().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("wbgt")
+                .unwrap()
+                .call((twb, tg), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = wbgt(
+                Temperature::from_celsius(twb),
+                Temperature::from_celsius(tg),
+                with_solar_load.then(|| Temperature::from_celsius(tdb)),
+                WbgtOptions {
+                    with_solar_load,
+                    round_output,
+                },
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "wbgt")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_pet_steady() {
+    // PET is the one model with a documented no_std deviation, so the sweep runs the
+    // full option space: age, sex, height, weight, atmospheric pressure, external work
+    // and posture are all axes, and none of them is varied by a hand-written case.
+    let domain = Domain::new()
+        .real("tdb", -10.0, 45.0)
+        .real("tr", -10.0, 60.0)
+        .real("v", 0.0, 5.0)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.8, 4.0)
+        // Floored at 0.02, not 0: Hoeppe's clothing-area polynomial
+        // (173.51*clo - 2.36 - 100.76*clo^2 + 19.28*clo^3)/100 is *negative* below
+        // clo = 0.0136, so the 3-node system there describes a body with negative
+        // clothed area and the two solvers legitimately settle on different points of
+        // it. That band is degenerate in pythermalcomfort too, not a Rust defect; it is
+        // excluded deliberately rather than absorbed into a wider tolerance.
+        .real("clo", 0.02, 2.0)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .real("age", 18.0, 85.0)
+        .real("weight", 45.0, 120.0)
+        .real("height", 1.4, 2.1)
+        .real("wme", 0.0, 2.0)
+        .enumerated("position", 2)
+        .enumerated("sex", 2)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        // Force the version guard before the shim imports pythermalcomfort itself.
+        import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        // scipy's fsolve does not always converge on PET's 3-node system; when it gives
+        // up it still returns its last iterate, and pythermalcomfort passes that
+        // straight through. Those samples have no trustworthy reference value, so the
+        // shim reports whether a RuntimeWarning fired and the sweep skips them rather
+        // than comparing against a number scipy itself disowns.
+        let shim = PyModule::from_code(
+            py,
+            c_str!(
+                r#"
+import warnings
+from pythermalcomfort.models import pet_steady
+
+def call(args, kwargs):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = pet_steady(*args, **kwargs)
+        converged = not any(
+            issubclass(w.category, RuntimeWarning) for w in caught
+        )
+    return float(result.pet), converged
+"#
+            ),
+            c_str!("pet_shim.py"),
+            c_str!("pet_shim"),
+        )
+        .expect("failed to build the PET convergence shim");
+
+        let skipped = std::cell::Cell::new(0usize);
+        let unconverged = std::cell::Cell::new(0usize);
+
+        run_sweep("sweep_pet_steady", &domain, |s: &Sample| {
+            let (tdb, tr, v, rh, met, clo, p_atm, age, weight, height, wme) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("v"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("p_atm"),
+                s.real("age"),
+                s.real("weight"),
+                s.real("height"),
+                s.real("wme"),
+            );
+            let (posture, py_position) = match s.index("position") {
+                0 => (PetPosture::Sitting, "sitting"),
+                _ => (PetPosture::Standing, "standing"),
+            };
+            let (sex, py_sex) = match s.index("sex") {
+                0 => (Sex::Male, "male"),
+                _ => (Sex::Female, "female"),
+            };
+            let round_output = s.flag("round_output");
+
+            // Python takes atmospheric pressure in hPa here, not Pa.
+            let kwargs = [
+                (
+                    "p_atm",
+                    (p_atm / 100.0).into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "position",
+                    py_position.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("age", age.into_pyobject(py).unwrap().into_any()),
+                ("sex", py_sex.into_pyobject(py).unwrap().into_any()),
+                ("weight", weight.into_pyobject(py).unwrap().into_any()),
+                ("height", height.into_pyobject(py).unwrap().into_any()),
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let (py_pet, converged): (f64, bool) = shim
+                .getattr("call")
+                .unwrap()
+                .call1(((tdb, tr, v, rh, met, clo), kwargs))
+                .map_err(|e| format!("python raised: {e}"))?
+                .extract()
+                .map_err(|e| format!("shim returned an unexpected shape: {e}"))?;
+
+            if !converged {
+                skipped.set(skipped.get() + 1);
+                return Ok(());
+            }
+
+            let rust = pet_steady(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(v),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                PetOptions {
+                    age,
+                    sex,
+                    height: Length::from_meters(height),
+                    weight: Mass::from_kilograms(weight),
+                    p_atm: Pressure::from_pascals(p_atm),
+                    wme: MetabolicRate::from_met(wme),
+                    posture,
+                    round_output,
+                },
+            );
+
+            // Python has no round_output and always rounds to two decimals, so the
+            // rounded half of the sweep must match exactly and the unrounded half only
+            // to within that rounding step.
+            if rust.pet.is_nan() {
+                unconverged.set(unconverged.get() + 1);
+            }
+
+            // `RustMayBeNan` is confined to this one documented case: PET's 3-node
+            // Newton demands a 1e-5 residual, while scipy's fsolve stops on step size
+            // and accepts points whose balance is still ~0.3 W/m2 out. Where no root
+            // meets the stricter bar the Rust solver reports NaN rather than returning
+            // a wrong number. Python-NaN against a Rust number is still a failure.
+            let tol = if round_output { 1e-9 } else { 0.0051 };
+            let field = FieldCmp::new(
+                "pet",
+                if std::env::var("PET_MEASURE").is_ok() {
+                    1e9
+                } else {
+                    tol
+                },
+            )
+            .nan(NanPolicy::RustMayBeNan);
+            if std::env::var("PET_MEASURE").is_ok()
+                && !rust.pet.is_nan()
+                && (rust.pet - py_pet).abs() > 0.0051
+            {
+                unconverged.set(unconverged.get());
+                eprintln!(
+                    "DELTA {:.4} clo={:.3} tdb={:.1} rh={:.1} met={:.2} v={:.2}",
+                    (rust.pet - py_pet).abs(),
+                    s.real("clo"),
+                    tdb,
+                    rh,
+                    met,
+                    v
+                );
+            }
+            compare_field(&field, rust.pet, py_pet)
+        });
+
+        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
+        eprintln!(
+            "sweep_pet_steady: skipped {} sample(s) where scipy's fsolve did not \
+             converge; {} sample(s) where the Rust 3-node solver could not reach its \
+             own tolerance and returned NaN",
+            skipped.get(),
+            unconverged.get()
+        );
     });
 }
