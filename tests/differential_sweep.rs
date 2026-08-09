@@ -12,7 +12,7 @@ mod support;
 
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
@@ -30,7 +30,14 @@ use thermalcomfort::models::{
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
-use thermalcomfort::utilities::Posture;
+use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
+use thermalcomfort::utilities::{
+    BsaFormula, Posture, antoine, body_surface_area, clo_area_factor,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment,
+    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
+    clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
+    running_mean_outdoor_temperature, v_relative,
+};
 use thermalcomfort::{
     AirPermeability, Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Power,
     Pressure, Sex, Speed, Temperature, TemperatureDelta,
@@ -2873,5 +2880,432 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                 Ok(())
             },
         );
+    });
+}
+
+/// Call a `pythermalcomfort.utilities` function and read its scalar result.
+fn py_util(
+    utils: &Bound<'_, PyAny>,
+    name: &str,
+    args: impl for<'p> IntoPyObject<'p, Target = PyTuple>,
+) -> Result<f64, String> {
+    let value = utils
+        .getattr(name)
+        .map_err(|e| format!("{name}: missing from utilities: {e}"))?
+        .call1(args)
+        .map_err(|e| format!("{name} raised: {e}"))?;
+    value
+        .extract::<f64>()
+        .or_else(|_| value.call_method0("item").and_then(|i| i.extract::<f64>()))
+        .map_err(|e| format!("{name}: could not read as a number: {e}"))
+}
+
+#[test]
+fn sweep_saturation_pressures() {
+    // Three formulations that all return a saturation pressure but in three different
+    // units upstream: p_sat in Pa, p_sat_torr in torr, antoine in kPa. The Rust port
+    // normalises the first two to a `Pressure`, so the conversions belong in the test.
+    let domain = Domain::new().real("tdb", -40.0, 90.0);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep("sweep_saturation_pressures", &domain, |s: &Sample| {
+            let tdb = s.real("tdb");
+            let t = Temperature::from_celsius(tdb);
+
+            compare_field(
+                &FieldCmp::new("p_sat", 1e-6),
+                p_sat(t).as_pascals(),
+                py_util(&utils, "p_sat", (tdb,))?,
+            )?;
+
+            // Python returns torr; the port carries the equivalent `Pressure`.
+            compare_field(
+                &FieldCmp::new("p_sat_torr", 1e-9),
+                p_sat_torr(t).as_pascals() / 133.322,
+                py_util(&utils, "p_sat_torr", (tdb,))?,
+            )?;
+
+            // Python's `antoine` is kPa. The port exposes it both as a bare kPa float
+            // and as `p_sat_antoine`, a `Pressure`; both are checked against it.
+            let py_antoine = py_util(&utils, "antoine", (tdb,))?;
+            compare_field(&FieldCmp::new("antoine", 1e-9), antoine(t), py_antoine)?;
+            compare_field(
+                &FieldCmp::new("p_sat_antoine", 1e-6),
+                p_sat_antoine(t).as_pascals(),
+                py_antoine * 1000.0,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_v_relative_and_clo_dynamic() {
+    let domain = Domain::new()
+        .real("v", 0.0, 4.0)
+        .real("met", 0.6, 5.0)
+        .real("clo", 0.0, 3.0)
+        .real("i_a", 0.0, 1.5);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep("sweep_v_relative_and_clo_dynamic", &domain, |s: &Sample| {
+            let (v, met, clo, i_a) = (s.real("v"), s.real("met"), s.real("clo"), s.real("i_a"));
+
+            compare_field(
+                &FieldCmp::new("v_relative", 1e-9),
+                v_relative(
+                    Speed::from_meters_per_second(v),
+                    MetabolicRate::from_met(met),
+                )
+                .as_meters_per_second(),
+                py_util(&utils, "v_relative", (v, met))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("clo_dynamic_ashrae", 1e-9),
+                clo_dynamic_ashrae(
+                    ClothingInsulation::from_clo(clo),
+                    MetabolicRate::from_met(met),
+                )
+                .as_clo(),
+                py_util(&utils, "clo_dynamic_ashrae", (clo, met))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("clo_dynamic_iso", 1e-9),
+                clo_dynamic_iso(
+                    ClothingInsulation::from_clo(clo),
+                    MetabolicRate::from_met(met),
+                    Speed::from_meters_per_second(v),
+                    ClothingInsulation::from_clo(i_a),
+                ),
+                py_util(&utils, "clo_dynamic_iso", (clo, met, v, i_a))?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_clo_insulation_helpers() {
+    let domain = Domain::new()
+        .real("vr", 0.0, 4.0)
+        .real("v_walk", 0.0, 2.0)
+        .real("i_cl", 0.0, 3.0)
+        .real("i_a_static", 0.0, 1.5)
+        .real("i_t", 0.0, 4.0)
+        .real("tout", -30.0, 40.0);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep("sweep_clo_insulation_helpers", &domain, |s: &Sample| {
+            let (vr, v_walk, i_cl, i_a_static, i_t, tout) = (
+                s.real("vr"),
+                s.real("v_walk"),
+                s.real("i_cl"),
+                s.real("i_a_static"),
+                s.real("i_t"),
+                s.real("tout"),
+            );
+
+            compare_field(
+                &FieldCmp::new("clo_area_factor", 1e-9),
+                clo_area_factor(ClothingInsulation::from_clo(i_cl)),
+                py_util(&utils, "clo_area_factor", (i_cl,))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("clo_insulation_air_layer", 1e-9),
+                clo_insulation_air_layer(
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_a_static),
+                ),
+                py_util(&utils, "clo_insulation_air_layer", (vr, v_walk, i_a_static))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("clo_correction_factor_environment", 1e-9),
+                clo_correction_factor_environment(
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_cl),
+                ),
+                py_util(
+                    &utils,
+                    "clo_correction_factor_environment",
+                    (vr, v_walk, i_cl),
+                )?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("clo_total_insulation", 1e-9),
+                clo_total_insulation(
+                    ClothingInsulation::from_clo(i_t),
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_a_static),
+                    ClothingInsulation::from_clo(i_cl),
+                ),
+                py_util(
+                    &utils,
+                    "clo_total_insulation",
+                    (i_t, vr, v_walk, i_a_static, i_cl),
+                )?,
+            )?;
+
+            let py_clo_tout = models
+                .getattr("clo_tout")
+                .unwrap()
+                .call1((tout,))
+                .map_err(|e| format!("clo_tout raised: {e}"))?;
+            compare_field(
+                &FieldCmp::new("clo_tout", 1e-9),
+                clo_tout(Temperature::from_celsius(tout)),
+                py_float(&py_clo_tout, "clo_tout")?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_body_surface_area_and_hr_to_rh() {
+    let domain = Domain::new()
+        .real("weight", 30.0, 150.0)
+        .real("height", 1.2, 2.2)
+        .real("hr", 0.0, 0.03)
+        .real("tdb", -20.0, 55.0)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .enumerated("formula", 4);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep(
+            "sweep_body_surface_area_and_hr_to_rh",
+            &domain,
+            |s: &Sample| {
+                let (weight, height, hr, tdb, p_atm) = (
+                    s.real("weight"),
+                    s.real("height"),
+                    s.real("hr"),
+                    s.real("tdb"),
+                    s.real("p_atm"),
+                );
+                let (formula, py_formula) = match s.index("formula") {
+                    0 => (BsaFormula::DuBois, "dubois"),
+                    1 => (BsaFormula::Takahira, "takahira"),
+                    2 => (BsaFormula::Fujimoto, "fujimoto"),
+                    _ => (BsaFormula::Kurazumi, "kurazumi"),
+                };
+
+                let kwargs = [("formula", py_formula.into_pyobject(py).unwrap().into_any())]
+                    .into_py_dict(py)
+                    .unwrap();
+                let py_bsa = utils
+                    .getattr("body_surface_area")
+                    .unwrap()
+                    .call((weight, height), Some(&kwargs))
+                    .map_err(|e| format!("body_surface_area raised: {e}"))?;
+                let py_bsa: f64 = py_bsa
+                    .extract()
+                    .or_else(|_| py_bsa.call_method0("item").and_then(|i| i.extract()))
+                    .map_err(|e| format!("body_surface_area: could not read: {e}"))?;
+
+                compare_field(
+                    &FieldCmp::new("body_surface_area", 1e-9),
+                    body_surface_area(
+                        Mass::from_kilograms(weight),
+                        Length::from_meters(height),
+                        formula,
+                    )
+                    .as_square_meters(),
+                    py_bsa,
+                )?;
+
+                compare_field(
+                    &FieldCmp::new("hr_to_rh", 1e-9),
+                    hr_to_rh(
+                        hr,
+                        Temperature::from_celsius(tdb),
+                        Pressure::from_pascals(p_atm),
+                    ),
+                    py_util(&utils, "hr_to_rh", (hr, tdb, p_atm))?,
+                )
+            },
+        );
+    });
+}
+
+#[test]
+fn sweep_running_mean_and_ensemble() {
+    // `alpha` is one of the parameters the hand-written cases never vary, and the
+    // rounding bug found on 2026-08-09 lived exactly there.
+    let domain = Domain::new()
+        .real("t0", -20.0, 40.0)
+        .real("t1", -20.0, 40.0)
+        .real("t2", -20.0, 40.0)
+        .real("t3", -20.0, 40.0)
+        .real("t4", -20.0, 40.0)
+        .real("t5", -20.0, 40.0)
+        .real("t6", -20.0, 40.0)
+        .real("alpha", 0.0, 1.0)
+        .real("g0", 0.0, 1.0)
+        .real("g1", 0.0, 1.0)
+        .real("g2", 0.0, 1.0);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep("sweep_running_mean_and_ensemble", &domain, |s: &Sample| {
+            let temps: [f64; 7] = [
+                s.real("t0"),
+                s.real("t1"),
+                s.real("t2"),
+                s.real("t3"),
+                s.real("t4"),
+                s.real("t5"),
+                s.real("t6"),
+            ];
+            let alpha = s.real("alpha");
+
+            let py_rm = utils
+                .getattr("running_mean_outdoor_temperature")
+                .unwrap()
+                .call1((temps.to_vec(), alpha))
+                .map_err(|e| format!("running_mean_outdoor_temperature raised: {e}"))?;
+            let py_rm: f64 = py_rm
+                .extract()
+                .or_else(|_| py_rm.call_method0("item").and_then(|i| i.extract()))
+                .map_err(|e| format!("running_mean: could not read: {e}"))?;
+
+            let rust_temps: Vec<Temperature> = temps
+                .iter()
+                .map(|t| Temperature::from_celsius(*t))
+                .collect();
+            compare_field(
+                &FieldCmp::new("running_mean_outdoor_temperature", 1e-9),
+                running_mean_outdoor_temperature(&rust_temps, alpha).as_celsius(),
+                py_rm,
+            )?;
+
+            let garments = [s.real("g0"), s.real("g1"), s.real("g2")];
+            let rust_garments: Vec<ClothingInsulation> = garments
+                .iter()
+                .map(|c| ClothingInsulation::from_clo(*c))
+                .collect();
+            compare_field(
+                &FieldCmp::new("clo_intrinsic_insulation_ensemble", 1e-9),
+                clo_intrinsic_insulation_ensemble(&rust_garments),
+                py_util(
+                    &utils,
+                    "clo_intrinsic_insulation_ensemble",
+                    (garments.to_vec(),),
+                )?,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_f_svv_and_transpose_sharp_altitude() {
+    let domain = Domain::new()
+        .real("w", 0.1, 10.0)
+        .real("h", 0.1, 10.0)
+        .real("d", 0.1, 20.0)
+        .real("sharp", -20.0, 200.0)
+        .real("altitude", -20.0, 110.0);
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep(
+            "sweep_f_svv_and_transpose_sharp_altitude",
+            &domain,
+            |s: &Sample| {
+                let (w, h, d, sharp, altitude) = (
+                    s.real("w"),
+                    s.real("h"),
+                    s.real("d"),
+                    s.real("sharp"),
+                    s.real("altitude"),
+                );
+
+                compare_field(
+                    &FieldCmp::new("f_svv", 1e-9),
+                    f_svv(
+                        Length::from_meters(w),
+                        Length::from_meters(h),
+                        Length::from_meters(d),
+                    ),
+                    py_util(&utils, "f_svv", (w, h, d))?,
+                )?;
+
+                let py_pair = utils
+                    .getattr("transpose_sharp_altitude")
+                    .unwrap()
+                    .call1((sharp, altitude))
+                    .map_err(|e| format!("transpose_sharp_altitude raised: {e}"))?;
+                let (py_sharp, py_alt): (f64, f64) = py_pair
+                    .extract()
+                    .map_err(|e| format!("transpose_sharp_altitude: could not read: {e}"))?;
+
+                let (rust_sharp, rust_alt) = transpose_sharp_altitude(sharp, altitude);
+                compare_field(&FieldCmp::new("sharp", 1e-9), rust_sharp, py_sharp)?;
+                compare_field(&FieldCmp::new("altitude", 1e-9), rust_alt, py_alt)
+            },
+        );
+    });
+}
+
+#[test]
+fn sweep_clo_lookup_tables() {
+    // Not randomised: every entry of both tables is checked, because a transcription
+    // slip in one row is exactly what a sampled sweep would miss.
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        for (py_table, label) in [
+            ("clo_individual_garments", "garment"),
+            ("clo_typical_ensembles", "ensemble"),
+        ] {
+            let table = utils
+                .getattr(py_table)
+                .unwrap_or_else(|e| panic!("{py_table} missing from utilities: {e}"));
+            let items: Vec<(String, f64)> = table
+                .call_method0("items")
+                .and_then(|i| i.call_method0("__iter__"))
+                .and_then(|i| py.get_type::<pyo3::types::PyList>().call1((i,)))
+                .and_then(|l| l.extract())
+                .unwrap_or_else(|e| panic!("{py_table} is not a name->value mapping: {e}"));
+
+            assert!(!items.is_empty(), "{py_table} is empty");
+
+            for (name, py_value) in items {
+                let rust_value = if label == "garment" {
+                    clo_individual_garment(&name)
+                } else {
+                    clo_typical_ensemble(&name)
+                };
+                let rust_value = rust_value
+                    .unwrap_or_else(|| panic!("{label} {name:?} is missing from the Rust table"));
+                assert!(
+                    (rust_value - py_value).abs() < 1e-9,
+                    "{label} {name:?}: Rust {rust_value}, Python {py_value}"
+                );
+            }
+        }
     });
 }
