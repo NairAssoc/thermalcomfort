@@ -19,8 +19,8 @@ use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
     CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PhsOptions, PhsPosture, SetOptions,
-    UtciOptions, cooling_effect, phs, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, two_nodes_gagge,
-    use_fans_heatwaves, utci,
+    UtciOptions, cooling_effect, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp,
+    two_nodes_gagge, use_fans_heatwaves, utci,
 };
 use thermalcomfort::utilities::Posture;
 use thermalcomfort::{
@@ -982,6 +982,183 @@ fn sweep_two_nodes_gagge_ji() {
                 }
             }
             Ok(())
+        });
+    });
+}
+
+#[test]
+fn sweep_pmv_a() {
+    // pythermalcomfort's pmv_a exposes no round_output; the flag is swept anyway to
+    // prove the Rust option cannot change the answer.
+    let domain = pmv_domain().real("a_coefficient", 0.0, 1.0);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("a_pmv", 1e-9);
+
+        run_sweep("sweep_pmv_a", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, wme, a_coefficient) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+                s.real("a_coefficient"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("pmv_a")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, a_coefficient), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = pmv_a(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                a_coefficient,
+                PmvPpdOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    limit_inputs,
+                    round_output: s.flag("round_output"),
+                },
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "a_pmv")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_pmv_e() {
+    let domain = pmv_domain().real("e_coefficient", 0.0, 1.0);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("e_pmv", 1e-9);
+
+        run_sweep("sweep_pmv_e", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, wme, e_coefficient) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+                s.real("e_coefficient"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("pmv_e")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, e_coefficient), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = pmv_e(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                e_coefficient,
+                PmvPpdOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    limit_inputs,
+                    round_output: s.flag("round_output"),
+                },
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "e_pmv")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_pmv_athb() {
+    // `clo` is optional on both sides: Python takes `False` to mean "derive it", Rust
+    // takes `None`. The flag axis exercises both branches.
+    let domain = Domain::new()
+        .real("tdb", 5.0, 45.0)
+        .real("tr", 5.0, 45.0)
+        .real("vr", 0.0, 2.0)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.6, 5.0)
+        .real("clo", 0.0, 2.5)
+        .real("t_running_mean", -10.0, 35.0)
+        .flag("supply_clo");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("athb_pmv", 1e-9);
+
+        run_sweep("sweep_pmv_athb", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, t_running_mean) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("t_running_mean"),
+            );
+            let supply_clo = s.flag("supply_clo");
+
+            let py_clo = if supply_clo {
+                clo.into_pyobject(py).unwrap().into_any()
+            } else {
+                PyBool::new(py, false).to_owned().into_any()
+            };
+            let kwargs = [("clo", py_clo)].into_py_dict(py).unwrap();
+
+            let py_result = models
+                .getattr("pmv_athb")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, t_running_mean), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = pmv_athb(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                supply_clo.then(|| ClothingInsulation::from_clo(clo)),
+                Temperature::from_celsius(t_running_mean),
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "athb_pmv")?)
         });
     });
 }
