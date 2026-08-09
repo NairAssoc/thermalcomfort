@@ -203,6 +203,9 @@ pub fn vertical_tmp_grad_ppd(
     let numerator =
         libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
     let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
+    // Acceptability is judged on the unrounded value, then the value is rounded.
+    // (ankle_draft rounds first - the port had applied ankle_draft's ordering to both.)
+    let acceptability_raw = ppd_vtg <= 5.0;
     let ppd_vtg = crate::utilities::round_half_even(ppd_vtg * 10.0) / 10.0;
 
     if limit_inputs
@@ -217,7 +220,7 @@ pub fn vertical_tmp_grad_ppd(
         return (f64::NAN, false);
     }
 
-    let acceptability = ppd_vtg <= 5.0;
+    let acceptability = acceptability_raw;
 
     (ppd_vtg, acceptability)
 }

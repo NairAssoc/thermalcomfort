@@ -389,11 +389,14 @@ pub fn discomfort_index(
     let rh_percent = relative_humidity.as_percent();
 
     let di = dry_bulb_celsius - 0.55 * (1.0 - 0.01 * rh_percent) * (dry_bulb_celsius - 14.5);
+    // Categorise the raw value; pythermalcomfort maps the band before rounding, so a
+    // di of 26.987 is "More than 50% feels discomfort" even though it prints as 27.0.
+    let condition = DiscomfortCondition::from_di(di);
     let di = crate::utilities::round_half_even(di * 10.0) / 10.0;
 
     DiscomfortIndexResult {
         di,
-        discomfort_condition: DiscomfortCondition::from_di(di),
+        discomfort_condition: condition,
     }
 }
 
