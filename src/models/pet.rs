@@ -318,8 +318,9 @@ fn solve_3node_system(
     posture: Posture,
 ) -> (f64, f64, f64) {
     // Initial guess - adjust for cold conditions
-    let mut t_core = if tdb < 15.0 { 36.0 } else { 36.7 };
-    let mut t_skin = if tdb < 15.0 { 30.0 } else { 34.0 };
+    // Python always starts from [36.7, 34, 0.5*(tdb+tr)] regardless of temperature.
+    let mut t_core = 36.7;
+    let mut t_skin = 34.0;
     let mut t_clo = 0.5 * (tdb + tr);
 
     // Newton-Raphson with full numerical Jacobian
@@ -576,9 +577,12 @@ fn solve_3node_system(
         t_skin += alpha * delta[1];
         t_clo += alpha * delta[2];
 
-        // Limit ranges to physically reasonable values
-        t_core = t_core.clamp(35.0, 42.0);
-        t_skin = t_skin.clamp(20.0, 42.0);
+        // No clamping of t_core or t_skin. Python solves this with an unconstrained
+        // fsolve, and in cold conditions the MEMI root genuinely lies outside a
+        // "physically reasonable" body-temperature range - instrumented Python
+        // converges to t_core 31.17, t_skin 19.14 (residual 1e-9) at tdb 16.0, v 0.59.
+        // Clamping pinned the Newton iterate on the bound and returned the wrong root.
+        // t_clo keeps a wide guard purely to stop the iteration diverging.
         t_clo = t_clo.clamp(-20.0, 50.0);
     }
 
@@ -608,8 +612,9 @@ fn solve_3node_system(
     posture: Posture,
 ) -> (f64, f64, f64) {
     // Initial guess - adjust for cold conditions
-    let mut t_core = if tdb < 15.0 { 36.0 } else { 36.7 };
-    let mut t_skin = if tdb < 15.0 { 30.0 } else { 34.0 };
+    // Python always starts from [36.7, 34, 0.5*(tdb+tr)] regardless of temperature.
+    let mut t_core = 36.7;
+    let mut t_skin = 34.0;
     let mut t_clo = 0.5 * (tdb + tr);
 
     // Newton-Raphson with full numerical Jacobian (mimics scipy.optimize.fsolve)
@@ -897,9 +902,12 @@ fn solve_3node_system(
         t_skin += alpha * delta_skin;
         t_clo += alpha * delta_clo;
 
-        // Limit ranges to physically reasonable values
-        t_core = t_core.clamp(35.0, 42.0);
-        t_skin = t_skin.clamp(20.0, 42.0);
+        // No clamping of t_core or t_skin. Python solves this with an unconstrained
+        // fsolve, and in cold conditions the MEMI root genuinely lies outside a
+        // "physically reasonable" body-temperature range - instrumented Python
+        // converges to t_core 31.17, t_skin 19.14 (residual 1e-9) at tdb 16.0, v 0.59.
+        // Clamping pinned the Newton iterate on the bound and returned the wrong root.
+        // t_clo keeps a wide guard purely to stop the iteration diverging.
         t_clo = t_clo.clamp(-20.0, 50.0);
     }
 
@@ -1095,10 +1103,17 @@ fn calculate_energy_balance(
         e_max = 0.001;
     }
     let mut w = esw / e_max;
+    let mut esw = esw;
     if w > 1.0 {
         w = 1.0;
+        // Python only reassigns esw here when `esw - e_max < 0`, which cannot hold
+        // inside this branch (w > 1 means esw > e_max). The guard is dead code
+        // upstream, so the clamp never fires; applying it unconditionally suppressed
+        // sweat evaporation in hot, humid air and inflated PET by up to 7.6 degC.
+        if esw - e_max < 0.0 {
+            esw = e_max;
+        }
     }
-    let esw = if esw > e_max { e_max } else { esw };
     let esw = if esw < 0.0 { 0.0 } else { esw };
 
     let r_ecl = (1.0 / (fcl * hc) + r_cl) / (lr * i_m);
