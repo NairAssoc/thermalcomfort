@@ -40,31 +40,13 @@ EXEMPT: dict[str, str] = {
     "body_surface_area_dubois": "Rust splits this out; Python's body_surface_area takes a formula argument",
 }
 
-# Functions that DO have a pythermalcomfort counterpart but no parity test yet. This is a
-# backlog, not an exemption: it exists so that pre-existing gaps do not block the check
-# from catching NEW untested functions. Entries should only ever be removed.
+# Functions that have a pythermalcomfort counterpart but no parity test yet. A backlog,
+# not an exemption: it exists so pre-existing gaps do not stop the check catching NEW
+# untested functions. Entries should only ever be removed.
 #
-# Recorded 2026-08-07 while adding this check. Every one of these is testable today.
-KNOWN_GAPS: dict[str, str] = {
-    "use_fans_heatwaves": "pythermalcomfort.models.use_fans_heatwaves",
-    "body_surface_area": "pythermalcomfort.utilities.body_surface_area",
-    "clo_area_factor": "pythermalcomfort.utilities.clo_area_factor",
-    "clo_correction_factor_environment": "pythermalcomfort.utilities.clo_correction_factor_environment",
-    "clo_dynamic_ashrae": "pythermalcomfort.utilities.clo_dynamic_ashrae",
-    "clo_insulation_air_layer": "pythermalcomfort.utilities.clo_insulation_air_layer",
-    "clo_total_insulation": "pythermalcomfort.utilities.clo_total_insulation",
-    "enthalpy_air": "pythermalcomfort.utilities.enthalpy_air",
-    "mean_radiant_temperature": "pythermalcomfort.utilities.mean_radiant_tmp",
-    "operative_temperature": "pythermalcomfort.utilities.operative_tmp",
-    "p_sat_antoine": "pythermalcomfort.utilities.antoine",
-    "running_mean_outdoor_temperature": "pythermalcomfort.utilities.running_mean_outdoor_temperature",
-    "f_svv": "pythermalcomfort.utilities.f_svv",
-    "transpose_sharp_altitude": "pythermalcomfort.utilities.transpose_sharp_altitude",
-    # Surfaced once `is_tested` began requiring a call rather than a mention: `p_sat`
-    # is compared only as a field of the psy_ta_rh result, never invoked directly.
-    "p_sat": "pythermalcomfort.utilities.p_sat",
-    "p_sat_torr": "pythermalcomfort.utilities.p_sat_torr",
-}
+# Emptied 2026-08-09 - every public function with a Python counterpart now has a parity
+# test. Adding an entry here is a regression; prefer writing the test.
+KNOWN_GAPS: dict[str, str] = {}
 
 
 def executable_test_source(text: str) -> str:

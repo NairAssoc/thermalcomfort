@@ -16,7 +16,8 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 - **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std` compatible**: Works in embedded and WASM environments (default)
 - **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
-- **Rigorously Validated**: 230 tests (107 unit + 62 Python comparison + 61 doctests)
+- **Rigorously Validated**: 243 tests (107 unit + 74 Python comparison + 62 doctests). Every
+  public function with a pythermalcomfort counterpart has a cross-library parity test.
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
@@ -289,8 +290,8 @@ make verify
 export PYTHONPATH=$(ls -d .parity-venv/lib/python*/site-packages)
 
 cargo test --lib                     # library tests (108)
-cargo test --doc                     # documentation tests (61)
-cargo test --test python_comparison  # Python parity tests (62)
+cargo test --doc                     # documentation tests (62)
+cargo test --test python_comparison  # Python parity tests (74)
 ```
 
 Two guards keep the comparison honest:
@@ -302,7 +303,7 @@ Two guards keep the comparison honest:
 - `make parity-coverage` fails if any public function has no parity test. New functions
   must be compared against Python, not just unit-tested against transcribed constants.
   Functions with no Python counterpart go in `EXEMPT` in `scripts/check_parity_coverage.py`
-  with a reason; the pre-existing untested ones are tracked in `KNOWN_GAPS`.
+  with a reason. `KNOWN_GAPS` is empty: adding to it is a regression, so write the test.
 
 When bumping to a new pythermalcomfort release, change the version in `Cargo.toml`, re-run
 `make setup-parity`, and CI will follow automatically — it derives the pin from

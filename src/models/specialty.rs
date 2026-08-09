@@ -255,23 +255,45 @@ pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
     (degrees_h * degrees_w) / 16200.0
 }
 
-/// Transpose SHARP solar altitude
+/// Transpose the solar altitude and solar azimuth angles
 ///
-/// Converts between solar altitude and SHARP altitude coordinates.
+/// Used by [`crate::models::solar_gain`] to reuse the standing projected-area table for
+/// a supine occupant, by rotating the sun's position into the body's frame.
 ///
 /// # Arguments
 ///
-/// * `sharp` - SHARP altitude (degrees)
-/// * `altitude` - Solar altitude (degrees)
+/// * `sharp` - Solar horizontal angle relative to the front of the person (degrees)
+/// * `altitude` - Solar altitude measured from the horizontal (degrees)
 ///
 /// # Returns
 ///
-/// Tuple of (transposed_sharp, transposed_altitude)
+/// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
+/// match pythermalcomfort.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::transpose_sharp_altitude;
+///
+/// let (sharp, altitude) = transpose_sharp_altitude(0.0, 0.0);
+/// assert_eq!((sharp, altitude), (0.0, 90.0));
+/// ```
 pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
-    // Simple coordinate transformation
-    let t_sharp = sharp + altitude / 2.0;
-    let t_altitude = altitude - sharp / 2.0;
-    (t_sharp, t_altitude)
+    let to_rad = core::f64::consts::PI / 180.0;
+    let to_deg = 180.0 / core::f64::consts::PI;
+
+    let altitude_new =
+        libm::asin(libm::sin(libm::fabs(sharp - 90.0) * to_rad) * libm::cos(altitude * to_rad))
+            * to_deg;
+    let sharp_new =
+        libm::atan(libm::sin(sharp * to_rad) * libm::tan((90.0 - altitude) * to_rad)) * to_deg;
+
+    (round3(sharp_new), round3(altitude_new))
+}
+
+/// Round to 3 decimal places
+fn round3(x: f64) -> f64 {
+    libm::round(x * 1000.0) / 1000.0
 }
 
 #[cfg(test)]

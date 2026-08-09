@@ -4,25 +4,33 @@
 //! Python package across a wide range of inputs and edge cases.
 
 use approx::assert_abs_diff_eq;
-use measurements::{Humidity, Length, Power, Pressure, Speed, Temperature};
+use measurements::{Area, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::AdaptiveOptions;
 use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::specialty::f_svv;
 use thermalcomfort::models::{
     DurationLimitedExposure, IreqOptions, Iso7933Model, PhsOptions, PhsPosture, WorkIntensity,
     adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
     heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
     pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
-    solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, utci,
-    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
-    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
+    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
 };
-use thermalcomfort::psychrometrics::{dew_point_temperature, psy_ta_rh, wet_bulb_temperature};
+use thermalcomfort::psychrometrics::{
+    dew_point_temperature, enthalpy_air, mean_radiant_temperature, operative_temperature,
+    psy_ta_rh, wet_bulb_temperature,
+};
 use thermalcomfort::utilities::{
-    CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine, clo_individual_garment,
-    clo_intrinsic_insulation_ensemble, clo_tout, clo_typical_ensemble, hr_to_rh, v_relative,
+    BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine,
+    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
+    clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
+    clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
+    p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
 
@@ -512,6 +520,489 @@ fn test_compare_ireq() {
                         assert_abs_diff_eq!(h, py_hours, epsilon = 0.05);
                     }
                 }
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_transpose_sharp_altitude() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (sharp, altitude) in [
+            (0.0, 0.0),
+            (30.0, 45.0),
+            (45.0, 0.0),
+            (90.0, 20.0),
+            (120.0, 60.0),
+            (150.0, 30.0),
+            (180.0, 10.0),
+            (60.0, 75.0),
+        ] {
+            let py_pair = pythermal_utils
+                .getattr("transpose_sharp_altitude")
+                .unwrap()
+                .call1((sharp, altitude))
+                .unwrap();
+            let (py_sharp, py_altitude): (f64, f64) = py_pair.extract().unwrap();
+
+            let (rust_sharp, rust_altitude) = transpose_sharp_altitude(sharp, altitude);
+
+            assert_abs_diff_eq!(rust_sharp, py_sharp, epsilon = 1e-3);
+            assert_abs_diff_eq!(rust_altitude, py_altitude, epsilon = 1e-3);
+        }
+    });
+}
+
+#[test]
+fn test_compare_saturation_pressures() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for tdb in [-20.0, -5.0, 0.0, 10.0, 25.0, 35.0, 50.0] {
+            let call = |name: &str| -> f64 {
+                pythermal_utils
+                    .getattr(name)
+                    .unwrap()
+                    .call1((tdb,))
+                    .unwrap()
+                    .extract()
+                    .unwrap()
+            };
+
+            // p_sat is in Pa on both sides
+            assert_abs_diff_eq!(
+                p_sat(Temperature::from_celsius(tdb)).as_pascals(),
+                call("p_sat"),
+                epsilon = 0.1
+            );
+            // Python returns torr here; the Rust port normalises to Pa
+            assert_abs_diff_eq!(
+                p_sat_torr(Temperature::from_celsius(tdb)).as_pascals(),
+                call("p_sat_torr") * 133.322,
+                epsilon = 0.1
+            );
+            // Python's antoine returns kPa; the Rust port normalises to Pa
+            assert_abs_diff_eq!(
+                p_sat_antoine(Temperature::from_celsius(tdb)).as_pascals(),
+                call("antoine") * 1000.0,
+                epsilon = 0.1
+            );
+        }
+    });
+}
+
+#[test]
+fn test_compare_enthalpy_air() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (tdb, hr) in [
+            (0.0, 0.001),
+            (15.0, 0.005),
+            (25.0, 0.01),
+            (30.0, 0.02),
+            (40.0, 0.03),
+        ] {
+            let py_h: f64 = pythermal_utils
+                .getattr("enthalpy_air")
+                .unwrap()
+                .call1((tdb, hr))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_h = enthalpy_air(Temperature::from_celsius(tdb), hr);
+            assert_abs_diff_eq!(rust_h, py_h, epsilon = 1.0);
+        }
+    });
+}
+
+#[test]
+fn test_compare_f_svv() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (w, h, d) in [
+            (3.0, 2.0, 1.0),
+            (1.0, 1.0, 1.0),
+            (5.0, 3.0, 2.0),
+            (2.0, 4.0, 0.5),
+            (10.0, 10.0, 5.0),
+        ] {
+            let py_f: f64 = pythermal_utils
+                .getattr("f_svv")
+                .unwrap()
+                .call1((w, h, d))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_f = f_svv(
+                Length::from_meters(w),
+                Length::from_meters(h),
+                Length::from_meters(d),
+            );
+            assert_abs_diff_eq!(rust_f, py_f, epsilon = 1e-6);
+        }
+    });
+}
+
+#[test]
+fn test_compare_clo_area_factor() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for clo in [0.0, 0.3, 0.5, 1.0, 1.5, 2.0] {
+            let py_f: f64 = pythermal_utils
+                .getattr("clo_area_factor")
+                .unwrap()
+                .call1((clo,))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_f = clo_area_factor(ClothingInsulation::from_clo(clo));
+            assert_abs_diff_eq!(rust_f, py_f, epsilon = 1e-9);
+        }
+    });
+}
+
+#[test]
+fn test_compare_operative_temperature() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (tdb, tr, v) in [
+            (25.0, 27.0, 0.3),
+            (20.0, 20.0, 0.1),
+            (30.0, 35.0, 0.8),
+            (18.0, 22.0, 0.05),
+            (28.0, 26.0, 1.5),
+        ] {
+            // Both editions: Rust's `use_ashrae` flag selects between them
+            for (use_ashrae, standard) in [(false, "ISO"), (true, "ASHRAE")] {
+                let kwargs = [("standard", standard)].into_py_dict(py).unwrap();
+                let py_to: f64 = pythermal_utils
+                    .getattr("operative_tmp")
+                    .unwrap()
+                    .call((tdb, tr, v), Some(&kwargs))
+                    .unwrap()
+                    .extract()
+                    .unwrap();
+
+                let rust_to = operative_temperature(
+                    Temperature::from_celsius(tdb),
+                    Temperature::from_celsius(tr),
+                    Speed::from_meters_per_second(v),
+                    use_ashrae,
+                );
+                assert_abs_diff_eq!(rust_to.as_celsius(), py_to, epsilon = 1e-6);
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_body_surface_area() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (weight, height) in [(70.0, 1.8), (50.0, 1.6), (95.0, 1.9), (60.0, 1.7)] {
+            for (formula, name) in [
+                (BsaFormula::DuBois, "dubois"),
+                (BsaFormula::Takahira, "takahira"),
+                (BsaFormula::Fujimoto, "fujimoto"),
+                (BsaFormula::Kurazumi, "kurazumi"),
+            ] {
+                let py_bsa: f64 = pythermal_utils
+                    .getattr("body_surface_area")
+                    .unwrap()
+                    .call1((weight, height, name))
+                    .unwrap()
+                    .extract()
+                    .unwrap();
+
+                let rust_bsa = body_surface_area(
+                    Mass::from_kilograms(weight),
+                    Length::from_meters(height),
+                    formula,
+                );
+                assert_abs_diff_eq!(rust_bsa.as_square_meters(), py_bsa, epsilon = 1e-6);
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_clo_insulation_helpers() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        // (vr, v_walk, i_a_static, i_cl, i_t)
+        for (vr, v_walk, i_a, i_cl, i_t) in [
+            (0.3, 0.2, 0.7, 1.0, 1.2),
+            (0.1, 0.0, 0.7, 0.5, 0.9),
+            (0.8, 0.5, 0.7, 1.5, 2.0),
+            (1.5, 0.7, 0.6, 0.3, 0.8),
+            (0.2, 0.1, 0.7, 0.0, 0.7),
+        ] {
+            let py_ccfe: f64 = pythermal_utils
+                .getattr("clo_correction_factor_environment")
+                .unwrap()
+                .call1((vr, v_walk, i_cl))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_abs_diff_eq!(
+                clo_correction_factor_environment(
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_cl),
+                ),
+                py_ccfe,
+                epsilon = 1e-6
+            );
+
+            let py_cial: f64 = pythermal_utils
+                .getattr("clo_insulation_air_layer")
+                .unwrap()
+                .call1((vr, v_walk, i_a))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_abs_diff_eq!(
+                clo_insulation_air_layer(
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_a),
+                ),
+                py_cial,
+                epsilon = 1e-6
+            );
+
+            let py_cti: f64 = pythermal_utils
+                .getattr("clo_total_insulation")
+                .unwrap()
+                .call1((i_t, vr, v_walk, i_a, i_cl))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_abs_diff_eq!(
+                clo_total_insulation(
+                    ClothingInsulation::from_clo(i_t),
+                    Speed::from_meters_per_second(vr),
+                    Speed::from_meters_per_second(v_walk),
+                    ClothingInsulation::from_clo(i_a),
+                    ClothingInsulation::from_clo(i_cl),
+                ),
+                py_cti,
+                epsilon = 1e-6
+            );
+        }
+    });
+}
+
+#[test]
+fn test_compare_clo_dynamic_ashrae() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        // Spans the met <= 1.2 branch (no correction) and the active branch
+        for (clo, met) in [
+            (0.5, 1.0),
+            (0.5, 1.2),
+            (0.5, 1.4),
+            (1.0, 2.0),
+            (1.5, 3.0),
+            (0.3, 4.0),
+        ] {
+            let py_clo: f64 = pythermal_utils
+                .getattr("clo_dynamic_ashrae")
+                .unwrap()
+                .call1((clo, met))
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            let rust_clo = clo_dynamic_ashrae(
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+            );
+            assert_abs_diff_eq!(rust_clo.as_clo(), py_clo, epsilon = 1e-6);
+        }
+    });
+}
+
+#[test]
+fn test_compare_mean_radiant_temperature() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        for (tg, tdb, v, d, emissivity) in [
+            (30.0, 25.0, 0.3, 0.15, 0.95),
+            (40.0, 30.0, 0.1, 0.15, 0.95),
+            (22.0, 24.0, 0.8, 0.1, 0.9),
+            (50.0, 35.0, 1.5, 0.2, 0.95),
+        ] {
+            // Rust's `use_iso` flag selects between the two standards
+            for (use_iso, standard) in [(false, "Mixed Convection"), (true, "ISO")] {
+                let kwargs = [("standard", standard)].into_py_dict(py).unwrap();
+                let py_mrt: f64 = pythermal_utils
+                    .getattr("mean_radiant_tmp")
+                    .unwrap()
+                    .call((tg, tdb, v, d, emissivity), Some(&kwargs))
+                    .unwrap()
+                    .extract()
+                    .unwrap();
+
+                let rust_mrt = mean_radiant_temperature(
+                    Temperature::from_celsius(tg),
+                    Temperature::from_celsius(tdb),
+                    Speed::from_meters_per_second(v),
+                    Length::from_meters(d),
+                    emissivity,
+                    use_iso,
+                );
+                // d=0.2 is outside the [0.04, 0.15] applicability range, so both
+                // sides yield NaN under Mixed Convection; NaN never compares equal.
+                if py_mrt.is_nan() {
+                    assert!(
+                        rust_mrt.as_celsius().is_nan(),
+                        "{standard}: Python NaN but Rust {} at tg={tg} d={d}",
+                        rust_mrt.as_celsius()
+                    );
+                } else {
+                    assert_abs_diff_eq!(rust_mrt.as_celsius(), py_mrt, epsilon = 1e-4);
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_running_mean_outdoor_temperature() {
+    Python::with_gil(|py| {
+        let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("Failed to import pythermalcomfort.utilities");
+
+        let series: [&[f64]; 4] = [
+            &[20.0, 19.0, 18.0, 21.0, 22.0, 23.0, 20.0],
+            &[10.0, 12.0, 14.0, 11.0, 9.0, 8.0, 13.0],
+            &[30.0, 31.0, 29.0],
+            &[25.0],
+        ];
+
+        for temps in series {
+            for alpha in [0.8, 0.6, 0.9] {
+                let py_rmot: f64 = pythermal_utils
+                    .getattr("running_mean_outdoor_temperature")
+                    .unwrap()
+                    .call1((temps.to_vec(), alpha))
+                    .unwrap()
+                    .extract()
+                    .unwrap();
+
+                let rust_input: Vec<Temperature> = temps
+                    .iter()
+                    .map(|t| Temperature::from_celsius(*t))
+                    .collect();
+                let rust_rmot = running_mean_outdoor_temperature(&rust_input, alpha);
+
+                assert_abs_diff_eq!(rust_rmot.as_celsius(), py_rmot, epsilon = 1e-6);
+            }
+        }
+    });
+}
+
+#[test]
+fn test_compare_use_fans_heatwaves() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // Heatwave conditions where fan use is the question: hot, spanning humidities
+        // that flip the heat-strain flags.
+        for (tdb, tr, v, rh, met, clo) in [
+            (40.0, 40.0, 0.6, 40.0, 1.2, 0.5),
+            (40.0, 40.0, 0.2, 40.0, 1.2, 0.5),
+            (45.0, 45.0, 0.8, 20.0, 1.1, 0.3),
+            (38.0, 38.0, 4.0, 60.0, 1.2, 0.5),
+            (42.0, 42.0, 0.6, 70.0, 1.3, 0.6),
+            (35.0, 35.0, 0.2, 30.0, 1.0, 0.4),
+        ] {
+            let py_result = pythermal
+                .getattr("use_fans_heatwaves")
+                .unwrap()
+                .call1((tdb, tr, v, rh, met, clo))
+                .unwrap();
+
+            let rust_result = use_fans_heatwaves(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(v),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(0.0),
+                Area::from_square_meters(1.8258),
+                Pressure::from_pascals(101325.0),
+                Posture::Standing,
+                80.0,
+                500.0,
+            );
+
+            let numeric_fields: [(&str, f64); 12] = [
+                ("e_skin", rust_result.e_skin),
+                ("e_rsw", rust_result.e_rsw),
+                ("e_max", rust_result.e_max),
+                ("q_sensible", rust_result.q_sensible),
+                ("q_skin", rust_result.q_skin),
+                ("q_res", rust_result.q_res),
+                ("t_core", rust_result.t_core),
+                ("t_skin", rust_result.t_skin),
+                ("m_bl", rust_result.m_bl),
+                ("m_rsw", rust_result.m_rsw),
+                ("w", rust_result.w),
+                ("w_max", rust_result.w_max),
+            ];
+            for (field, rust_value) in numeric_fields {
+                let py_value: f64 = py_result.getattr(field).unwrap().extract().unwrap();
+                if py_value.is_nan() {
+                    assert!(
+                        rust_value.is_nan(),
+                        "{field}: Python NaN but Rust {rust_value} at tdb={tdb} v={v} rh={rh}",
+                    );
+                } else {
+                    assert_abs_diff_eq!(rust_value, py_value, epsilon = 0.1);
+                }
+            }
+
+            // The heat-strain flags are the model's actual verdict on fan use
+            for (field, rust_flag) in [
+                ("heat_strain", rust_result.heat_strain),
+                ("heat_strain_blood_flow", rust_result.heat_strain_blood_flow),
+                ("heat_strain_w", rust_result.heat_strain_w),
+                ("heat_strain_sweating", rust_result.heat_strain_sweating),
+            ] {
+                // Python reports these as float64 0.0/1.0 rather than bool
+                let py_flag: f64 = py_result.getattr(field).unwrap().extract().unwrap();
+                assert_eq!(
+                    rust_flag,
+                    py_flag != 0.0,
+                    "{field} mismatch at tdb={tdb} v={v} rh={rh}: Rust {rust_flag}, Python {py_flag}",
+                );
             }
         }
     });

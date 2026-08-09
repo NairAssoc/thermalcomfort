@@ -118,6 +118,11 @@ pub fn use_fans_heatwaves(
         posture,
         max_skin_blood_flow,
         max_sweating,
+        // Round once, here. Letting the Gagge model round first and rounding again
+        // below is a double-rounding error: t_core 37.148833 became 37.15 then 37.2,
+        // where pythermalcomfort reports 37.1. The heat-strain thresholds below also
+        // need the unrounded values to compare meaningfully.
+        round_output: false,
         ..Default::default()
     };
 
@@ -148,8 +153,8 @@ pub fn use_fans_heatwaves(
         t_skin: libm::round(gagge_result.t_skin * 10.0) / 10.0,
         m_bl: libm::round(gagge_result.m_bl * 10.0) / 10.0,
         m_rsw: libm::round(gagge_result.m_rsw * 10.0) / 10.0,
-        w: libm::round(gagge_result.w * 1000.0) / 1000.0,
-        w_max: libm::round(gagge_result.w_max * 1000.0) / 1000.0,
+        w: libm::round(gagge_result.w * 10.0) / 10.0,
+        w_max: libm::round(gagge_result.w_max * 10.0) / 10.0,
         heat_strain_blood_flow,
         heat_strain_w,
         heat_strain_sweating,

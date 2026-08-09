@@ -128,7 +128,8 @@ pub enum Model {
 ///     Temperature::from_celsius(16.5),
 /// ];
 /// let t_rm = running_mean_outdoor_temperature(&temps, 0.8);
-/// assert!((t_rm.as_celsius() - 19.94).abs() < 0.01);
+/// // Rounded to one decimal, matching pythermalcomfort
+/// assert!((t_rm.as_celsius() - 19.9).abs() < 0.01);
 /// ```
 pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) -> Temperature {
     if temp_array.is_empty() {
@@ -144,7 +145,9 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
         sum_weights += weight;
     }
 
-    Temperature::from_celsius(sum_weighted / sum_weights)
+    // pythermalcomfort rounds this to one decimal before returning; without it the two
+    // implementations disagree in the second decimal for every input.
+    Temperature::from_celsius(round(sum_weighted / sum_weights * 10.0) / 10.0)
 }
 
 /// Calculate relative air speed which combines average air speed plus body movement
