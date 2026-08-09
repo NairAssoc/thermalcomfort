@@ -1315,7 +1315,9 @@ This task is independent of the sweep and may be done at any point after Task 1.
 
 Scope this task to items 1, 2 and 2b only. Items 3–5 need either a new re-export (`Angle`) or new newtypes for dimensions `measurements` does not model, which is a wider API break better decided separately — record them in the README rather than changing them here.
 
-**Open decision, not settled by this task.** Two *outputs* are also temperature differences and carry the same implicit-unit problem: `SolarGainResult.delta_mrt` and the `f64` returned by `cooling_effect`. Typing them would be correct by the same argument, but it breaks the crate-wide "results are plain `f64`" convention, so it is a separate decision. Do not change them as part of this task.
+**Deferred, not decided (user, 2026-08-09).** Two *outputs* are also temperature differences and carry the same implicit-unit problem: `SolarGainResult.delta_mrt` and the `f64` returned by `cooling_effect`. Typing them is correct by the same argument that types `vertical_temp_gradient`, but it breaks the crate-wide "results are plain `f64`" convention. The decision was explicitly deferred on the grounds that outputs can be typed later. Do not change them as part of this task.
+
+One constraint to weigh when it is picked back up: **this crate's version tracks pythermalcomfort's**, so the port cannot take a major bump on its own schedule. A breaking output change is therefore cheap only when upstream majors (4.x -> 5.x) or if the port deliberately departs from the version-mirroring convention. Deferring is not free the way it would be in a crate that versions independently. The related open items are the same class: `Angle` for solar angles, an irradiance type for W/m2, and types for the `use_fans_heatwaves` blood-flow and sweating caps — worth batching into one API pass whenever a break is affordable.
 
 - [ ] **Step 1: Write the failing test for `clo_intrinsic_insulation_ensemble`**
 
