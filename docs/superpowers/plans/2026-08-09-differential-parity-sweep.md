@@ -1485,3 +1485,72 @@ git commit -m "Use newtypes for clothing ensembles, air permeability and tempera
 - **Deliberate omissions.** `units='IP'` is not swept: the Rust API takes typed quantities, so unit conversion is the type system's job and has no parameter to vary. `airspeed_control` has no Rust counterpart. `units_converter` and `valid_range` have no Rust counterpart worth comparing.
 - **Known risk.** Tasks 5–10 each say "fix every divergence", and the number of divergences is unknown — that is the point of the exercise. If a task uncovers more than about three real bugs, split the fixes into their own commits rather than one giant one, and consider pausing to report before continuing.
 - **Do not** widen a tolerance to make a sweep pass without first confirming the difference is float-representation noise. That reflex would defeat the entire plan.
+
+---
+
+## Outstanding after the 2026-08-09 unattended run
+
+The run closed 24 numerical defects (see git log from `a384ffb` onward). Three items
+remain, recorded here so they survive a context reset.
+
+### A. Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
+
+**Status:** not started. The public doc comment now warns users; the code is unchanged.
+
+**What is wrong.** `src/models/two_nodes_gagge.rs::two_nodes_gagge_sleep` delegates to the
+standard Gagge model at a fixed `met_sleep = 0.7`, and computes
+`_f_a_cl_bedding = 0.0308 * quilt_thickness + 0.7695` without ever using it. So
+`quilt_thickness` has no effect: at tdb=25, tr=25, v=0.1, rh=50, clo=0.5 a 1 cm quilt
+gives SET 23.05 in both implementations, but a 9 cm quilt gives **20.88 in Python and
+still 23.05 here**. `e_skin` is 32.2 vs 6.91 and `disc` +0.9926 vs -0.23 (a sign flip).
+
+**What the port needs.** Python's `_sleep_set`
+(`/tmp/ptc_diff/pythermalcomfort-4.4.0/pythermalcomfort/models/two_nodes_gagge_sleep.py`,
+218 lines) is a per-minute simulation, driven by a loop that supplies for each minute `i`:
+
+- metabolic rate from the Yan polynomial
+  `-5.75e-13 x^5 + 7.85521e-10 x^4 - 3.9173563e-7 x^3 + 8.7620232151e-5 x^2
+   - 8.801558913211e-3 x + 1.09952538864493` where `x = (i - 1) / 60`
+- a *prescribed* core temperature `0.022234 x^2 - 0.27677 x + 37.02`
+- carried-over state from the previous minute: `t_skin`, `e_skin`, `alfa`,
+  `skin_blood_flow`, `met_shivering`
+
+Inside `_sleep_set`: `f_a_cl = 0.0308 * thickness + 0.7695` (this is where the quilt
+enters), `w_max = 0.38 v^-0.29` and `i_cl = 1` when `clo <= 0` else `0.59 v^-0.08` and
+`0.45`, a clothing-temperature fixed point, then an `ltime`-step loop, and finally two
+Newton solves against `_fnerre`/`_fnerrs` for SET. `met_shivering = 19.4 * cold_s * cold_c`
+and `alfa = 0.0417737 + 0.7451833 / (skin_blood_flow + 0.585417)`.
+
+**API implication, and why this is not a small change.** Python returns *arrays* — one
+value per minute of the night. The Rust signature returns a single `GaggeTwoNodesResult`.
+Deciding the Rust shape (return the final minute, return a `Vec`, or take a duration and
+return a trajectory) is a genuine API design decision that should be settled before the
+port, not during it.
+
+### B. Port `two_nodes_gagge_ji` to the Ji et al. model
+
+**Status:** not started. The public doc comment now warns users; the code is unchanged.
+
+Wrong on eight counts, listed in the doc comment on the function. The most serious is
+that it has **no shivering term at all**, where Python computes
+`met_shivering = 19.4 * t_cr_sh * t_sk_cons + 50 * t_cr_sh + 0.5 * t_sk_cons`. Also:
+wrong initial temperatures (Python's skin starts above core, 36.8 vs 36.49), wrong
+`f_a_cl`, wrong radiative coefficient, wrong `h_cc` correlation, `m_rsw_max` missing the
+acclimatisation factor, `m_bl`/`alfa` updated in the wrong order, and a default posture
+of Standing where Python uses sitting.
+
+### C. The `measurements::Temperature` round-trip
+
+**Status:** not fixable inside the models; needs an API decision.
+
+`Temperature::from_celsius(21.4).as_celsius() != 21.4` — the type round-trips through
+Kelvin and loses about 1e-14. Every public entry point takes `Temperature`, so the
+caller's Celsius value is perturbed before any model sees it, which flips exact boundary
+comparisons. Concretely: `adaptive_ashrae(tdb=21.4, tr=21.8, t_running_mean=23.4,
+v=0.11, limit_inputs=false)` gives `acceptability_80 = True` in Python and `False` here,
+because the operative temperature lands either side of the band edge.
+
+Closing this means the public API carries raw Celsius rather than `measurements::Temperature`,
+which is a large break and contradicts the crate's typed-quantity design. It is the only
+defect from the review that no amount of work inside the models can fix. **8 of 6000**
+swept adaptive acceptability cases remain divergent because of it.

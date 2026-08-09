@@ -604,6 +604,20 @@ impl Default for GaggeTwoNodesSleepOptions {
 /// println!("Sleep SET: {:.1}°C", result.set);
 /// ```
 ///
+/// # Known divergence from pythermalcomfort
+///
+/// **This is not yet a faithful port of the Yan et al. (2022) sleep model, and
+/// `quilt_thickness` currently has no effect on the result.** It delegates to the
+/// standard Gagge two-node model at a fixed 0.7 met instead of stepping through the
+/// night with the paper's metabolic-rate polynomial and prescribed core-temperature
+/// trajectory, and the bedding area factor `0.0308 * thickness + 0.7695` is computed
+/// but never applied.
+///
+/// Measured against pythermalcomfort 4.4.0 at tdb=25, tr=25, v=0.1, rh=50, clo=0.5:
+/// a 1 cm quilt gives SET 23.05 in both, but a 9 cm quilt gives 20.88 in Python and
+/// still 23.05 here. `e_skin` and `disc` diverge more widely, `disc` including a sign
+/// flip. Do not rely on this function for bedding comparisons until it is ported.
+///
 /// # References
 ///
 /// - Yan, S., Xiong, J., Kim, J. and de Dear, R. (2022)
@@ -834,6 +848,22 @@ pub struct GaggeTwoNodesJiResult {
 ///
 /// - Ji et al. (2022) - Thermoregulation model for older individuals
 /// - Ma, Xiong, Lian (2017) - Chinese elderly thermoregulation model
+///
+/// # Known divergence from pythermalcomfort
+///
+/// **This is not yet a faithful port of the Ji et al. model.** Most significantly it
+/// has no shivering term at all, where Python computes
+/// `19.4 * t_cr_sh * t_sk_cons + 50 * t_cr_sh + 0.5 * t_sk_cons`. It also starts from
+/// different neutral temperatures (Python's skin starts *above* core, 36.8 vs 36.49),
+/// uses a different clothing area factor, radiative coefficient and convective
+/// correlation, omits the acclimatisation factor from the maximum sweating rate, and
+/// updates skin blood flow and `alfa` in the wrong order. Its default posture is
+/// Standing where Python's is sitting.
+///
+/// Measured against pythermalcomfort 4.4.0: at 10 degC, v=0.1, rh=40, met=1.0,
+/// clo=0.5, sitting, final `t_core` is 36.572 in Python and 35.93 here; at 40 degC
+/// final `t_skin` is 36.375 against 37.31. Skin temperature at t=0 is about 2.9 degC
+/// out in every case.
 pub fn two_nodes_gagge_ji(
     dry_bulb_temp: Temperature,
     mean_radiant_temp: Temperature,
