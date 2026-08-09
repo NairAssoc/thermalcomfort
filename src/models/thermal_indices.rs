@@ -431,6 +431,18 @@ pub enum HeatIndexStress {
 impl HeatIndexStress {
     /// Categorize a heat-index value. Bands are right-inclusive to match
     /// pythermalcomfort's `mapping(..., right=True)` semantics.
+    pub fn from_hi_opt(hi: f64) -> Option<Self> {
+        if hi.is_nan() {
+            return None;
+        }
+        Some(Self::from_hi(hi))
+    }
+
+    /// Categorize a heat-index value that is known to be a number.
+    ///
+    /// Prefer [`from_hi_opt`](Self::from_hi_opt): a NaN heat index has no band, and
+    /// falling through to `ExtremeDanger` reported the most severe category for a
+    /// calculation that was never made.
     pub fn from_hi(hi: f64) -> Self {
         if hi <= 27.0 {
             HeatIndexStress::NoRisk
@@ -539,7 +551,7 @@ pub fn heat_index_rothfusz(
 
     HeatIndexResult {
         hi,
-        stress_category: Some(HeatIndexStress::from_hi(hi)),
+        stress_category: HeatIndexStress::from_hi_opt(hi),
     }
 }
 
@@ -597,7 +609,7 @@ pub fn heat_index_schoen(
 
     HeatIndexResult {
         hi,
-        stress_category: Some(HeatIndexStress::from_hi(hi)),
+        stress_category: HeatIndexStress::from_hi_opt(hi),
     }
 }
 
