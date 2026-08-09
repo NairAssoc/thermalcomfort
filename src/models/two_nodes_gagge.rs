@@ -954,8 +954,12 @@ fn gagge_two_nodes_ji_core(
     let met_factor = 58.2;
     let sbc = 0.000000056697;
 
-    let temp_skin_neutral = 33.7;
-    let temp_core_neutral = 36.8;
+    // The Ji model starts skin *above* core - 36.8 against 36.49 - which is unusual but
+    // is what pythermalcomfort uses (initial_skin_temp / initial_core_temp defaults).
+    // The port had the standard Gagge pair, 33.7 / 36.8, leaving skin ~2.9 degC out at
+    // t = 0 in every case.
+    let temp_skin_neutral = 36.8;
+    let temp_core_neutral = 36.49;
     let skin_blood_flow_neutral = 6.3;
 
     let mut t_skin = temp_skin_neutral;
