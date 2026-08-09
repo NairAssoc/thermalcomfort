@@ -595,7 +595,13 @@ pub fn pmv_a(
         relative_humidity,
         metabolic_rate,
         clothing_insulation,
-        options,
+        // pythermalcomfort's pmv_a and pmv_e expose no round_output, so their inner
+        // PMV is always the *rounded* ISO PMV regardless of what the caller asked for.
+        // Forwarding the caller's flag made the two disagree whenever it was false.
+        PmvPpdOptions {
+            round_output: true,
+            ..options
+        },
     )
     .pmv;
     let a_pmv = pmv / (1.0 + a_coefficient * pmv);
@@ -670,7 +676,13 @@ pub fn pmv_e(
         relative_humidity,
         metabolic_rate,
         clothing_insulation,
-        options,
+        // pythermalcomfort's pmv_a and pmv_e expose no round_output, so their inner
+        // PMV is always the *rounded* ISO PMV regardless of what the caller asked for.
+        // Forwarding the caller's flag made the two disagree whenever it was false.
+        PmvPpdOptions {
+            round_output: true,
+            ..options
+        },
     )
     .pmv;
 
@@ -689,7 +701,13 @@ pub fn pmv_e(
         relative_humidity,
         met_adjusted,
         clothing_insulation,
-        options,
+        // pythermalcomfort's pmv_a and pmv_e expose no round_output, so their inner
+        // PMV is always the *rounded* ISO PMV regardless of what the caller asked for.
+        // Forwarding the caller's flag made the two disagree whenever it was false.
+        PmvPpdOptions {
+            round_output: true,
+            ..options
+        },
     )
     .pmv;
 
