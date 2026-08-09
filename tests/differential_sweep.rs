@@ -40,7 +40,7 @@ use thermalcomfort::utilities::{
 };
 use thermalcomfort::{
     AirPermeability, Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Power,
-    Pressure, Sex, Speed, Temperature, TemperatureDelta,
+    Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -1915,7 +1915,8 @@ def call(args, kwargs):
                     height: Length::from_meters(height),
                     weight: Mass::from_kilograms(weight),
                     p_atm: Pressure::from_pascals(p_atm),
-                    wme: MetabolicRate::from_met(wme),
+                    wme: WorkEfficiency::new(wme)
+                        .expect("the wme axis is bounded to the valid [0, 1] range"),
                     posture,
                     round_output,
                 },

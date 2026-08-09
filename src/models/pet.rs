@@ -96,7 +96,7 @@
 
 use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
-use crate::{ClothingInsulation, MetabolicRate, Sex};
+use crate::{ClothingInsulation, MetabolicRate, Sex, WorkEfficiency};
 use libm::{fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
@@ -137,12 +137,14 @@ pub struct PetOptions {
     pub weight: Mass,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// External work
+    /// Mechanical efficiency of external work
     ///
-    /// In met, matching every other model's `wme`. This was typed as `Power` in
-    /// watts, which the solver then fed straight into a slot pythermalcomfort
-    /// documents as met, so a caller supplying honest watts got nonsense.
-    pub wme: MetabolicRate,
+    /// Both this port and pythermalcomfort use the value as the dimensionless
+    /// multiplier in `h = he * (1 - wme)`, so it is an efficiency and not a rate.
+    /// It was typed as `Power` in watts, which meant a caller supplying honest
+    /// watts silently got an unphysical energy balance; [`WorkEfficiency`]
+    /// rejects anything outside `[0, 1]` at construction instead.
+    pub wme: WorkEfficiency,
     /// Posture
     pub posture: Posture,
     /// Round output values
@@ -157,7 +159,7 @@ impl Default for PetOptions {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            wme: MetabolicRate::from_met(0.0),
+            wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
             round_output: true,
         }
@@ -255,7 +257,7 @@ pub fn pet_steady(
         weight_kg,
         options.age,
         sex_bool,
-        options.wme.as_met(),
+        options.wme.as_fraction(),
         p_atm_hpa,
         options.posture,
     );
@@ -279,7 +281,7 @@ pub fn pet_steady(
             sex_bool,
             p_atm_hpa,
             options.posture,
-            options.wme.as_met(),
+            options.wme.as_fraction(),
         )
     };
 
@@ -1243,7 +1245,7 @@ mod tests {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            wme: MetabolicRate::from_met(0.0),
+            wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
             round_output: true,
         };

@@ -129,6 +129,59 @@ impl AirPermeability {
     }
 }
 
+/// Mechanical efficiency of external work, as a fraction of metabolic heat production.
+///
+/// Distinct from [`MetabolicRate`], which is the *rate* a model subtracts from the heat
+/// balance. This is the dimensionless multiplier in PET's source term,
+/// `h = he * (1 - wme)`, so it is only meaningful on `[0, 1]`: at 1 all metabolic energy
+/// leaves as work and none as heat, and above 1 the term goes negative and the model
+/// describes a body that absorbs heat by working. The range is enforced at construction
+/// rather than documented, because an out-of-range value does not fail loudly — it
+/// quietly yields a plausible-looking temperature from an unphysical energy balance.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::WorkEfficiency;
+///
+/// let w = WorkEfficiency::new(0.2).expect("0.2 is a valid efficiency");
+/// assert!((w.as_fraction() - 0.2).abs() < 1e-12);
+///
+/// // Outside [0, 1] there is no valid value to construct
+/// assert!(WorkEfficiency::new(1.5).is_none());
+/// assert!(WorkEfficiency::new(-0.1).is_none());
+/// assert!(WorkEfficiency::new(f64::NAN).is_none());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct WorkEfficiency(f64);
+
+impl WorkEfficiency {
+    /// No external work: all metabolic energy is released as heat.
+    pub const ZERO: Self = Self(0.0);
+
+    /// Construct from a fraction in `[0, 1]`, returning `None` outside that range.
+    ///
+    /// NaN is rejected too: it would propagate silently through the whole heat balance.
+    pub fn new(value: f64) -> Option<Self> {
+        if value.is_nan() || !(0.0..=1.0).contains(&value) {
+            None
+        } else {
+            Some(Self(value))
+        }
+    }
+
+    /// The efficiency as a fraction in `[0, 1]`
+    pub const fn as_fraction(self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for WorkEfficiency {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 /// Clothing insulation measurement.
 ///
 /// Represents thermal resistance of clothing per unit body surface area.
@@ -323,6 +376,32 @@ mod newtype_tests {
         assert!(
             (TemperatureDelta::from_fahrenheit(d.as_fahrenheit()).as_celsius() - 3.5).abs() < 1e-12
         );
+    }
+
+    #[test]
+    fn work_efficiency_rejects_values_outside_zero_to_one() {
+        // Both ends are valid: 0 is all heat, 1 is all work
+        assert_eq!(
+            WorkEfficiency::new(0.0).map(WorkEfficiency::as_fraction),
+            Some(0.0)
+        );
+        assert_eq!(
+            WorkEfficiency::new(1.0).map(WorkEfficiency::as_fraction),
+            Some(1.0)
+        );
+        assert_eq!(
+            WorkEfficiency::new(0.25).map(WorkEfficiency::as_fraction),
+            Some(0.25)
+        );
+
+        // Above 1 the PET source term `he * (1 - wme)` goes negative, so there is no
+        // valid value to construct rather than a value that quietly misbehaves.
+        assert!(WorkEfficiency::new(1.000_001).is_none());
+        assert!(WorkEfficiency::new(-1e-9).is_none());
+        assert!(WorkEfficiency::new(f64::NAN).is_none());
+        assert!(WorkEfficiency::new(f64::INFINITY).is_none());
+
+        assert_eq!(WorkEfficiency::default(), WorkEfficiency::ZERO);
     }
 
     #[test]
