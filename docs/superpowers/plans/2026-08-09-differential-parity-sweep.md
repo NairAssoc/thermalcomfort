@@ -1303,16 +1303,19 @@ This task is independent of the sweep and may be done at any point after Task 1.
 
 **Findings from the 2026-08-09 audit.** The crate's actual convention is **newtypes on inputs, bare `f64` on outputs** — every result struct (`PetResult.pet`, `UtciResult.utci`, `PhsResult.t_re`, `AdaptiveEnResult.tmp_cmf`) uses `f64`. `IreqResult`'s `f64` fields therefore follow convention and are **not** a defect. On the input side, 18 public functions take bare `f64`. Classify before changing anything:
 
-*Legitimately dimensionless — leave alone:* `mean_radiant_temperature.emissivity`, `running_mean_outdoor_temperature.alpha`, `pmv_a.a_coefficient`, `pmv_e.e_coefficient`, `solar_gain.{sol_transmittance,f_svv,f_bes,asw,floor_reflectance}`, `enthalpy_air.hr` and `hr_to_rh.hr` (humidity ratio is kg/kg), `valid_range`, `round_to`, `celsius_to_temp`, `ms_to_speed` (adapters), `vertical_tmp_grad_ppd.vertical_temp_gradient` (a temperature *difference*; `measurements::Temperature` is absolute, so wrapping it would be wrong).
+*Legitimately dimensionless — leave alone:* `mean_radiant_temperature.emissivity`, `running_mean_outdoor_temperature.alpha`, `pmv_a.a_coefficient`, `pmv_e.e_coefficient`, `solar_gain.{sol_transmittance,f_svv,f_bes,asw,floor_reflectance}`, `enthalpy_air.hr` and `hr_to_rh.hr` (humidity ratio is kg/kg), `valid_range`, `round_to`, `celsius_to_temp`, `ms_to_speed` (adapters).
 
 *Genuine misses:*
 1. `clo_intrinsic_insulation_ensemble(clo_garments: &[f64])` — these are clo values and `ClothingInsulation` exists. **Pre-existing.**
 2. `ireq(p: f64)` — air permeability [l/(m²·s)]. Dimensional, no existing newtype. **Introduced 2026-08-09.**
+2b. `vertical_tmp_grad_ppd(vertical_temp_gradient: f64)` — a temperature *difference* in °C. `measurements::Temperature` is absolute so it cannot be reused, but that argues for a distinct delta type, not for `f64`: a ΔT of 1 °C is 1.8 °F, so the unit is real and an `f64` leaves it implicit at the API boundary. **Pre-existing.**
 3. `transpose_sharp_altitude(sharp: f64, altitude: f64)` and `solar_gain(sol_altitude: f64, sharp: f64, …)` — angles in degrees; `measurements::Angle` exists but the crate does not re-export it. **Pre-existing.**
 4. `esi(sol_radiation_global: f64)` and `solar_gain(sol_radiation_dir: f64)` — irradiance [W/m²]; `measurements` has no irradiance type. **Pre-existing.**
 5. `use_fans_heatwaves(max_skin_blood_flow: f64, max_sweating: f64)` — dimensional rates, no `measurements` type. **Pre-existing.**
 
-Scope this task to items 1 and 2 only. Items 3–5 need either a new re-export (`Angle`) or new newtypes, which is a wider API break better decided separately — record them in the README rather than changing them here.
+Scope this task to items 1, 2 and 2b only. Items 3–5 need either a new re-export (`Angle`) or new newtypes for dimensions `measurements` does not model, which is a wider API break better decided separately — record them in the README rather than changing them here.
+
+**Open decision, not settled by this task.** Two *outputs* are also temperature differences and carry the same implicit-unit problem: `SolarGainResult.delta_mrt` and the `f64` returned by `cooling_effect`. Typing them would be correct by the same argument, but it breaks the crate-wide "results are plain `f64`" convention, so it is a separate decision. Do not change them as part of this task.
 
 - [ ] **Step 1: Write the failing test for `clo_intrinsic_insulation_ensemble`**
 
@@ -1353,6 +1356,68 @@ pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[ClothingInsulation]) ->
 ```
 
 and inside the body convert at the point of use, e.g. `let total: f64 = clo_garments.iter().map(|c| c.as_clo()).sum();` — read the existing body first and adapt rather than assuming its shape. Update the doctest above it to build `ClothingInsulation` values.
+
+- [ ] **Step 3b: Add the `TemperatureDelta` newtype and use it in `vertical_tmp_grad_ppd`**
+
+In `src/lib.rs`, next to `ClothingInsulation`, add:
+
+```rust
+/// A temperature *difference*.
+///
+/// Distinct from [`Temperature`], which is absolute: 25 °C and 25 °F are
+/// different temperatures, but a *change* of 1 °C is a change of 1.8 °F with no
+/// offset. Keeping the two apart stops a gradient being handed to something
+/// expecting an absolute reading, and makes the unit explicit at the API
+/// boundary instead of implied by an `f64`.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct TemperatureDelta(f64);
+
+impl TemperatureDelta {
+    /// Construct from a difference in degrees Celsius (equivalently, kelvin)
+    pub const fn from_celsius(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Construct from a difference in degrees Fahrenheit
+    pub const fn from_fahrenheit(value: f64) -> Self {
+        Self(value / 1.8)
+    }
+
+    /// The difference in degrees Celsius (equivalently, kelvin)
+    pub const fn as_celsius(self) -> f64 {
+        self.0
+    }
+
+    /// The difference in degrees Fahrenheit
+    pub const fn as_fahrenheit(self) -> f64 {
+        self.0 * 1.8
+    }
+}
+```
+
+Add `TemperatureDelta` to the `pub use` list in `src/lib.rs` so it is reachable as `thermalcomfort::TemperatureDelta`.
+
+Write the unit test first, in `src/lib.rs`'s test module:
+
+```rust
+#[test]
+fn temperature_delta_converts_without_an_offset() {
+    // A 1 degC change is a 1.8 degF change - no 32 degree offset
+    assert!((TemperatureDelta::from_celsius(1.0).as_fahrenheit() - 1.8).abs() < 1e-12);
+    assert!((TemperatureDelta::from_fahrenheit(1.8).as_celsius() - 1.0).abs() < 1e-12);
+    assert!((TemperatureDelta::from_celsius(0.0).as_fahrenheit()).abs() < 1e-12);
+    // Round trip
+    let d = TemperatureDelta::from_celsius(3.5);
+    assert!((TemperatureDelta::from_fahrenheit(d.as_fahrenheit()).as_celsius() - 3.5).abs() < 1e-12);
+}
+```
+
+Run: `cargo test --features std --lib temperature_delta`
+Expected: FAIL, then PASS once the type is added.
+
+In `src/models/specialty.rs`, change `vertical_temp_gradient: f64` to `vertical_temp_gradient: TemperatureDelta`, import the type, and convert once at the top of the function body with `let vertical_temp_gradient = vertical_temp_gradient.as_celsius();` so the formula below is untouched. Update the doc comment's `[°C]` annotation to name the type, and update the doctest and the module's unit tests to build `TemperatureDelta::from_celsius(2.0)`.
+
+Update the `vertical_tmp_grad_ppd` call sites in `tests/python_comparison.rs`.
 
 - [ ] **Step 4: Add the `AirPermeability` newtype and use it in `ireq`**
 
@@ -1407,7 +1472,7 @@ Expected: lint clean, both configurations pass.
 
 ```bash
 git add src/ tests/ README.md
-git commit -m "Use newtypes for clothing ensembles and air permeability"
+git commit -m "Use newtypes for clothing ensembles, air permeability and temperature deltas"
 ```
 
 ---
