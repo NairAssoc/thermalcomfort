@@ -1153,7 +1153,10 @@ fn calculate_energy_balance(
 
 /// Saturation vapor pressure in hPa
 fn p_sat_hpa(t: f64) -> f64 {
-    610.78 * exp(17.27 * t / (t + 237.3)) / 100.0
+    // pythermalcomfort's pet_steady calls utilities.p_sat, the ASHRAE Hyland-Wexler
+    // formulation, not the Magnus/Tetens approximation this used to hardcode. The two
+    // differ by enough to move PET in the second decimal.
+    crate::utilities::p_sat(Temperature::from_celsius(t)).as_pascals() / 100.0
 }
 
 #[inline]
