@@ -97,7 +97,7 @@
 use crate::numerical::brentq;
 use crate::utilities::body_surface_area_dubois;
 use crate::{ClothingInsulation, MetabolicRate, Sex};
-use libm::{exp, fabs, log, pow};
+use libm::{fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
 #[cfg(feature = "std")]
