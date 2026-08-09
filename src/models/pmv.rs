@@ -47,18 +47,46 @@ impl ThermalSensation {
     /// comfort category for a calculation that did not produce one, which is the defect
     /// the `Option` on [`PmvPpdResult::tsv`] exists to fix.
     pub fn from_pmv_opt(pmv: f64) -> Option<Self> {
+        Self::from_pmv_banded(pmv, false)
+    }
+
+    /// Categorise a PMV using ASHRAE's right-closed bands.
+    ///
+    /// ISO 7730 maps with `right=False` and ASHRAE 55 with the default `right=True`,
+    /// so a PMV sitting exactly on an edge lands in different bands. Since PMV is
+    /// rounded to two decimals first, exact edges like -0.50 are common: there ISO
+    /// gives Neutral and ASHRAE gives Slightly Cool.
+    pub fn from_pmv_opt_ashrae(pmv: f64) -> Option<Self> {
+        Self::from_pmv_banded(pmv, true)
+    }
+
+    fn from_pmv_banded(pmv: f64, right_closed: bool) -> Option<Self> {
         if pmv.is_nan() {
             return None;
         }
 
-        Some(match pmv {
-            p if p < -2.5 => ThermalSensation::Cold,
-            p if p < -1.5 => ThermalSensation::Cool,
-            p if p < -0.5 => ThermalSensation::SlightlyCool,
-            p if p < 0.5 => ThermalSensation::Neutral,
-            p if p < 1.5 => ThermalSensation::SlightlyWarm,
-            p if p < 2.5 => ThermalSensation::Warm,
-            _ => ThermalSensation::Hot,
+        let below = |edge: f64| {
+            if right_closed {
+                pmv <= edge
+            } else {
+                pmv < edge
+            }
+        };
+
+        Some(if below(-2.5) {
+            ThermalSensation::Cold
+        } else if below(-1.5) {
+            ThermalSensation::Cool
+        } else if below(-0.5) {
+            ThermalSensation::SlightlyCool
+        } else if below(0.5) {
+            ThermalSensation::Neutral
+        } else if below(1.5) {
+            ThermalSensation::SlightlyWarm
+        } else if below(2.5) {
+            ThermalSensation::Warm
+        } else {
+            ThermalSensation::Hot
         })
     }
 
@@ -367,7 +395,7 @@ pub fn pmv_ppd_ashrae(
     PmvPpdResult {
         pmv: pmv_out,
         ppd: ppd_out,
-        tsv: ThermalSensation::from_pmv_opt(pmv_out),
+        tsv: ThermalSensation::from_pmv_opt_ashrae(pmv_out),
         compliance,
     }
 }
@@ -736,6 +764,9 @@ pub fn pmv_athb(
     // Calculate base PMV with adapted parameters
     let options = PmvPpdOptions {
         limit_inputs: false, // ATHB may use values outside standard limits
+        // Python calls the raw _pmv_ppd_optimized kernel here, so the inner PMV must
+        // not be rounded before being divided by ts.
+        round_output: false,
         ..Default::default()
     };
     let pmv_result = pmv_ppd_iso(
@@ -750,7 +781,9 @@ pub fn pmv_athb(
     .pmv;
 
     // Calculate thermal sensation coefficient
-    let ts = 0.303 * libm::exp(-0.036 * met_adapted * 58.2) + 0.028;
+    // 58.15 here, not the 58.2 used above for met_adapted: pythermalcomfort uses the
+    // met_to_w_m2 constant in this expression and a literal 58.2 in the other.
+    let ts = 0.303 * libm::exp(-0.036 * met_adapted * MET_TO_W_M2) + 0.028;
     let l_adapted = pmv_result / ts;
 
     // Calculate ATHB PMV
