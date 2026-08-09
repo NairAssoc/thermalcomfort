@@ -19,16 +19,21 @@ use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
-    CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions,
-    PhsPosture, SetOptions, UtciOptions, WbgtOptions, at, cooling_effect, discomfort_index, esi,
-    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, net,
-    pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, thi,
-    two_nodes_gagge, use_fans_heatwaves, utci, wbgt, wci, wind_chill_temperature,
+    AdaptiveOptions, CoolingEffectOptions, DurationLimitedExposure, GaggeTwoNodesOptions,
+    IreqOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions, PhsPosture,
+    RidgeRegressionOptions, SetOptions, Sports, SportsValues, UtciOptions, WbgtOptions,
+    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
+    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
+    net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
+    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk, thi,
+    two_nodes_gagge, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
 };
 use thermalcomfort::utilities::Posture;
 use thermalcomfort::{
-    Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Pressure, Sex, Speed,
-    Temperature,
+    AirPermeability, Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Power,
+    Pressure, Sex, Speed, Temperature, TemperatureDelta,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -1952,6 +1957,921 @@ def call(args, kwargs):
              own tolerance and returned NaN",
             skipped.get(),
             unconverged.get()
+        );
+    });
+}
+
+/// WBGT / metabolic-power space shared by the ISO and NIOSH work-capacity models.
+fn work_capacity_met_domain() -> Domain {
+    Domain::new()
+        .real("wbgt", 5.0, 50.0)
+        .real("met", 100.0, 600.0)
+}
+
+/// WBGT / work-intensity space shared by the Dunne and Hothaps models.
+fn work_capacity_intensity_domain() -> Domain {
+    Domain::new()
+        .real("wbgt", 5.0, 50.0)
+        .enumerated("work_intensity", 3)
+}
+
+fn work_intensity_at(index: usize) -> (WorkIntensity, &'static str) {
+    match index {
+        0 => (WorkIntensity::Heavy, "heavy"),
+        1 => (WorkIntensity::Moderate, "moderate"),
+        _ => (WorkIntensity::Light, "light"),
+    }
+}
+
+#[test]
+fn sweep_work_capacity_iso() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("capacity", 1e-9);
+
+        run_sweep(
+            "sweep_work_capacity_iso",
+            &work_capacity_met_domain(),
+            |s: &Sample| {
+                let (wbgt_v, met) = (s.real("wbgt"), s.real("met"));
+                let py_result = models
+                    .getattr("work_capacity_iso")
+                    .unwrap()
+                    .call1((wbgt_v, met))
+                    .map_err(|e| format!("python raised: {e}"))?;
+                let rust =
+                    work_capacity_iso(Temperature::from_celsius(wbgt_v), Power::from_watts(met));
+                compare_field(&field, rust, py_float(&py_result, "capacity")?)
+            },
+        );
+    });
+}
+
+#[test]
+fn sweep_work_capacity_niosh() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("capacity", 1e-9);
+
+        run_sweep(
+            "sweep_work_capacity_niosh",
+            &work_capacity_met_domain(),
+            |s: &Sample| {
+                let (wbgt_v, met) = (s.real("wbgt"), s.real("met"));
+                let py_result = models
+                    .getattr("work_capacity_niosh")
+                    .unwrap()
+                    .call1((wbgt_v, met))
+                    .map_err(|e| format!("python raised: {e}"))?;
+                let rust =
+                    work_capacity_niosh(Temperature::from_celsius(wbgt_v), Power::from_watts(met));
+                compare_field(&field, rust, py_float(&py_result, "capacity")?)
+            },
+        );
+    });
+}
+
+#[test]
+fn sweep_work_capacity_dunne() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("capacity", 1e-9);
+
+        run_sweep(
+            "sweep_work_capacity_dunne",
+            &work_capacity_intensity_domain(),
+            |s: &Sample| {
+                let wbgt_v = s.real("wbgt");
+                let (intensity, py_intensity) = work_intensity_at(s.index("work_intensity"));
+                let kwargs = [(
+                    "work_intensity",
+                    py_intensity.into_pyobject(py).unwrap().into_any(),
+                )]
+                .into_py_dict(py)
+                .unwrap();
+                let py_result = models
+                    .getattr("work_capacity_dunne")
+                    .unwrap()
+                    .call((wbgt_v,), Some(&kwargs))
+                    .map_err(|e| format!("python raised: {e}"))?;
+                let rust = work_capacity_dunne(Temperature::from_celsius(wbgt_v), intensity);
+                compare_field(&field, rust, py_float(&py_result, "capacity")?)
+            },
+        );
+    });
+}
+
+#[test]
+fn sweep_work_capacity_hothaps() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("capacity", 1e-9);
+
+        run_sweep(
+            "sweep_work_capacity_hothaps",
+            &work_capacity_intensity_domain(),
+            |s: &Sample| {
+                let wbgt_v = s.real("wbgt");
+                let (intensity, py_intensity) = work_intensity_at(s.index("work_intensity"));
+                let kwargs = [(
+                    "work_intensity",
+                    py_intensity.into_pyobject(py).unwrap().into_any(),
+                )]
+                .into_py_dict(py)
+                .unwrap();
+                let py_result = models
+                    .getattr("work_capacity_hothaps")
+                    .unwrap()
+                    .call((wbgt_v,), Some(&kwargs))
+                    .map_err(|e| format!("python raised: {e}"))?;
+                let rust = work_capacity_hothaps(Temperature::from_celsius(wbgt_v), intensity);
+                compare_field(&field, rust, py_float(&py_result, "capacity")?)
+            },
+        );
+    });
+}
+
+/// Compare a Rust bool against Python's acceptability, which arrives as a numpy bool or
+/// as a 0.0/1.0 float depending on the model.
+fn compare_bool(name: &str, rust: bool, obj: &Bound<'_, PyAny>) -> Result<(), String> {
+    let attr = obj
+        .getattr(name)
+        .map_err(|e| format!("{name}: missing on Python result: {e}"))?;
+    let py: bool = if let Ok(b) = attr.extract::<bool>() {
+        b
+    } else {
+        let value = attr
+            .extract::<f64>()
+            .or_else(|_| attr.call_method0("item").and_then(|i| i.extract::<f64>()))
+            .map_err(|e| format!("{name}: could not read as a bool: {e}"))?;
+        // Outside its applicability range Python sets acceptability to NaN. A Rust bool
+        // cannot hold that, and the port spells "not applicable" as false alongside a
+        // NaN result value, so NaN maps to false rather than to a truthy non-zero.
+        if value.is_nan() { false } else { value != 0.0 }
+    };
+    if rust == py {
+        Ok(())
+    } else {
+        Err(format!("{name}: Rust {rust}, Python {py}"))
+    }
+}
+
+/// Input space shared by the two adaptive models.
+fn adaptive_domain() -> Domain {
+    Domain::new()
+        .real("tdb", 5.0, 45.0)
+        .real("tr", 5.0, 45.0)
+        .real("t_running_mean", -5.0, 40.0)
+        .real("v", 0.0, 2.0)
+        .flag("limit_inputs")
+        .flag("round_output")
+}
+
+#[test]
+fn sweep_adaptive_ashrae() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let fields = [
+            FieldCmp::new("tmp_cmf", 1e-9),
+            FieldCmp::new("tmp_cmf_80_low", 1e-9),
+            FieldCmp::new("tmp_cmf_80_up", 1e-9),
+            FieldCmp::new("tmp_cmf_90_low", 1e-9),
+            FieldCmp::new("tmp_cmf_90_up", 1e-9),
+        ];
+
+        run_sweep("sweep_adaptive_ashrae", &adaptive_domain(), |s: &Sample| {
+            let (tdb, tr, trm, v) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("t_running_mean"),
+                s.real("v"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("adaptive_ashrae")
+                .unwrap()
+                .call((tdb, tr, trm, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = adaptive_ashrae(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Temperature::from_celsius(trm),
+                Speed::from_meters_per_second(v),
+                AdaptiveOptions {
+                    limit_inputs,
+                    round_output,
+                },
+            );
+
+            let values = [
+                rust.tmp_cmf,
+                rust.tmp_cmf_80_low,
+                rust.tmp_cmf_80_up,
+                rust.tmp_cmf_90_low,
+                rust.tmp_cmf_90_up,
+            ];
+            for (field, rust_value) in fields.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            }
+            compare_bool("acceptability_80", rust.acceptability_80, &py_result)?;
+            compare_bool("acceptability_90", rust.acceptability_90, &py_result)
+        });
+    });
+}
+
+#[test]
+fn sweep_adaptive_en() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let fields = [
+            FieldCmp::new("tmp_cmf", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_i_low", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_i_up", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_ii_low", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_ii_up", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_iii_low", 1e-9),
+            FieldCmp::new("tmp_cmf_cat_iii_up", 1e-9),
+        ];
+
+        run_sweep("sweep_adaptive_en", &adaptive_domain(), |s: &Sample| {
+            let (tdb, tr, trm, v) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("t_running_mean"),
+                s.real("v"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("adaptive_en")
+                .unwrap()
+                .call((tdb, tr, trm, v), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = adaptive_en(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Temperature::from_celsius(trm),
+                Speed::from_meters_per_second(v),
+                AdaptiveOptions {
+                    limit_inputs,
+                    round_output,
+                },
+            );
+
+            let values = [
+                rust.tmp_cmf,
+                rust.tmp_cmf_cat_i_low,
+                rust.tmp_cmf_cat_i_up,
+                rust.tmp_cmf_cat_ii_low,
+                rust.tmp_cmf_cat_ii_up,
+                rust.tmp_cmf_cat_iii_low,
+                rust.tmp_cmf_cat_iii_up,
+            ];
+            for (field, rust_value) in fields.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            }
+            compare_bool("acceptability_cat_i", rust.acceptability_cat_i, &py_result)?;
+            compare_bool(
+                "acceptability_cat_ii",
+                rust.acceptability_cat_ii,
+                &py_result,
+            )?;
+            compare_bool(
+                "acceptability_cat_iii",
+                rust.acceptability_cat_iii,
+                &py_result,
+            )
+        });
+    });
+}
+
+#[test]
+fn sweep_ankle_draft() {
+    let domain = Domain::new()
+        .real("tdb", 15.0, 35.0)
+        .real("tr", 15.0, 35.0)
+        // Python raises outright above 0.2 m/s ("only applicable for air speed lower
+        // than 0.2 m/s"), so there is no reference value to compare against there.
+        .real("vr", 0.0, 0.2)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.8, 2.0)
+        .real("clo", 0.0, 1.5)
+        .real("v_ankle", 0.0, 1.0)
+        .flag("limit_inputs");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("ppd_ad", 1e-9);
+
+        run_sweep("sweep_ankle_draft", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, v_ankle) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("v_ankle"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+
+            let kwargs = [(
+                "limit_inputs",
+                PyBool::new(py, limit_inputs).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("ankle_draft")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, v_ankle), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let (ppd_ad, acceptability) = ankle_draft(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                Speed::from_meters_per_second(v_ankle),
+                limit_inputs,
+            );
+
+            compare_field(&field, ppd_ad, py_float(&py_result, "ppd_ad")?)?;
+            compare_bool("acceptability", acceptability, &py_result)
+        });
+    });
+}
+
+#[test]
+fn sweep_vertical_tmp_grad_ppd() {
+    let domain = Domain::new()
+        .real("tdb", 15.0, 35.0)
+        .real("tr", 15.0, 35.0)
+        .real("vr", 0.0, 1.0)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.8, 2.0)
+        .real("clo", 0.0, 1.5)
+        .real("vertical_tmp_grad", -2.0, 12.0)
+        .flag("limit_inputs")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep("sweep_vertical_tmp_grad_ppd", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, grad) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("vertical_tmp_grad"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("vertical_tmp_grad_ppd")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, grad), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let (ppd_vg, acceptability) = vertical_tmp_grad_ppd(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                TemperatureDelta::from_celsius(grad),
+                limit_inputs,
+            );
+
+            // The Rust port has no round_output knob here, so the reference is Python's
+            // rounded value; the unrounded half only has to agree within that step.
+            let tol = if round_output { 1e-9 } else { 0.051 };
+            compare_field(
+                &FieldCmp::new("ppd_vg", tol),
+                ppd_vg,
+                py_float(&py_result, "ppd_vg")?,
+            )?;
+            compare_bool("acceptability", acceptability, &py_result)
+        });
+    });
+}
+
+#[test]
+fn sweep_solar_gain() {
+    // The angle axes deliberately run outside the table domain (altitude 0-90,
+    // sharp 0-180) so the NaN guard is exercised on both sides rather than assumed.
+    let domain = Domain::new()
+        .real("sol_altitude", -20.0, 110.0)
+        .real("sharp", -20.0, 200.0)
+        .real("sol_radiation_dir", 0.0, 1200.0)
+        .real("sol_transmittance", 0.0, 1.0)
+        .real("f_svv", 0.0, 1.0)
+        .real("f_bes", 0.0, 1.0)
+        .real("asw", 0.0, 1.0)
+        .real("floor_reflectance", 0.0, 1.0)
+        .enumerated("posture", 3)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep("sweep_solar_gain", &domain, |s: &Sample| {
+            let (alt, sharp, dir, trans, fsvv, fbes, asw, floor) = (
+                s.real("sol_altitude"),
+                s.real("sharp"),
+                s.real("sol_radiation_dir"),
+                s.real("sol_transmittance"),
+                s.real("f_svv"),
+                s.real("f_bes"),
+                s.real("asw"),
+                s.real("floor_reflectance"),
+            );
+            // Python accepts only these three for solar gain.
+            let (posture, py_posture) = match s.index("posture") {
+                0 => (Posture::Sitting, "sitting"),
+                1 => (Posture::Standing, "standing"),
+                _ => (Posture::Supine, "supine"),
+            };
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                ("asw", asw.into_pyobject(py).unwrap().into_any()),
+                ("posture", py_posture.into_pyobject(py).unwrap().into_any()),
+                (
+                    "floor_reflectance",
+                    floor.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("solar_gain")
+                .unwrap()
+                .call((alt, sharp, dir, trans, fsvv, fbes), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = solar_gain(alt, sharp, dir, trans, fsvv, fbes, asw, posture, floor);
+
+            // Rust always rounds; compare against Python's rounded value.
+            let tol = if round_output { 1e-9 } else { 0.051 };
+            for (name, rust_value) in [("erf", rust.erf), ("delta_mrt", rust.delta_mrt)] {
+                compare_field(
+                    &FieldCmp::new(name, tol),
+                    rust_value,
+                    py_float(&py_result, name)?,
+                )?;
+            }
+            Ok(())
+        });
+    });
+}
+
+/// Compare a duration-limited-exposure result. Python returns either a number of hours,
+/// the string "more than 8", or NaN; the Rust port models those three as an enum.
+fn compare_dle(
+    field: &str,
+    rust: DurationLimitedExposure,
+    obj: &Bound<'_, PyAny>,
+    tol: f64,
+) -> Result<(), String> {
+    let attr = obj
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python result: {e}"))?;
+
+    if let Ok(text) = attr.extract::<String>() {
+        return match (&rust, text.as_str()) {
+            (DurationLimitedExposure::MoreThanEight, "more than 8") => Ok(()),
+            (DurationLimitedExposure::NotApplicable, "nan") => Ok(()),
+            _ => Err(format!("{field}: Rust {rust}, Python {text:?}")),
+        };
+    }
+
+    let value: f64 = attr
+        .extract()
+        .or_else(|_| attr.call_method0("item").and_then(|i| i.extract()))
+        .map_err(|e| format!("{field}: could not read: {e}"))?;
+
+    match rust {
+        DurationLimitedExposure::NotApplicable if value.is_nan() => Ok(()),
+        DurationLimitedExposure::Hours(h) if (h - value).abs() <= tol => Ok(()),
+        _ => Err(format!("{field}: Rust {rust}, Python {value}")),
+    }
+}
+
+#[test]
+fn sweep_ireq() {
+    // `p` and `walk_sp` span both sides of the applicability mask, which no hand-written
+    // case varies at all.
+    let domain = Domain::new()
+        .real("tdb", -50.0, 10.0)
+        .real("tr", -50.0, 10.0)
+        .real("vr", 0.0, 5.0)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.8, 4.0)
+        .real("clo", 0.5, 4.0)
+        .real("p", 5.0, 200.0)
+        .real("walk_sp", 0.0, 1.5)
+        .real("wme", 0.0, 1.0)
+        .flag("limit_inputs")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let fields = [
+            FieldCmp::new("ireq_min", 1e-9),
+            FieldCmp::new("ireq_neutral", 1e-9),
+            FieldCmp::new("icl_min", 1e-9),
+            FieldCmp::new("icl_neutral", 1e-9),
+        ];
+
+        run_sweep("sweep_ireq", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, p, walk_sp, wme) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("p"),
+                s.real("walk_sp"),
+                s.real("wme"),
+            );
+            let limit_inputs = s.flag("limit_inputs");
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "limit_inputs",
+                    PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("ireq")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, p, walk_sp), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = ireq(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                AirPermeability::from_l_per_m2_s(p),
+                Speed::from_meters_per_second(walk_sp),
+                IreqOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    limit_inputs,
+                    round_output,
+                },
+            );
+
+            let values = [
+                rust.ireq_min,
+                rust.ireq_neutral,
+                rust.icl_min,
+                rust.icl_neutral,
+            ];
+            for (field, rust_value) in fields.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            }
+            compare_dle("dle_min", rust.dle_min, &py_result, 1e-9)?;
+            compare_dle("dle_neutral", rust.dle_neutral, &py_result, 1e-9)
+        });
+    });
+}
+
+/// The 34 sport presets, by the name both libraries use.
+const SPORT_NAMES: [&str; 34] = [
+    "ABSEILING",
+    "ARCHERY",
+    "AUSTRALIAN_FOOTBALL",
+    "BASEBALL",
+    "BASKETBALL",
+    "BOWLS",
+    "CANOEING",
+    "CRICKET",
+    "CROQUET",
+    "CYCLING",
+    "EQUESTRIAN",
+    "FIELD_ATHLETICS",
+    "FIELD_HOCKEY",
+    "FISHING",
+    "GOLF",
+    "HORSEBACK",
+    "KAYAKING",
+    "RUNNING",
+    "MTB",
+    "NETBALL",
+    "OZTAG",
+    "PICKLEBALL",
+    "CLIMBING",
+    "ROWING",
+    "RUGBY_LEAGUE",
+    "RUGBY_UNION",
+    "SAILING",
+    "SHOOTING",
+    "SOCCER",
+    "SOFTBALL",
+    "TENNIS",
+    "TOUCH",
+    "VOLLEYBALL",
+    "WALKING",
+];
+
+fn sport_at(index: usize) -> SportsValues {
+    match SPORT_NAMES[index] {
+        "ABSEILING" => Sports::ABSEILING,
+        "ARCHERY" => Sports::ARCHERY,
+        "AUSTRALIAN_FOOTBALL" => Sports::AUSTRALIAN_FOOTBALL,
+        "BASEBALL" => Sports::BASEBALL,
+        "BASKETBALL" => Sports::BASKETBALL,
+        "BOWLS" => Sports::BOWLS,
+        "CANOEING" => Sports::CANOEING,
+        "CRICKET" => Sports::CRICKET,
+        "CROQUET" => Sports::CROQUET,
+        "CYCLING" => Sports::CYCLING,
+        "EQUESTRIAN" => Sports::EQUESTRIAN,
+        "FIELD_ATHLETICS" => Sports::FIELD_ATHLETICS,
+        "FIELD_HOCKEY" => Sports::FIELD_HOCKEY,
+        "FISHING" => Sports::FISHING,
+        "GOLF" => Sports::GOLF,
+        "HORSEBACK" => Sports::HORSEBACK,
+        "KAYAKING" => Sports::KAYAKING,
+        "RUNNING" => Sports::RUNNING,
+        "MTB" => Sports::MTB,
+        "NETBALL" => Sports::NETBALL,
+        "OZTAG" => Sports::OZTAG,
+        "PICKLEBALL" => Sports::PICKLEBALL,
+        "CLIMBING" => Sports::CLIMBING,
+        "ROWING" => Sports::ROWING,
+        "RUGBY_LEAGUE" => Sports::RUGBY_LEAGUE,
+        "RUGBY_UNION" => Sports::RUGBY_UNION,
+        "SAILING" => Sports::SAILING,
+        "SHOOTING" => Sports::SHOOTING,
+        "SOCCER" => Sports::SOCCER,
+        "SOFTBALL" => Sports::SOFTBALL,
+        "TENNIS" => Sports::TENNIS,
+        "TOUCH" => Sports::TOUCH,
+        "VOLLEYBALL" => Sports::VOLLEYBALL,
+        "WALKING" => Sports::WALKING,
+        other => unreachable!("unmapped sport {other}"),
+    }
+}
+
+#[test]
+fn sweep_sports_heat_stress_risk() {
+    let domain = Domain::new()
+        .real("tdb", 5.0, 50.0)
+        .real("tr", 5.0, 60.0)
+        .real("rh", 0.0, 100.0)
+        .real("vr", 0.0, 5.0)
+        .enumerated("sport", SPORT_NAMES.len());
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
+            .expect("failed to import the sports preset namespace");
+        let sports = sports_mod.getattr("Sports").unwrap();
+        let fields = [
+            FieldCmp::new("risk_level_interpolated", 1e-9),
+            FieldCmp::new("t_medium", 1e-9),
+            FieldCmp::new("t_high", 1e-9),
+            FieldCmp::new("t_extreme", 1e-9),
+        ];
+
+        run_sweep("sweep_sports_heat_stress_risk", &domain, |s: &Sample| {
+            let (tdb, tr, rh, vr) = (s.real("tdb"), s.real("tr"), s.real("rh"), s.real("vr"));
+            let index = s.index("sport");
+            let name = SPORT_NAMES[index];
+
+            let py_sport = sports
+                .getattr(name)
+                .map_err(|e| format!("Python has no sport preset {name}: {e}"))?;
+
+            let py_result = models
+                .getattr("sports_heat_stress_risk")
+                .unwrap()
+                .call1((tdb, tr, rh, vr, py_sport))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = sports_heat_stress_risk(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(vr),
+                sport_at(index),
+            );
+
+            let values = [
+                rust.risk_level_interpolated,
+                rust.t_medium,
+                rust.t_high,
+                rust.t_extreme,
+            ];
+            for (field, rust_value) in fields.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)
+                    .map_err(|e| format!("{name}: {e}"))?;
+            }
+            compare_category(
+                "recommendation",
+                Some(rust.recommendation),
+                py_category(&py_result, "recommendation")?,
+            )
+            .map_err(|e| format!("{name}: {e}"))
+        });
+    });
+}
+
+#[test]
+fn sweep_ridge_regression_predict_t_re_t_sk() {
+    // Python's applicability window is age 60-100; the sweep straddles it so the
+    // limit_inputs mask is exercised in both states.
+    let domain = Domain::new()
+        .real("age", 50.0, 105.0)
+        .real("height", 1.4, 2.1)
+        .real("weight", 45.0, 120.0)
+        .real("tdb", 15.0, 50.0)
+        .real("rh", 0.0, 100.0)
+        .real("t_re_initial", 36.0, 39.0)
+        .real("t_sk_initial", 30.0, 38.0)
+        .enumerated("duration", 4)
+        .enumerated("sex", 2)
+        .flag("supply_initials")
+        .flag("limit_inputs")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep(
+            "sweep_ridge_regression_predict_t_re_t_sk",
+            &domain,
+            |s: &Sample| {
+                let (age, height, weight, tdb, rh, t_re0, t_sk0) = (
+                    s.real("age"),
+                    s.real("height"),
+                    s.real("weight"),
+                    s.real("tdb"),
+                    s.real("rh"),
+                    s.real("t_re_initial"),
+                    s.real("t_sk_initial"),
+                );
+                let duration = [15_usize, 30, 60, 120][s.index("duration")];
+                let (sex, py_sex) = match s.index("sex") {
+                    0 => (Sex::Male, "male"),
+                    _ => (Sex::Female, "female"),
+                };
+                let supply_initials = s.flag("supply_initials");
+                let limit_inputs = s.flag("limit_inputs");
+                let round_output = s.flag("round_output");
+
+                let (py_t_re, py_t_sk) = if supply_initials {
+                    (
+                        t_re0.into_pyobject(py).unwrap().into_any(),
+                        t_sk0.into_pyobject(py).unwrap().into_any(),
+                    )
+                } else {
+                    (py.None().into_bound(py), py.None().into_bound(py))
+                };
+
+                let kwargs = [
+                    ("t_re", py_t_re),
+                    ("t_sk", py_t_sk),
+                    (
+                        "limit_inputs",
+                        PyBool::new(py, limit_inputs).to_owned().into_any(),
+                    ),
+                    (
+                        "round_output",
+                        PyBool::new(py, round_output).to_owned().into_any(),
+                    ),
+                ]
+                .into_py_dict(py)
+                .unwrap();
+
+                let py_result = models
+                    .getattr("ridge_regression_predict_t_re_t_sk")
+                    .unwrap()
+                    .call(
+                        (py_sex, age, height, weight, tdb, rh, duration),
+                        Some(&kwargs),
+                    )
+                    .map_err(|e| format!("python raised: {e}"))?;
+
+                let rust = ridge_regression_predict_t_re_t_sk(
+                    sex,
+                    age,
+                    Length::from_meters(height),
+                    Mass::from_kilograms(weight),
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(rh),
+                    duration,
+                    RidgeRegressionOptions {
+                        t_re_initial: supply_initials.then(|| Temperature::from_celsius(t_re0)),
+                        t_sk_initial: supply_initials.then(|| Temperature::from_celsius(t_sk0)),
+                        limit_inputs,
+                        round_output,
+                    },
+                );
+
+                for (name, rust_series) in [("t_re", &rust.t_re), ("t_sk", &rust.t_sk)] {
+                    let py_series = py_float_seq(&py_result, name)?;
+                    if py_series.len() != rust_series.len() {
+                        return Err(format!(
+                            "{name}: Rust returned {} minutes, Python {}",
+                            rust_series.len(),
+                            py_series.len()
+                        ));
+                    }
+                    let cmp = FieldCmp::new(name, 1e-9);
+                    for (minute, (rust_value, py_value)) in
+                        rust_series.iter().zip(py_series.iter()).enumerate()
+                    {
+                        compare_field(&cmp, *rust_value, *py_value)
+                            .map_err(|e| format!("minute {minute}: {e}"))?;
+                    }
+                }
+                Ok(())
+            },
         );
     });
 }
