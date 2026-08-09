@@ -919,6 +919,13 @@ fn gagge_two_nodes_ji_core(
     w_max_opt: Option<f64>,
     round_output: bool,
 ) -> GaggeTwoNodesJiResult {
+    // Ji model shivering coefficients (from pythermalcomfort)
+    const C_SHE: f64 = 1.0;
+    const COF_SCS: f64 = 19.4;
+    const COF_SC: f64 = 50.0;
+    const COF_SS: f64 = 0.5;
+    const T_CR0_SH: f64 = 36.7;
+
     // Ji model coefficients (from pythermalcomfort)
     let c_sw = 170.0; // driving coefficient for regulatory sweating
     let c_dil = 50.0; // driving coefficient for vasodilation (reduced for elderly)
@@ -964,7 +971,7 @@ fn gagge_two_nodes_ji_core(
     let r_clo = 0.155 * clo;
     let f_a_cl = 1.0 + 0.15 * clo;
     let lr = 2.2 / pressure_in_atmospheres;
-    let m = met * met_factor;
+    let mut m = met * met_factor;
 
     let i_cl = if clo > 0.0 { 0.45 } else { 1.0 };
 
@@ -1078,6 +1085,15 @@ fn gagge_two_nodes_ji_core(
         }
 
         e_skin = e_rsw + e_diff;
+
+        // Shivering. The Ji model adds a metabolic contribution once core temperature
+        // falls below its threshold; the port omitted it entirely, so cold cases never
+        // recruited shivering heat. Coefficients per pythermalcomfort:
+        // c_she = 1, cof_scs = 19.4, cof_sc = 50, cof_ss = 0.5, t_cr0_sh = 36.7.
+        let t_cr_sh = fmax(0.0, T_CR0_SH - t_core);
+        let met_shivering =
+            C_SHE * (COF_SCS * t_cr_sh * t_sk_cons + COF_SC * t_cr_sh + COF_SS * t_sk_cons);
+        m = met * met_factor + met_shivering;
 
         // Store values (rounding if requested)
         let t_core_val = if round_output {
