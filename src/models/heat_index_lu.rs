@@ -147,7 +147,12 @@ fn lu_heat_index_core(tdb: f64, rh: f64) -> f64 {
         let mut fb = f(b);
 
         if fa * fb > 0.0 {
-            return (a + b) / 2.0; // fallback
+            // No sign change, so the bracket contains no root. Python raises
+            // ValueError("wrong initial interval in the root solver") here; this crate
+            // has no error channel on the public API, so NaN is the closest faithful
+            // signal. Returning the bracket midpoint reported a confident 396.9 degC
+            // heat index for tdb=130, rh=100.
+            return f64::NAN;
         }
 
         for _ in 0..max_iter {
