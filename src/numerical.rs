@@ -3,7 +3,7 @@
 //! This module provides numerical algorithms used in thermal comfort calculations,
 //! particularly root-finding methods.
 
-use libm::{copysign, fabs as abs};
+use libm::fabs as abs;
 
 /// Error type for root-finding methods
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -52,118 +52,117 @@ pub enum RootFindError {
 /// ```
 pub fn brentq<F>(
     f: F,
-    mut a: f64,
-    mut b: f64,
-    tol: Option<f64>,
+    a: f64,
+    b: f64,
+    xtol: Option<f64>,
     max_iter: Option<usize>,
 ) -> Result<f64, RootFindError>
 where
     F: Fn(f64) -> f64,
 {
-    let tol = tol.unwrap_or(1e-6);
+    // A faithful port of scipy.optimize.brentq (scipy/optimize/Zeros/brentq.c), not the
+    // Numerical Recipes `zbrent` that lived here before. The distinction is not
+    // academic: pythermalcomfort calls scipy.optimize.brentq for cooling_effect,
+    // pet_steady and sports_heat_stress_risk, and on a non-monotonic objective the two
+    // algorithms converge to *different* roots. cooling_effect's objective has three
+    // roots near (8.1 C, 31.5 C, 0.58 m/s, 5.6% RH, 4.6 met); scipy returns the first
+    // (13.67) and zbrent returned the last (15.49), which then shifted pmv_ppd_ashrae.
+    let xtol = xtol.unwrap_or(2e-12);
+    // scipy's default rtol is 4 * DBL_EPSILON
+    let rtol = 4.0 * f64::EPSILON;
     let max_iter = max_iter.unwrap_or(100);
 
-    let mut fa = f(a);
-    let mut fb = f(b);
+    let mut xpre = a;
+    let mut xcur = b;
+    let mut xblk = 0.0;
+    let mut fblk = 0.0;
+    let mut spre = 0.0;
+    let mut scur = 0.0;
 
-    if fa.is_nan() || fb.is_nan() {
+    let mut fpre = f(xpre);
+    let mut fcur = f(xcur);
+
+    if fpre.is_nan() || fcur.is_nan() {
         return Err(RootFindError::NanEncountered);
     }
-
-    if fa * fb > 0.0 {
+    if fpre * fcur > 0.0 {
         return Err(RootFindError::InvalidBounds);
     }
-
-    if abs(fa) < abs(fb) {
-        // Swap a and b
-        core::mem::swap(&mut a, &mut b);
-        core::mem::swap(&mut fa, &mut fb);
+    if fpre == 0.0 {
+        return Ok(xpre);
     }
-
-    let mut c = a;
-    let mut fc = fa;
-    let mut d = b - a;
-    let mut e = d;
+    if fcur == 0.0 {
+        return Ok(xcur);
+    }
 
     for _ in 0..max_iter {
-        if abs(fc) < abs(fb) {
-            a = b;
-            b = c;
-            c = a;
-            fa = fb;
-            fb = fc;
-            fc = fa;
+        if fpre * fcur < 0.0 {
+            xblk = xpre;
+            fblk = fpre;
+            spre = xcur - xpre;
+            scur = spre;
+        }
+        if abs(fblk) < abs(fcur) {
+            xpre = xcur;
+            xcur = xblk;
+            xblk = xpre;
+            fpre = fcur;
+            fcur = fblk;
+            fblk = fpre;
         }
 
-        let tol1 = 2.0 * f64::EPSILON * abs(b) + 0.5 * tol;
-        let xm = 0.5 * (c - b);
+        let delta = (xtol + rtol * abs(xcur)) / 2.0;
+        let sbis = (xblk - xcur) / 2.0;
 
-        if abs(xm) <= tol1 || fb == 0.0 {
-            return Ok(b);
+        if fcur == 0.0 || abs(sbis) < delta {
+            return Ok(xcur);
         }
 
-        if abs(e) >= tol1 && abs(fa) > abs(fb) {
-            // Attempt inverse quadratic interpolation
-            let s = fb / fa;
-            let (p, q) = if a == c {
-                // Linear interpolation (secant method)
-                let p = 2.0 * xm * s;
-                let q = 1.0 - s;
-                (p, q)
+        if abs(spre) > delta && abs(fcur) < abs(fpre) {
+            let stry = if xpre == xblk {
+                // interpolate (secant)
+                -fcur * (xcur - xpre) / (fcur - fpre)
             } else {
-                // Inverse quadratic interpolation
-                let q = fa / fc;
-                let r = fb / fc;
-                let p = s * (2.0 * xm * q * (q - r) - (b - a) * (r - 1.0));
-                let q = (q - 1.0) * (r - 1.0) * (s - 1.0);
-                (p, q)
+                // extrapolate (inverse quadratic)
+                let dpre = (fpre - fcur) / (xpre - xcur);
+                let dblk = (fblk - fcur) / (xblk - xcur);
+                -fcur * (fblk * dblk - fpre * dpre) / (dblk * dpre * (fblk - fpre))
             };
-
-            let p = if p > 0.0 { -q } else { p };
-            let q = if p > 0.0 { abs(q) } else { q };
-
-            let p_abs = abs(p);
-            let min1 = 3.0 * xm * q - abs(tol1 * q);
-            let min2 = abs(e * q);
-
-            if 2.0 * p_abs < min1.min(min2) {
-                e = d;
-                d = p / q;
+            if 2.0 * abs(stry) < min_f64(abs(spre), 3.0 * abs(sbis) - delta) {
+                // good short step
+                spre = scur;
+                scur = stry;
             } else {
-                // Interpolation failed, use bisection
-                d = xm;
-                e = d;
+                // bisect
+                spre = scur;
+                scur = sbis;
             }
         } else {
-            // Bounds decreasing too slowly, use bisection
-            d = xm;
-            e = d;
+            // bisect
+            spre = scur;
+            scur = sbis;
         }
 
-        a = b;
-        fa = fb;
-
-        if abs(d) > tol1 {
-            b += d;
+        xpre = xcur;
+        fpre = fcur;
+        if abs(scur) > delta {
+            xcur += scur;
         } else {
-            b += copysign(tol1, xm);
+            xcur += if sbis > 0.0 { delta } else { -delta };
         }
 
-        fb = f(b);
-
-        if fb.is_nan() {
+        fcur = f(xcur);
+        if fcur.is_nan() {
             return Err(RootFindError::NanEncountered);
-        }
-
-        if (fb > 0.0 && fc > 0.0) || (fb < 0.0 && fc < 0.0) {
-            c = a;
-            fc = fa;
-            d = b - a;
-            e = d;
         }
     }
 
-    Err(RootFindError::MaxIterationsExceeded)
+    Ok(xcur)
+}
+
+#[inline]
+fn min_f64(a: f64, b: f64) -> f64 {
+    if a < b { a } else { b }
 }
 
 #[cfg(test)]

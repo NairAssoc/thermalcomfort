@@ -23,6 +23,16 @@ pub struct SetOptions {
     pub limit_inputs: bool,
     /// Round output value
     pub round_output: bool,
+    /// Use the reduced solver path that only produces SET.
+    ///
+    /// Defaults to `false`, matching pythermalcomfort. This is **not** merely a speed
+    /// switch: the `calculate_ce` path is a different calculation (it forces a standing
+    /// position internally), so leaving it on changes the returned SET by up to ~3.5 °C
+    /// at higher air speeds and metabolic rates. Only [`cooling_effect`] should enable
+    /// it, which is exactly what Python does.
+    ///
+    /// [`cooling_effect`]: crate::models::cooling_effect
+    pub calculate_ce: bool,
 }
 
 impl Default for SetOptions {
@@ -34,6 +44,7 @@ impl Default for SetOptions {
             posture: Posture::Standing,
             limit_inputs: true,
             round_output: true,
+            calculate_ce: false,
         }
     }
 }
@@ -130,7 +141,7 @@ pub fn set_tmp(
         round_output: false, // Don't round in Gagge, we'll round here if needed
         max_sweating: 500.0,
         w_max: None,
-        calculate_ce: true, // Only calculate SET, not all outputs
+        calculate_ce: options.calculate_ce,
     };
 
     let result = two_nodes_gagge(

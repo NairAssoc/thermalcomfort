@@ -103,6 +103,9 @@ pub fn cooling_effect(
         posture: options.posture,
         limit_inputs: false, // Don't limit inputs for cooling effect calculation
         round_output: false, // Need exact values for root finding
+        // The reduced SET-only solver path. pythermalcomfort's cooling_effect is the
+        // one caller that opts into this; set_tmp itself defaults it off.
+        calculate_ce: true,
     };
 
     let initial_set = set_tmp(
@@ -140,7 +143,16 @@ pub fn cooling_effect(
 
     // Use Brent's method to find the cooling effect
     // Search in range [0, 40] °C
-    brentq(function, 0.0, 40.0, Some(0.001), Some(100)).unwrap_or(0.0)
+    // scipy's brentq defaults to xtol=2e-12; the previous 1e-3 here was nine orders of
+    // magnitude looser and converged to a visibly different root (ce 15.49 vs 13.67 at
+    // tdb=8.1, tr=31.5, vr=0.58, rh=5.6, met=4.6), which then shifted pmv_ppd_ashrae.
+    let ce = brentq(function, 0.0, 40.0, Some(2e-12), Some(100)).unwrap_or(0.0);
+
+    // pythermalcomfort rounds to two decimals before returning. This is load-bearing,
+    // not cosmetic: pmv_ppd_ashrae subtracts the cooling effect from tdb and tr, so an
+    // unrounded value shifts the resulting PMV — enough to change it by 0.01 at a
+    // rounding boundary.
+    libm::round(ce * 100.0) / 100.0
 }
 
 #[cfg(test)]
