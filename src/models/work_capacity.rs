@@ -129,6 +129,12 @@ pub fn work_capacity_niosh(wbgt: Temperature, metabolic_power: Power) -> f64 {
 pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> f64 {
     let wbgt_celsius = wbgt.as_celsius();
     // Base capacity calculation
+    // NaN must propagate. f64::max/min *ignore* NaN, where numpy's maximum/clip
+    // propagate it, so a NaN WBGT returned 100% - "heat has no effect on work", the
+    // most dangerous possible wrong answer.
+    if wbgt_celsius.is_nan() {
+        return f64::NAN;
+    }
     let wbgt_excess = (wbgt_celsius - 25.0).max(0.0);
     let mut capacity = 100.0 - 25.0 * libm::pow(wbgt_excess, 2.0 / 3.0);
     capacity = capacity.clamp(0.0, 100.0);

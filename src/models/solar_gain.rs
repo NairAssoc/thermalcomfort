@@ -188,7 +188,11 @@ pub fn solar_gain(
         * f_svv
         * 0.5
         * sol_transmittance
-        * (sol_radiation_dir * libm::sin(sol_altitude * deg_to_rad) + i_diff)
+        // alt_adj, not sol_altitude: for a supine occupant the sun's position is
+        // rotated into the body's frame, and Python reassigns sol_altitude in place so
+        // the transposed value feeds this term too. Reading the original here made 94%
+        // of supine cases wrong.
+        * (sol_radiation_dir * libm::sin(alt_adj * deg_to_rad) + i_diff)
         * floor_reflectance;
 
     let e_solar = e_diff + e_direct + e_reflected;
