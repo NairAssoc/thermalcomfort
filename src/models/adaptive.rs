@@ -70,7 +70,7 @@ impl Default for AdaptiveOptions {
 
 /// Round to 1 decimal place
 fn round1(x: f64) -> f64 {
-    libm::round(x * 10.0) / 10.0
+    crate::utilities::round_half_even(x * 10.0) / 10.0
 }
 
 /// Cooling effect of elevated air speed, shared by the ASHRAE 55 and EN 16798 adaptive
@@ -184,7 +184,7 @@ pub fn adaptive_ashrae(
     }
 
     if options.round_output {
-        t_cmf = libm::round(t_cmf * 10.0) / 10.0;
+        t_cmf = crate::utilities::round_half_even(t_cmf * 10.0) / 10.0;
     }
 
     // Calculate acceptability bounds (ASHRAE 55-2023)

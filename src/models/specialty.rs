@@ -84,7 +84,7 @@ pub fn ankle_draft(
     // Calculate PPD for ankle draft using logistic function
     let exponent = -2.58 + 3.05 * ankle_speed - 1.06 * pmv;
     let ppd_ad = (libm::exp(exponent) / (1.0 + libm::exp(exponent))) * 100.0;
-    let ppd_ad = libm::round(ppd_ad * 10.0) / 10.0;
+    let ppd_ad = crate::utilities::round_half_even(ppd_ad * 10.0) / 10.0;
 
     if limit_inputs
         && !ashrae55_ankle_inputs_valid(
@@ -203,7 +203,7 @@ pub fn vertical_tmp_grad_ppd(
     let numerator =
         libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
     let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
-    let ppd_vtg = libm::round(ppd_vtg * 10.0) / 10.0;
+    let ppd_vtg = crate::utilities::round_half_even(ppd_vtg * 10.0) / 10.0;
 
     if limit_inputs
         && !ashrae55_ankle_inputs_valid(
@@ -297,7 +297,7 @@ pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
 
 /// Round to 3 decimal places
 fn round3(x: f64) -> f64 {
-    libm::round(x * 1000.0) / 1000.0
+    crate::utilities::round_half_even(x * 1000.0) / 1000.0
 }
 
 #[cfg(test)]

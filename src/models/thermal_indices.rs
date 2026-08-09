@@ -50,7 +50,7 @@ pub fn wci(dry_bulb_temp: Temperature, wind_speed: Speed, round_output: bool) ->
     wci_value *= 1.163;
 
     if round_output {
-        wci_value = libm::round(wci_value * 10.0) / 10.0;
+        wci_value = crate::utilities::round_half_even(wci_value * 10.0) / 10.0;
     }
 
     wci_value
@@ -95,7 +95,7 @@ pub fn wind_chill_temperature(
         + 0.3965 * dry_bulb_celsius * libm::pow(wind_speed_kmh, 0.16);
 
     if round_output {
-        wct = libm::round(wct * 10.0) / 10.0;
+        wct = crate::utilities::round_half_even(wct * 10.0) / 10.0;
     }
 
     wct
@@ -211,7 +211,7 @@ pub fn humidex(
     let mut hi = dry_bulb_celsius + 5.0 / 9.0 * (vapor_pressure - 10.0);
 
     if round_output {
-        hi = libm::round(hi * 10.0) / 10.0;
+        hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HumidexResult {
@@ -248,7 +248,7 @@ pub fn humidex_masterson(
     let mut hi = dry_bulb_celsius + 5.0 / 9.0 * (vapor_pressure - 10.0);
 
     if round_output {
-        hi = libm::round(hi * 10.0) / 10.0;
+        hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     hi
@@ -283,7 +283,7 @@ pub fn thi(dry_bulb_temp: Temperature, relative_humidity: Humidity, round_output
         - 0.55 * (1.0 - 0.01 * rh_percent) * (1.8 * dry_bulb_celsius - 26.0);
 
     if round_output {
-        thi_value = libm::round(thi_value * 10.0) / 10.0;
+        thi_value = crate::utilities::round_half_even(thi_value * 10.0) / 10.0;
     }
 
     thi_value
@@ -389,7 +389,7 @@ pub fn discomfort_index(
     let rh_percent = relative_humidity.as_percent();
 
     let di = dry_bulb_celsius - 0.55 * (1.0 - 0.01 * rh_percent) * (dry_bulb_celsius - 14.5);
-    let di = libm::round(di * 10.0) / 10.0;
+    let di = crate::utilities::round_half_even(di * 10.0) / 10.0;
 
     DiscomfortIndexResult {
         di,
@@ -531,7 +531,7 @@ pub fn heat_index_rothfusz(
     }
 
     if round_output {
-        hi = libm::round(hi * 10.0) / 10.0;
+        hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
@@ -589,7 +589,7 @@ pub fn heat_index_schoen(
             * (1.0 - libm::exp(0.0801 * (t_dew_celsius - 14.0)));
 
     if round_output {
-        hi = libm::round(hi * 10.0) / 10.0;
+        hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
@@ -668,7 +668,7 @@ pub fn at(
     };
 
     if round_output {
-        t_at = libm::round(t_at * 10.0) / 10.0;
+        t_at = crate::utilities::round_half_even(t_at * 10.0) / 10.0;
     }
 
     t_at
@@ -737,7 +737,7 @@ pub fn net(
         - 0.29 * dry_bulb_celsius * (1.0 - 0.01 * rh_percent);
 
     if round_output {
-        et = libm::round(et * 10.0) / 10.0;
+        et = crate::utilities::round_half_even(et * 10.0) / 10.0;
     }
 
     et
@@ -787,7 +787,7 @@ pub fn esi(
         - 0.073 * libm::pow(0.1 + sol_radiation_global, -1.0);
 
     if round_output {
-        esi_value = libm::round(esi_value * 10.0) / 10.0;
+        esi_value = crate::utilities::round_half_even(esi_value * 10.0) / 10.0;
     }
 
     esi_value

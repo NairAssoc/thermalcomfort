@@ -433,7 +433,7 @@ fn format_dle(dle: f64, round_output: bool) -> DurationLimitedExposure {
 
 /// Round to 1 decimal place
 fn round1(x: f64) -> f64 {
-    round(x * 10.0) / 10.0
+    crate::utilities::round_half_even(x * 10.0) / 10.0
 }
 
 #[cfg(test)]

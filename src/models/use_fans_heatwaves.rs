@@ -193,7 +193,7 @@ pub fn use_fans_heatwaves(
 
     let round1 = |x: f64| {
         if round_output {
-            libm::round(x * 10.0) / 10.0
+            crate::utilities::round_half_even(x * 10.0) / 10.0
         } else {
             x
         }

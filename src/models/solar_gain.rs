@@ -200,8 +200,8 @@ pub fn solar_gain(
     let delta_mrt = erf / (hr * f_eff);
 
     SolarGainResult {
-        erf: libm::round(erf * 10.0) / 10.0,
-        delta_mrt: libm::round(delta_mrt * 10.0) / 10.0,
+        erf: crate::utilities::round_half_even(erf * 10.0) / 10.0,
+        delta_mrt: crate::utilities::round_half_even(delta_mrt * 10.0) / 10.0,
     }
 }
 

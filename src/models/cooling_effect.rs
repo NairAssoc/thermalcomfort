@@ -152,7 +152,7 @@ pub fn cooling_effect(
     // not cosmetic: pmv_ppd_ashrae subtracts the cooling effect from tdb and tr, so an
     // unrounded value shifts the resulting PMV — enough to change it by 0.01 at a
     // rounding boundary.
-    libm::round(ce * 100.0) / 100.0
+    crate::utilities::round_half_even(ce * 100.0) / 100.0
 }
 
 #[cfg(test)]

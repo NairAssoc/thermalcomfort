@@ -571,7 +571,7 @@ pub fn pmv_a(
     )
     .pmv;
     let a_pmv = pmv / (1.0 + a_coefficient * pmv);
-    libm::round(a_pmv * 100.0) / 100.0 // Round to 2 decimal places
+    crate::utilities::round_half_even(a_pmv * 100.0) / 100.0 // Round to 2 decimal places
 }
 
 /// Calculate Adjusted PMV with Expectancy Factor (ePMV)
@@ -666,7 +666,7 @@ pub fn pmv_e(
     .pmv;
 
     let e_pmv = pmv2 * e_coefficient;
-    libm::round(e_pmv * 100.0) / 100.0 // Round to 2 decimal places
+    crate::utilities::round_half_even(e_pmv * 100.0) / 100.0 // Round to 2 decimal places
 }
 
 /// Calculate PMV using Adaptive Thermal Heat Balance (ATHB) framework
@@ -760,7 +760,7 @@ pub fn pmv_athb(
             + 0.018696 * met_adapted * running_mean_celsius
             - 0.0002909 * l_adapted * met_adapted * running_mean_celsius;
 
-    libm::round(athb_pmv * 1000.0) / 1000.0 // Round to 3 decimal places
+    crate::utilities::round_half_even(athb_pmv * 1000.0) / 1000.0 // Round to 3 decimal places
 }
 #[cfg(test)]
 mod tests {

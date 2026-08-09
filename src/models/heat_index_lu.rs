@@ -44,7 +44,7 @@ pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) ->
     let hi = hi_k - 273.15;
 
     HeatIndexResult {
-        hi: libm::round(hi * 10.0) / 10.0,
+        hi: crate::utilities::round_half_even(hi * 10.0) / 10.0,
         stress_category: None,
     }
 }

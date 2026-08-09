@@ -156,7 +156,7 @@ pub fn set_tmp(
     let set = result.set;
 
     if options.round_output {
-        libm::round(set * 10.0) / 10.0
+        crate::utilities::round_half_even(set * 10.0) / 10.0
     } else {
         set
     }

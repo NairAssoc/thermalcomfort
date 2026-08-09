@@ -203,7 +203,7 @@ pub fn utci(
 
     // Round if requested
     if options.round_output && !utci_value.is_nan() {
-        utci_value = libm::round(utci_value * 10.0) / 10.0;
+        utci_value = crate::utilities::round_half_even(utci_value * 10.0) / 10.0;
     }
 
     let stress_category = StressCategory::from_utci_opt(utci_value);

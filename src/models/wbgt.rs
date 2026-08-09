@@ -110,7 +110,7 @@ pub fn wbgt(
 
     // Round to 1 decimal place if requested
     if options.round_output {
-        wbgt_value = libm::round(wbgt_value * 10.0) / 10.0;
+        wbgt_value = crate::utilities::round_half_even(wbgt_value * 10.0) / 10.0;
     }
 
     wbgt_value

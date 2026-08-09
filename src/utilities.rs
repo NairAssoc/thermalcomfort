@@ -197,11 +197,29 @@ pub fn valid_range(value: f64, min: f64, max: f64) -> f64 {
     }
 }
 
-/// Round to specified decimal places
+/// Round to specified decimal places, half-to-even.
+///
+/// Matches `numpy.around`, which pythermalcomfort uses for every rounded output.
+/// `libm::round` rounds half *away from zero*, which disagrees on ties — and ties are
+/// common here because these values are products of already-2-decimal quantities. For
+/// example `adaptive_en` at `t_running_mean = 25` yields a raw 29.05, which numpy
+/// renders 29.0 and half-away-from-zero renders 29.1.
 #[inline]
 pub fn round_to(value: f64, decimals: i32) -> f64 {
     let multiplier = pow(10.0, decimals as f64);
-    round(value * multiplier) / multiplier
+    round_half_even(value * multiplier) / multiplier
+}
+
+/// Round to the nearest integer, ties to even — `numpy.around`'s rule.
+#[inline]
+pub fn round_half_even(value: f64) -> f64 {
+    let rounded = round(value);
+    // A tie is exactly .5 away; send it to the even neighbour.
+    if (value - value.trunc()).abs() == 0.5 && rounded % 2.0 != 0.0 {
+        rounded - value.signum()
+    } else {
+        rounded
+    }
 }
 
 /// Calculate saturation vapor pressure using Antoine equation

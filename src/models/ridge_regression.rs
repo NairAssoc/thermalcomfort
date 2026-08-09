@@ -340,10 +340,10 @@ pub fn ridge_regression_predict_t_re_t_sk(
     // Round if requested
     if options.round_output {
         for val in &mut t_re_history {
-            *val = libm::round(*val * 100.0) / 100.0;
+            *val = crate::utilities::round_half_even(*val * 100.0) / 100.0;
         }
         for val in &mut t_sk_history {
-            *val = libm::round(*val * 100.0) / 100.0;
+            *val = crate::utilities::round_half_even(*val * 100.0) / 100.0;
         }
     }
 
