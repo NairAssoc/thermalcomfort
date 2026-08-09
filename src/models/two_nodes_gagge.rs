@@ -969,6 +969,9 @@ fn gagge_two_nodes_ji_core(
     let mut t_core = temp_core_neutral;
     #[allow(unused_assignments)]
     let mut m_bl = skin_blood_flow_neutral; // Overwritten in first loop iteration
+    // Carried across iterations: each step uses the previous step's value, matching
+    // pythermalcomfort, which updates alfa after the thermal capacities have used it.
+    let mut alfa = 0.1;
 
     let mut e_skin = 0.1 * met;
 
@@ -1049,9 +1052,6 @@ fn gagge_two_nodes_ji_core(
         m_bl = fmin(m_bl, max_skin_blood_flow_ji);
         m_bl = fmax(m_bl, min_skin_blood_flow);
 
-        // Update alfa based on new blood flow (used for thermal capacities)
-        let alfa = 0.0417737 + 0.7451832 / (m_bl + 0.5854417);
-
         let q_sensible = (t_skin - t_op) / (r_a + r_clo);
         let hf_cs = (t_core - t_skin) * (5.28 + 1.163 * m_bl);
         let s_core = m - hf_cs - q_res - c_res - wme;
@@ -1069,6 +1069,11 @@ fn gagge_two_nodes_ji_core(
             * ((1.0 - alfa) * t_cr_sw + (alfa + a_cof) * t_sk_sw)
             * exp(t_sk_sw / 10.7);
         let m_rsw = fmin(m_rsw, max_sweating_ji);
+
+        // alfa is updated *after* the thermal capacities and sweat rate have used it,
+        // so each iteration works from the previous one's value. Computing it up front
+        // ran the model a step ahead of pythermalcomfort.
+        alfa = 0.0417737 + 0.7451832 / (m_bl + 0.5854417);
 
         let mut e_rsw = 0.68 * m_rsw;
         let r_ea = 1.0 / (lr * f_a_cl * h_cc);
