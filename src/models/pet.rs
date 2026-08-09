@@ -275,6 +275,7 @@ pub fn pet_steady(
             sex_bool,
             p_atm_hpa,
             options.posture,
+            options.work.as_watts(),
         )
     };
 
@@ -928,6 +929,7 @@ fn solve_pet_balance(
     sex: bool,
     p_atm: f64,
     posture: Posture,
+    wme: f64,
 ) -> f64 {
     // Reference environment parameters
     let _tdb = t_pet;
@@ -953,7 +955,10 @@ fn solve_pet_balance(
         weight,
         age,
         sex,
-        0.0,
+        // Python binds the caller's wme into the partial that the PET search calls,
+        // so the reference environment carries the same external work. Hardcoding 0
+        // here made PET independent of wme.
+        wme,
         p_atm,
         posture,
         false,
