@@ -298,9 +298,10 @@ make verify
 ```bash
 export PYTHONPATH=$(ls -d .parity-venv/lib/python*/site-packages)
 
-cargo test --lib                     # library tests (108)
-cargo test --doc                     # documentation tests (62)
-cargo test --test python_comparison  # Python parity tests (74)
+cargo test --lib                      # library tests
+cargo test --doc                      # documentation tests
+cargo test --test python_comparison   # hand-written Python parity tests
+cargo test --test differential_sweep  # randomised differential sweep
 ```
 
 Two guards keep the comparison honest:
@@ -313,6 +314,31 @@ Two guards keep the comparison honest:
   must be compared against Python, not just unit-tested against transcribed constants.
   Functions with no Python counterpart go in `EXEMPT` in `scripts/check_parity_coverage.py`
   with a reason. `KNOWN_GAPS` is empty: adding to it is a regression, so write the test.
+
+### Differential sweep
+
+Beyond the hand-written parity cases, `tests/differential_sweep.rs` drives every model
+through pseudo-random input vectors — including the optional parameters (`wme`, `p_atm`,
+posture, blood-flow and sweating caps) that fixed cases leave at their defaults — and
+compares every output field against Python.
+
+```bash
+make sweep                      # deep run, SWEEP_N=20000
+SWEEP_N=500 cargo test --features std --test differential_sweep
+```
+
+The sweep exists because "every function is called by a parity test" is not the same as
+"every function is verified": a median hand-written case pinned 49 of 103 optional
+parameters at their defaults, and real bugs lived in that residue.
+
+Failures print the seed and a shrunk input vector. Reproduce with:
+
+```bash
+SWEEP_SEED=<seed> SWEEP_N=<n> cargo test --features std --test differential_sweep -- --nocapture
+```
+
+Widening a tolerance to make a sweep pass is almost always wrong: the sweep exists to find
+the differences that fixed cases miss.
 
 When bumping to a new pythermalcomfort release, change the version in `Cargo.toml`, re-run
 `make setup-parity`, and CI will follow automatically — it derives the pin from

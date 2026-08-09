@@ -1,4 +1,4 @@
-.PHONY: lint test verify fmt clippy parity-coverage setup-parity parity-version clean-parity help
+.PHONY: lint test verify fmt clippy parity-coverage setup-parity parity-version clean-parity sweep help
 
 # The crate version IS the pythermalcomfort version this port targets. Deriving the pin
 # from Cargo.toml means CI and local runs can never drift from what is being ported,
@@ -44,6 +44,7 @@ help:
 	@echo "  make setup-parity   - Create the reference venv with pythermalcomfort==$(PTC_VERSION)"
 	@echo "  make lint           - Run fmt + clippy + parity coverage check"
 	@echo "  make test           - Run the full suite in both no_std and std configurations"
+	@echo "  make sweep          - Deep randomised differential sweep (SWEEP_N=$(SWEEP_N))"
 	@echo "  make verify         - Run lint + the full suite including Python parity tests"
 	@echo "  make parity-coverage- Check every public model/utility has a parity test"
 	@echo "  make parity-version - Print the pythermalcomfort version this port targets"
@@ -99,6 +100,15 @@ test:
 	@echo "Running full suite (std feature) against pythermalcomfort $(PTC_VERSION)..."
 	@$(PARITY_ENV) cargo test --release --features std
 	@echo "✓ Both configurations passed!"
+
+# Deep randomised differential sweep. `make test` already runs a short one as part of
+# the suite; this is the long-form version for a release check or a bug hunt. Failures
+# print the seed, so a divergence found here is reproducible at this N.
+SWEEP_N ?= 20000
+sweep:
+	@echo "Running differential sweep with SWEEP_N=$(SWEEP_N)..."
+	@$(PARITY_ENV) SWEEP_N=$(SWEEP_N) cargo test --release --features std \
+		--test differential_sweep -- --nocapture
 
 # Verify target: linting plus the complete test suite
 verify: lint test

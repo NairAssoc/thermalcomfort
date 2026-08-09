@@ -17,7 +17,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
-PARITY_TESTS = REPO / "tests" / "python_comparison.rs"
+# Both targets count as parity coverage: the hand-written cases pin specific known bugs,
+# the randomised sweep covers the space. A function verified by either is verified.
+PARITY_TEST_FILES = [
+    REPO / "tests" / "python_comparison.rs",
+    REPO / "tests" / "differential_sweep.rs",
+]
 
 # Matches a module-level public function, including the qualifiers Rust allows between
 # `pub` and `fn`. Anchored at column 0 so `impl` methods (which rustfmt indents, and
@@ -142,11 +147,15 @@ def _is_defined_fn(name: str, rust_files: list[Path]) -> bool:
 
 
 def main() -> int:
-    if not PARITY_TESTS.exists():
-        print(f"error: {PARITY_TESTS} not found", file=sys.stderr)
+    missing_files = [p for p in PARITY_TEST_FILES if not p.exists()]
+    if missing_files:
+        for path in missing_files:
+            print(f"error: {path} not found", file=sys.stderr)
         return 1
 
-    tests = executable_test_source(PARITY_TESTS.read_text())
+    tests = "\n".join(
+        executable_test_source(p.read_text()) for p in PARITY_TEST_FILES
+    )
     functions = public_function_names()
 
     def is_tested(name: str) -> bool:
@@ -192,7 +201,7 @@ def main() -> int:
         failed = True
         print(
             f"\n{len(missing)} public function(s) have no parity test in "
-            f"{PARITY_TESTS.relative_to(REPO)}:\n",
+            f"{' or '.join(str(p.relative_to(REPO)) for p in PARITY_TEST_FILES)}:\n",
             file=sys.stderr,
         )
         for name in missing:

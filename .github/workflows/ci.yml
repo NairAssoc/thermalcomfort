@@ -79,6 +79,33 @@ jobs:
         shell: bash
         run: make verify
 
+  differential-sweep:
+    name: Differential Sweep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the pythermalcomfort version this crate ports
+        shell: bash
+        run: |
+          PTC_VERSION="$(make parity-version)"
+          echo "Installing pythermalcomfort==${PTC_VERSION}"
+          pip install "pythermalcomfort==${PTC_VERSION}"
+
+      # A short sweep on every push, so a divergence gates the merge without making it
+      # slow. `make sweep` is the deep run for a release check or a bug hunt.
+      - name: Run differential sweep
+        shell: bash
+        run: make sweep SWEEP_N=2000
+
   check:
     name: Check
     runs-on: ubuntu-latest
