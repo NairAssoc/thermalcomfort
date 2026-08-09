@@ -16,6 +16,7 @@ use support::compare::{FieldCmp, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
     CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PhsOptions, PhsPosture, SetOptions,
     UtciOptions, cooling_effect, phs, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, two_nodes_gagge,
@@ -835,6 +836,150 @@ fn sweep_phs() {
             ];
             for (field, rust_value) in fields.iter().zip(values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            }
+            Ok(())
+        });
+    });
+}
+
+/// Pull a Python sequence of floats (numpy array or list) into a `Vec`.
+fn py_float_seq(obj: &Bound<'_, PyAny>, field: &str) -> Result<Vec<f64>, String> {
+    let attr = obj
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python result: {e}"))?;
+    attr.extract::<Vec<f64>>()
+        .map_err(|e| format!("{field}: could not read as a float sequence: {e}"))
+}
+
+#[test]
+fn sweep_two_nodes_gagge_ji() {
+    // The Ji model takes vapour pressure where the Rust wrapper takes relative humidity,
+    // so the sweep samples `rh` and lets each side derive the vapour pressure its own
+    // way. That deliberately puts `p_sat_torr` inside the comparison.
+    let domain = Domain::new()
+        .real("tdb", 5.0, 45.0)
+        .real("tr", 5.0, 45.0)
+        .real("v", 0.0, 2.0)
+        .real("rh", 0.0, 100.0)
+        .real("met", 0.7, 2.5)
+        .real("clo", 0.0, 2.0)
+        .real("wme", 0.0, 1.0)
+        .real("body_surface_area", 1.5, 2.2)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .enumerated("position", 3)
+        .flag("acclimatized")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let utilities = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep("sweep_two_nodes_gagge_ji", &domain, |s: &Sample| {
+            let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("v"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+                s.real("body_surface_area"),
+                s.real("p_atm"),
+            );
+            // Python's Ji validator accepts exactly these three. Only `sitting` takes
+            // the 0.7 radiating-area branch; both standing forms share 0.77, which the
+            // Rust `Posture::Standing` covers -- the crate has no separate
+            // forced-convection variant and the model is insensitive to the difference.
+            let (posture, py_posture) = match s.index("position") {
+                0 => (Posture::Sitting, "sitting"),
+                1 => (Posture::Standing, "standing"),
+                _ => (Posture::Standing, "standing, forced convection"),
+            };
+            let acclimatized = s.flag("acclimatized");
+            let round_output = s.flag("round_output");
+
+            let p_sat = utilities
+                .getattr("p_sat_torr")
+                .unwrap()
+                .call1((tdb,))
+                .map_err(|e| format!("p_sat_torr raised: {e}"))?;
+            let p_sat: f64 = p_sat
+                .extract()
+                .or_else(|_| p_sat.call_method0("item").and_then(|i| i.extract()))
+                .map_err(|e| format!("p_sat_torr did not return a number: {e}"))?;
+            let vapor_pressure = rh * p_sat / 100.0;
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "body_surface_area",
+                    bsa.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
+                ("position", py_posture.into_pyobject(py).unwrap().into_any()),
+                (
+                    "acclimatized",
+                    PyBool::new(py, acclimatized).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("two_nodes_gagge_ji")
+                .unwrap()
+                .call((tdb, tr, v, met, clo, vapor_pressure), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = two_nodes_gagge_ji(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(v),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                GaggeTwoNodesJiOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    body_surface_area: Area::from_square_meters(bsa),
+                    p_atm: Pressure::from_pascals(p_atm),
+                    posture,
+                    acclimatized,
+                    round_output,
+                },
+            );
+
+            // Python does not round, so when the Rust side does, the reference is the
+            // Python trajectory put through the same rounding. The unrounded half of
+            // the sweep is what proves the underlying values agree.
+            let (tol, round) = if round_output {
+                (0.0051, true)
+            } else {
+                (1e-9, false)
+            };
+
+            for (name, rust_series) in [("t_core", &rust.t_core), ("t_skin", &rust.t_skin)] {
+                let py_series = py_float_seq(&py_result, name)?;
+                if py_series.len() != rust_series.len() {
+                    return Err(format!(
+                        "{name}: Rust returned {} minutes, Python {}",
+                        rust_series.len(),
+                        py_series.len()
+                    ));
+                }
+                let cmp = FieldCmp::new(name, tol);
+                for (minute, (rust_value, py_value)) in
+                    rust_series.iter().zip(py_series.iter()).enumerate()
+                {
+                    let expected = if round {
+                        (py_value * 100.0).round() / 100.0
+                    } else {
+                        *py_value
+                    };
+                    compare_field(&cmp, *rust_value, expected)
+                        .map_err(|e| format!("minute {minute}: {e}"))?;
+                }
             }
             Ok(())
         });
