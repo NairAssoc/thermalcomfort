@@ -963,6 +963,8 @@ fn test_compare_use_fans_heatwaves() {
                 Posture::Standing,
                 80.0,
                 500.0,
+                true,
+                true,
             );
 
             let numeric_fields: [(&str, f64); 12] = [
@@ -999,11 +1001,17 @@ fn test_compare_use_fans_heatwaves() {
                 ("heat_strain_sweating", rust_result.heat_strain_sweating),
             ] {
                 // Python reports these as float64 0.0/1.0 rather than bool
-                let py_flag: f64 = py_result.getattr(field).unwrap().extract().unwrap();
+                // Python reports these as float64 0.0/1.0, or NaN when the inputs fall
+                // outside the applicability limits, which maps to None on the Rust side.
+                let py_raw: f64 = py_result.getattr(field).unwrap().extract().unwrap();
+                let py_flag = if py_raw.is_nan() {
+                    None
+                } else {
+                    Some(py_raw != 0.0)
+                };
                 assert_eq!(
-                    rust_flag,
-                    py_flag != 0.0,
-                    "{field} mismatch at tdb={tdb} v={v} rh={rh}: Rust {rust_flag}, Python {py_flag}",
+                    rust_flag, py_flag,
+                    "{field} mismatch at tdb={tdb} v={v} rh={rh}: Rust {rust_flag:?}, Python {py_flag:?}",
                 );
             }
         }

@@ -17,8 +17,8 @@ use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    GaggeTwoNodesOptions, SetOptions, UtciOptions, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp,
-    two_nodes_gagge, utci,
+    CoolingEffectOptions, GaggeTwoNodesOptions, SetOptions, UtciOptions, cooling_effect,
+    pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, two_nodes_gagge, use_fans_heatwaves, utci,
 };
 use thermalcomfort::utilities::Posture;
 use thermalcomfort::{
@@ -466,6 +466,223 @@ fn sweep_utci() {
             );
 
             compare_field(&field, rust.utci, py_float(&py_result, "utci")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_cooling_effect() {
+    // vr below the still-air threshold short-circuits to 0, so the range spans both
+    // sides of it. The objective is non-monotonic in places, which is why the port
+    // needs scipy's exact brentq rather than merely *a* correct root-finder.
+    let domain = Domain::new()
+        .real("tdb", 15.0, 40.0)
+        .real("tr", 15.0, 40.0)
+        .real("vr", 0.0, 2.0)
+        .real("rh", 5.0, 95.0)
+        .real("met", 1.0, 4.0)
+        .real("clo", 0.0, 1.5)
+        .real("wme", 0.0, 1.0);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let field = FieldCmp::new("ce", 0.011);
+
+        run_sweep("sweep_cooling_effect", &domain, |s: &Sample| {
+            let (tdb, tr, vr, rh, met, clo, wme) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("vr"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+            );
+
+            let kwargs = [("wme", wme.into_pyobject(py).unwrap().into_any())]
+                .into_py_dict(py)
+                .unwrap();
+            let py_result = models
+                .getattr("cooling_effect")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = cooling_effect(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(vr),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                CoolingEffectOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    ..Default::default()
+                },
+            );
+
+            compare_field(&field, rust, py_float(&py_result, "ce")?)
+        });
+    });
+}
+
+#[test]
+fn sweep_use_fans_heatwaves() {
+    let domain = Domain::new()
+        .real("tdb", 25.0, 50.0)
+        .real("tr", 25.0, 50.0)
+        .real("v", 0.1, 4.5)
+        .real("rh", 5.0, 95.0)
+        .real("met", 0.8, 2.5)
+        .real("clo", 0.0, 1.0)
+        .real("wme", 0.0, 1.0)
+        .real("body_surface_area", 1.5, 2.2)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .real("max_skin_blood_flow", 40.0, 110.0)
+        .real("max_sweating", 200.0, 700.0)
+        .enumerated("posture", 2)
+        .flag("limit_inputs")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let numeric = [
+            FieldCmp::new("e_skin", 0.11),
+            FieldCmp::new("e_rsw", 0.11),
+            FieldCmp::new("e_max", 0.11),
+            FieldCmp::new("q_sensible", 0.11),
+            FieldCmp::new("q_skin", 0.11),
+            FieldCmp::new("q_res", 0.11),
+            FieldCmp::new("t_core", 0.06),
+            FieldCmp::new("t_skin", 0.06),
+            FieldCmp::new("m_bl", 0.11),
+            FieldCmp::new("m_rsw", 0.11),
+            FieldCmp::new("w", 0.06),
+            FieldCmp::new("w_max", 0.06),
+        ];
+
+        run_sweep("sweep_use_fans_heatwaves", &domain, |s: &Sample| {
+            let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm, msbf, msw) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("v"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+                s.real("body_surface_area"),
+                s.real("p_atm"),
+                s.real("max_skin_blood_flow"),
+                s.real("max_sweating"),
+            );
+            let (posture, py_posture) = match s.index("posture") {
+                0 => (Posture::Standing, "standing"),
+                _ => (Posture::Sitting, "sitting"),
+            };
+
+            // pythermalcomfort 4.4.0 raises UFuncTypeError for this combination: with
+            // limit_inputs=False it skips the masking step that would have coerced the
+            // boolean heat-strain fields, then np.around() tries to round them. An
+            // upstream defect, not a parity concession - there is no Rust behaviour that
+            // could match a crash, so the combination is excluded rather than papered
+            // over. The other three combinations are all exercised.
+            if !s.flag("limit_inputs") && s.flag("round_output") {
+                return Ok(());
+            }
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "body_surface_area",
+                    bsa.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
+                ("position", py_posture.into_pyobject(py).unwrap().into_any()),
+                (
+                    "max_skin_blood_flow",
+                    msbf.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("max_sweating", msw.into_pyobject(py).unwrap().into_any()),
+                (
+                    "limit_inputs",
+                    PyBool::new(py, s.flag("limit_inputs"))
+                        .to_owned()
+                        .into_any(),
+                ),
+                (
+                    "round_output",
+                    PyBool::new(py, s.flag("round_output"))
+                        .to_owned()
+                        .into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("use_fans_heatwaves")
+                .unwrap()
+                .call((tdb, tr, v, rh, met, clo), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = use_fans_heatwaves(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(v),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(wme),
+                Area::from_square_meters(bsa),
+                Pressure::from_pascals(p_atm),
+                posture,
+                msbf,
+                msw,
+                s.flag("limit_inputs"),
+                s.flag("round_output"),
+            );
+
+            let values = [
+                rust.e_skin,
+                rust.e_rsw,
+                rust.e_max,
+                rust.q_sensible,
+                rust.q_skin,
+                rust.q_res,
+                rust.t_core,
+                rust.t_skin,
+                rust.m_bl,
+                rust.m_rsw,
+                rust.w,
+                rust.w_max,
+            ];
+            for (field, rust_value) in numeric.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            }
+
+            // The heat-strain verdicts are the model's actual output; Python reports
+            // them as float64 0.0/1.0 rather than bool.
+            for (name, rust_flag) in [
+                ("heat_strain", rust.heat_strain),
+                ("heat_strain_blood_flow", rust.heat_strain_blood_flow),
+                ("heat_strain_w", rust.heat_strain_w),
+                ("heat_strain_sweating", rust.heat_strain_sweating),
+            ] {
+                // Python masks these to NaN outside the applicability limits, which
+                // maps to None on the Rust side rather than to `false`.
+                let py_raw = py_float(&py_result, name)?;
+                let py_flag = if py_raw.is_nan() {
+                    None
+                } else {
+                    Some(py_raw != 0.0)
+                };
+                if py_flag != rust_flag {
+                    return Err(format!("{name}: Rust {rust_flag:?}, Python {py_flag:?}"));
+                }
+            }
+            Ok(())
         });
     });
 }

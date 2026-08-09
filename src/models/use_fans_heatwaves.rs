@@ -36,13 +36,17 @@ pub struct UseFansHeatwavesResult {
     /// Maximum skin wettedness [0-1]
     pub w_max: f64,
     /// Heat strain from blood flow (m_bl at maximum)
-    pub heat_strain_blood_flow: bool,
+    pub heat_strain_blood_flow: Option<bool>,
     /// Heat strain from wettedness (w at maximum)
-    pub heat_strain_w: bool,
+    pub heat_strain_w: Option<bool>,
     /// Heat strain from sweating (m_rsw at maximum)
-    pub heat_strain_sweating: bool,
+    pub heat_strain_sweating: Option<bool>,
     /// Overall heat strain indicator
-    pub heat_strain: bool,
+    ///
+    /// `None` when the inputs fell outside the applicability limits, matching Python's
+    /// `nan` for this field. Reporting `false` there would assert "no heat strain" for
+    /// a calculation the model declined to make.
+    pub heat_strain: Option<bool>,
 }
 
 /// Estimate if conditions would cause heat strain during heatwaves
@@ -91,9 +95,12 @@ pub struct UseFansHeatwavesResult {
 ///     Pressure::from_pascals(101325.0),
 ///     Posture::Standing,
 ///     80.0,
-///     500.0
+///     500.0,
+///     true,  // limit_inputs
+///     true,  // round_output
 /// );
 /// assert!(result.e_skin > 0.0);
+/// assert_eq!(result.heat_strain, Some(false));
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn use_fans_heatwaves(
@@ -109,6 +116,8 @@ pub fn use_fans_heatwaves(
     posture: Posture,
     max_skin_blood_flow: f64,
     max_sweating: f64,
+    limit_inputs: bool,
+    round_output: bool,
 ) -> UseFansHeatwavesResult {
     // Run two-nodes Gagge model
     let options = GaggeTwoNodesOptions {
@@ -136,29 +145,77 @@ pub fn use_fans_heatwaves(
         options,
     );
 
-    // Detect heat strain conditions
-    let heat_strain_blood_flow = (gagge_result.m_bl - max_skin_blood_flow).abs() < 0.01;
-    let heat_strain_w = (gagge_result.w - gagge_result.w_max).abs() < 0.001;
-    let heat_strain_sweating = (gagge_result.m_rsw - max_sweating).abs() < 0.01;
+    // Detect heat strain conditions.
+    //
+    // Exact equality, not a tolerance, matching pythermalcomfort. That is sound because
+    // each quantity is *clamped* to its cap inside the two-node model, so a saturated
+    // value is bit-identical to the cap. A tolerance instead reports strain for values
+    // merely near the cap: at tdb=38.1, tr=43.7, v=2.16 the previous 1e-3 window called
+    // heat_strain_w true where Python reports false.
+    #[allow(clippy::float_cmp)]
+    let heat_strain_blood_flow = gagge_result.m_bl == max_skin_blood_flow;
+    #[allow(clippy::float_cmp)]
+    let heat_strain_w = gagge_result.w == gagge_result.w_max;
+    #[allow(clippy::float_cmp)]
+    let heat_strain_sweating = gagge_result.m_rsw == max_sweating;
     let heat_strain = heat_strain_blood_flow || heat_strain_w || heat_strain_sweating;
 
+    // ASHRAE 55 / Jay et al. applicability limits. Outside them pythermalcomfort masks
+    // every output to NaN, and the heat-strain verdicts to false, rather than reporting
+    // a fan recommendation the model cannot stand behind.
+    let within_limits = !limit_inputs
+        || ((20.0..=50.0).contains(&dry_bulb_temp.as_celsius())
+            && (20.0..=50.0).contains(&mean_radiant_temp.as_celsius())
+            && (0.1..=4.5).contains(&air_speed.as_meters_per_second())
+            && (0.7..=2.0).contains(&metabolic_rate.as_met())
+            && (0.0..=1.0).contains(&clothing_insulation.as_clo()));
+
+    if !within_limits {
+        return UseFansHeatwavesResult {
+            e_skin: f64::NAN,
+            e_rsw: f64::NAN,
+            e_max: f64::NAN,
+            q_sensible: f64::NAN,
+            q_skin: f64::NAN,
+            q_res: f64::NAN,
+            t_core: f64::NAN,
+            t_skin: f64::NAN,
+            m_bl: f64::NAN,
+            m_rsw: f64::NAN,
+            w: f64::NAN,
+            w_max: f64::NAN,
+            heat_strain_blood_flow: None,
+            heat_strain_w: None,
+            heat_strain_sweating: None,
+            heat_strain: None,
+        };
+    }
+
+    let round1 = |x: f64| {
+        if round_output {
+            libm::round(x * 10.0) / 10.0
+        } else {
+            x
+        }
+    };
+
     UseFansHeatwavesResult {
-        e_skin: libm::round(gagge_result.e_skin * 10.0) / 10.0,
-        e_rsw: libm::round(gagge_result.e_rsw * 10.0) / 10.0,
-        e_max: libm::round(gagge_result.e_max * 10.0) / 10.0,
-        q_sensible: libm::round(gagge_result.q_sensible * 10.0) / 10.0,
-        q_skin: libm::round(gagge_result.q_skin * 10.0) / 10.0,
-        q_res: libm::round(gagge_result.q_res * 10.0) / 10.0,
-        t_core: libm::round(gagge_result.t_core * 10.0) / 10.0,
-        t_skin: libm::round(gagge_result.t_skin * 10.0) / 10.0,
-        m_bl: libm::round(gagge_result.m_bl * 10.0) / 10.0,
-        m_rsw: libm::round(gagge_result.m_rsw * 10.0) / 10.0,
-        w: libm::round(gagge_result.w * 10.0) / 10.0,
-        w_max: libm::round(gagge_result.w_max * 10.0) / 10.0,
-        heat_strain_blood_flow,
-        heat_strain_w,
-        heat_strain_sweating,
-        heat_strain,
+        e_skin: round1(gagge_result.e_skin),
+        e_rsw: round1(gagge_result.e_rsw),
+        e_max: round1(gagge_result.e_max),
+        q_sensible: round1(gagge_result.q_sensible),
+        q_skin: round1(gagge_result.q_skin),
+        q_res: round1(gagge_result.q_res),
+        t_core: round1(gagge_result.t_core),
+        t_skin: round1(gagge_result.t_skin),
+        m_bl: round1(gagge_result.m_bl),
+        m_rsw: round1(gagge_result.m_rsw),
+        w: round1(gagge_result.w),
+        w_max: round1(gagge_result.w_max),
+        heat_strain_blood_flow: Some(heat_strain_blood_flow),
+        heat_strain_w: Some(heat_strain_w),
+        heat_strain_sweating: Some(heat_strain_sweating),
+        heat_strain: Some(heat_strain),
     }
 }
 
@@ -181,6 +238,8 @@ mod tests {
             Posture::Standing,
             80.0,
             500.0,
+            true,
+            true,
         );
         assert!(result.e_skin > 0.0);
         assert!(result.t_core > 36.0 && result.t_core < 39.0);
@@ -202,6 +261,8 @@ mod tests {
             Posture::Standing,
             80.0,
             500.0,
+            true,
+            true,
         );
         // Should detect some form of heat strain in extreme conditions
         assert!(result.t_core > 37.0);
