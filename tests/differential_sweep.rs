@@ -1802,7 +1802,11 @@ fn sweep_pet_steady() {
         .real("age", 18.0, 85.0)
         .real("weight", 45.0, 120.0)
         .real("height", 1.4, 2.1)
-        .real("wme", 0.0, 2.0)
+        // Both implementations use this as a work-efficiency fraction, `h = he*(1-wme)`,
+        // so values above 1 make the metabolic source term negative and the two solvers
+        // settle on different points of a system with no physical solution. Bounded to
+        // [0, 1] to match every other model's wme axis.
+        .real("wme", 0.0, 1.0)
         .enumerated("position", 2)
         .enumerated("sex", 2)
         .flag("round_output");
@@ -1929,7 +1933,13 @@ def call(args, kwargs):
             // and accepts points whose balance is still ~0.3 W/m2 out. Where no root
             // meets the stricter bar the Rust solver reports NaN rather than returning
             // a wrong number. Python-NaN against a Rust number is still a failure.
-            let tol = if round_output { 1e-9 } else { 0.0051 };
+            //
+            // Python always rounds to two decimals and Rust rounds independently, so
+            // when both round the results can straddle a boundary and differ by exactly
+            // one step. That is why the rounded half allows 0.0101 and no more; the
+            // unrounded half holds the underlying values to 0.0051, which is what
+            // actually proves they agree.
+            let tol = if round_output { 0.0101 } else { 0.0051 };
             let field = FieldCmp::new(
                 "pet",
                 if std::env::var("PET_MEASURE").is_ok() {
@@ -2551,11 +2561,15 @@ fn sweep_ireq() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
+        // 1e-6 absolute, not 1e-9: IREQ is solved iteratively and reaches into the
+        // hundreds in severe cold, where the two implementations agree to about 7e-9
+        // absolute - 2.7e-11 relative, i.e. float-representation noise rather than a
+        // difference in the model.
         let fields = [
-            FieldCmp::new("ireq_min", 1e-9),
-            FieldCmp::new("ireq_neutral", 1e-9),
-            FieldCmp::new("icl_min", 1e-9),
-            FieldCmp::new("icl_neutral", 1e-9),
+            FieldCmp::new("ireq_min", 1e-6),
+            FieldCmp::new("ireq_neutral", 1e-6),
+            FieldCmp::new("icl_min", 1e-6),
+            FieldCmp::new("icl_neutral", 1e-6),
         ];
 
         run_sweep("sweep_ireq", &domain, |s: &Sample| {
@@ -2618,8 +2632,8 @@ fn sweep_ireq() {
             for (field, rust_value) in fields.iter().zip(values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
-            compare_dle("dle_min", rust.dle_min, &py_result, 1e-9)?;
-            compare_dle("dle_neutral", rust.dle_neutral, &py_result, 1e-9)
+            compare_dle("dle_min", rust.dle_min, &py_result, 1e-6)?;
+            compare_dle("dle_neutral", rust.dle_neutral, &py_result, 1e-6)
         });
     });
 }
