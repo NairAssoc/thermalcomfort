@@ -1495,7 +1495,8 @@ remain, recorded here so they survive a context reset.
 
 ### A. Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
 
-**Status:** not started. The public doc comment now warns users; the code is unchanged.
+**Status: not started — BLOCKED on an API decision (see "API implication" below).**
+The public doc comment warns users; the code is unchanged.
 
 **What is wrong.** `src/models/two_nodes_gagge.rs::two_nodes_gagge_sleep` delegates to the
 standard Gagge model at a fixed `met_sleep = 0.7`, and computes
@@ -1527,17 +1528,42 @@ Deciding the Rust shape (return the final minute, return a `Vec`, or take a dura
 return a trajectory) is a genuine API design decision that should be settled before the
 port, not during it.
 
-### B. Port `two_nodes_gagge_ji` to the Ji et al. model
+### B. Finish porting `two_nodes_gagge_ji` to the Ji et al. model
 
-**Status:** not started. The public doc comment now warns users; the code is unchanged.
+**Status: PARTIALLY DONE.** Four of the eight defects are fixed and committed
+(`4eff0bf`, `df60b00`, `187376b`, `f00184d`); the public doc comment on the function
+still lists the rest. No API shape change is needed, so this is ordinary work with no
+blocking decision — **start here in a fresh session.**
 
-Wrong on eight counts, listed in the doc comment on the function. The most serious is
-that it has **no shivering term at all**, where Python computes
-`met_shivering = 19.4 * t_cr_sh * t_sk_cons + 50 * t_cr_sh + 0.5 * t_sk_cons`. Also:
-wrong initial temperatures (Python's skin starts above core, 36.8 vs 36.49), wrong
-`f_a_cl`, wrong radiative coefficient, wrong `h_cc` correlation, `m_rsw_max` missing the
-acclimatisation factor, `m_bl`/`alfa` updated in the wrong order, and a default posture
-of Standing where Python uses sitting.
+Fixed already:
+- shivering term `met_shivering = c_she * (cof_scs*t_cr_sh*t_sk_cons + cof_sc*t_cr_sh
+  + cof_ss*t_sk_cons)` with `c_she=1, cof_scs=19.4, cof_sc=50, cof_ss=0.5,
+  t_cr0_sh=36.7`, and `m = met*met_factor + met_shivering` thereafter
+- initial temperatures: skin 36.8, core 36.49 (skin starts *above* core)
+- `m_rsw_max` acclimatisation: `400 * 1.25 / 0.68 * 0.9`, since Python defaults
+  `acclimatized=True`
+- `alfa` now carried across iterations and updated *after* the thermal capacities and
+  sweat rate consume it, matching Python's ordering
+
+Still outstanding:
+- clothing area factor `f_a_cl`
+- radiative heat transfer coefficient
+- convective correlation `h_cc`
+- default posture is Standing here where Python uses sitting
+
+Current state against pythermalcomfort 4.4.0 at v=0.1, rh=40, met=1.0, clo=0.5
+(call Python as `two_nodes_gagge_ji(tdb=…, tr=…, v=…, met=…, clo=…, vapor_pressure=vp)`
+where `vp = rh * p_sat_torr(tdb) / 100` — note it takes vapour pressure, not rh):
+
+| case | Rust | Python |
+|---|---|---|
+| tdb=10 final t_core | 36.60 | 36.5718 |
+| tdb=10 final t_skin | 26.86 | 26.3311 |
+| tdb=40 final t_core | 37.63 | 37.6154 |
+| tdb=40 final t_skin | 35.46 | 35.3018 |
+
+Rust returns `heapless::Vec` trajectories; take `.last()` to compare against Python's
+final element.
 
 ### C. The `measurements::Temperature` round-trip
 
