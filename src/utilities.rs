@@ -2,7 +2,7 @@
 
 use crate::constants::*;
 use crate::{ClothingInsulation, MetabolicRate};
-use libm::{exp, log, pow, round};
+use libm::{copysign, exp, fabs, log, pow, round, trunc};
 pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
 
 /// Convert Temperature to Celsius (f64)
@@ -214,9 +214,11 @@ pub fn round_to(value: f64, decimals: i32) -> f64 {
 #[inline]
 pub fn round_half_even(value: f64) -> f64 {
     let rounded = round(value);
-    // A tie is exactly .5 away; send it to the even neighbour.
-    if (value - value.trunc()).abs() == 0.5 && rounded % 2.0 != 0.0 {
-        rounded - value.signum()
+    // A tie is exactly .5 away from an integer; send it to the even neighbour.
+    // libm rather than f64 methods: `trunc`, `abs` and `signum` are std-only and this
+    // crate is no_std by default.
+    if fabs(value - trunc(value)) == 0.5 && fabs(rounded % 2.0) != 0.0 {
+        rounded - copysign(1.0, value)
     } else {
         rounded
     }

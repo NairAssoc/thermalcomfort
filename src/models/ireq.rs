@@ -15,7 +15,7 @@
 
 use crate::constants::MET_TO_W_M2;
 use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
-use libm::{exp, fabs, log, pow, round};
+use libm::{exp, fabs, log, pow};
 
 /// Conversion between clo and m²·K/W
 const CLO_TO_M2K_W: f64 = 0.155;

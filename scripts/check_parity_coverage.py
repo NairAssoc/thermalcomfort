@@ -30,6 +30,7 @@ EXEMPT: dict[str, str] = {
     "humidex_masterson": "variant not present in pythermalcomfort",
     "brentq": "numerical root-finder; Python delegates to scipy",
     "round_to": "formatting helper, no Python equivalent",
+    "round_half_even": "mirrors numpy.around's tie rule; numpy, not pythermalcomfort",
     "valid_range": "internal applicability helper, exercised via every model that gates on it",
     "celsius_to_temp": "Rust measurement-type adapter, no Python analogue",
     "temp_to_celsius": "Rust measurement-type adapter, no Python analogue",
