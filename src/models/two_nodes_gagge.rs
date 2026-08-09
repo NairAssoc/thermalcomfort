@@ -946,7 +946,10 @@ fn gagge_two_nodes_ji_core(
     // Min/max blood flow for elderly
     let min_skin_blood_flow = 0.75; // min SBF for older people
     let max_skin_blood_flow_ji = 63.0; // max SBF for older people
-    let max_sweating_ji = 400.0 * 0.9 / 0.68; // 400 W/m² * 90% efficiency
+    // pythermalcomfort defaults acclimatized = true, which scales the maximum
+    // regulatory evaporation by 1.25 before the 0.68 latent-heat and 0.9 efficiency
+    // factors: 400 * 1.25 / 0.68 * 0.9. Omitting the 1.25 left the cap 20% low.
+    let max_sweating_ji = 400.0 * 1.25 / 0.68 * 0.9;
 
     // Other constants
     let air_speed = fmax(v, 0.1);
