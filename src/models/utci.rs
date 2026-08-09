@@ -12,7 +12,8 @@ pub struct UtciResult {
     /// Universal Thermal Climate Index [°C]
     pub utci: f64,
     /// Thermal stress category
-    pub stress_category: StressCategory,
+    /// Stress category, or `None` when the UTCI is not available (NaN)
+    pub stress_category: Option<StressCategory>,
 }
 
 /// Thermal stress categories based on UTCI value
@@ -31,33 +32,41 @@ pub enum StressCategory {
 }
 
 impl StressCategory {
-    /// Get stress category from UTCI value
-    pub fn from_utci(utci: f64) -> Self {
+    /// Categorise a UTCI value, or `None` when it is not available (NaN).
+    ///
+    /// `None` rather than a band for NaN: the previous code returned
+    /// `NoThermalStress`, so every `limit_inputs` rejection reported "no thermal
+    /// stress" for a calculation that was never made — the most dangerous direction to
+    /// be wrong in for a cold- and heat-stress index.
+    ///
+    /// Bands are right-inclusive, matching pythermalcomfort's `mapping(..., right=True)`:
+    /// a UTCI of exactly -40.0 is extreme cold stress, not very strong cold stress.
+    pub fn from_utci_opt(utci: f64) -> Option<Self> {
         if utci.is_nan() {
-            return StressCategory::NoThermalStress;
+            return None;
         }
 
-        if utci < -40.0 {
+        Some(if utci <= -40.0 {
             StressCategory::ExtremeColdStress
-        } else if utci < -27.0 {
+        } else if utci <= -27.0 {
             StressCategory::VeryStrongColdStress
-        } else if utci < -13.0 {
+        } else if utci <= -13.0 {
             StressCategory::StrongColdStress
-        } else if utci < 0.0 {
+        } else if utci <= 0.0 {
             StressCategory::ModerateColdStress
-        } else if utci < 9.0 {
+        } else if utci <= 9.0 {
             StressCategory::SlightColdStress
-        } else if utci < 26.0 {
+        } else if utci <= 26.0 {
             StressCategory::NoThermalStress
-        } else if utci < 32.0 {
+        } else if utci <= 32.0 {
             StressCategory::ModerateHeatStress
-        } else if utci < 38.0 {
+        } else if utci <= 38.0 {
             StressCategory::StrongHeatStress
-        } else if utci < 46.0 {
+        } else if utci <= 46.0 {
             StressCategory::VeryStrongHeatStress
         } else {
             StressCategory::ExtremeHeatStress
-        }
+        })
     }
 
     /// Get description string
@@ -139,7 +148,7 @@ impl Default for UtciOptions {
 ///     Default::default()
 /// );
 /// println!("UTCI: {:.1}°C", result.utci);
-/// println!("Stress: {}", result.stress_category.as_str());
+/// println!("Stress: {:?}", result.stress_category);
 /// ```
 pub fn utci(
     dry_bulb_temp: Temperature,
@@ -197,7 +206,7 @@ pub fn utci(
         utci_value = libm::round(utci_value * 10.0) / 10.0;
     }
 
-    let stress_category = StressCategory::from_utci(utci_value);
+    let stress_category = StressCategory::from_utci_opt(utci_value);
 
     UtciResult {
         utci: utci_value,
@@ -462,7 +471,10 @@ mod tests {
             Default::default(),
         );
         assert!(result.utci > 20.0 && result.utci < 30.0);
-        assert_eq!(result.stress_category, StressCategory::NoThermalStress);
+        assert_eq!(
+            result.stress_category,
+            Some(StressCategory::NoThermalStress)
+        );
     }
 
     #[test]
@@ -477,7 +489,7 @@ mod tests {
         assert!(result.utci < 0.0);
         assert!(matches!(
             result.stress_category,
-            StressCategory::StrongColdStress | StressCategory::ModerateColdStress
+            Some(StressCategory::StrongColdStress | StressCategory::ModerateColdStress)
         ));
     }
 
@@ -493,9 +505,11 @@ mod tests {
         assert!(result.utci > 30.0);
         assert!(matches!(
             result.stress_category,
-            StressCategory::ModerateHeatStress
-                | StressCategory::StrongHeatStress
-                | StressCategory::VeryStrongHeatStress
+            Some(
+                StressCategory::ModerateHeatStress
+                    | StressCategory::StrongHeatStress
+                    | StressCategory::VeryStrongHeatStress
+            )
         ));
     }
 
@@ -538,45 +552,37 @@ mod tests {
 
     #[test]
     fn test_stress_categories() {
+        for (utci, expected) in [
+            (-45.0, StressCategory::ExtremeColdStress),
+            (-30.0, StressCategory::VeryStrongColdStress),
+            (-15.0, StressCategory::StrongColdStress),
+            (-5.0, StressCategory::ModerateColdStress),
+            (5.0, StressCategory::SlightColdStress),
+            (20.0, StressCategory::NoThermalStress),
+            (30.0, StressCategory::ModerateHeatStress),
+            (35.0, StressCategory::StrongHeatStress),
+            (42.0, StressCategory::VeryStrongHeatStress),
+            (50.0, StressCategory::ExtremeHeatStress),
+        ] {
+            assert_eq!(StressCategory::from_utci_opt(utci), Some(expected));
+        }
+
+        // Bands are right-inclusive: a value sitting exactly on an edge belongs to the
+        // colder band. Reference values from pythermalcomfort 4.4.0.
         assert_eq!(
-            StressCategory::from_utci(-45.0),
-            StressCategory::ExtremeColdStress
+            StressCategory::from_utci_opt(-40.0),
+            Some(StressCategory::ExtremeColdStress)
         );
         assert_eq!(
-            StressCategory::from_utci(-30.0),
-            StressCategory::VeryStrongColdStress
+            StressCategory::from_utci_opt(26.0),
+            Some(StressCategory::NoThermalStress)
         );
         assert_eq!(
-            StressCategory::from_utci(-15.0),
-            StressCategory::StrongColdStress
+            StressCategory::from_utci_opt(32.0),
+            Some(StressCategory::ModerateHeatStress)
         );
-        assert_eq!(
-            StressCategory::from_utci(-5.0),
-            StressCategory::ModerateColdStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(5.0),
-            StressCategory::SlightColdStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(20.0),
-            StressCategory::NoThermalStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(30.0),
-            StressCategory::ModerateHeatStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(35.0),
-            StressCategory::StrongHeatStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(42.0),
-            StressCategory::VeryStrongHeatStress
-        );
-        assert_eq!(
-            StressCategory::from_utci(50.0),
-            StressCategory::ExtremeHeatStress
-        );
+
+        // A UTCI that was never computed has no category
+        assert_eq!(StressCategory::from_utci_opt(f64::NAN), None);
     }
 }

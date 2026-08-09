@@ -1506,11 +1506,7 @@ fn test_compare_utci() {
                 .unwrap();
 
             let py_utci: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
-            let py_stress: String = py_result
-                .getattr("stress_category")
-                .unwrap()
-                .extract()
-                .unwrap();
+            let py_stress = extract_category(&py_result.getattr("stress_category").unwrap());
 
             // Call Rust function with measurement types
             let rust_result = utci(
@@ -1524,7 +1520,7 @@ fn test_compare_utci() {
             // Compare results (UTCI polynomial should match very closely)
             assert_abs_diff_eq!(rust_result.utci, py_utci, epsilon = 0.1);
             assert_eq!(
-                rust_result.stress_category.as_str(),
+                rust_result.stress_category.map(|c| c.as_str().to_string()),
                 py_stress,
                 "UTCI stress_category mismatch at tdb={tdb} tr={tr} v={v} rh={rh}",
             );
@@ -2899,11 +2895,7 @@ fn test_readme_example_utci() {
             .call1((tdb, tr, v, rh))
             .unwrap();
         let py_utci: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
-        let py_stress: String = py_result
-            .getattr("stress_category")
-            .unwrap()
-            .extract()
-            .unwrap();
+        let py_stress = extract_category(&py_result.getattr("stress_category").unwrap());
 
         // Rust calculation with measurement types
         let result = utci(
@@ -2917,11 +2909,17 @@ fn test_readme_example_utci() {
         assert_abs_diff_eq!(result.utci, py_utci, epsilon = 0.15);
 
         // Verify stress category matches
-        assert_eq!(result.stress_category.as_str(), py_stress);
+        assert_eq!(
+            result.stress_category.map(|c| c.as_str().to_string()),
+            py_stress
+        );
 
         // Check that results are close to documented values: UTCI: 25.2°C
         assert!((result.utci - 25.2).abs() < 0.5, "UTCI should be ~25.2°C");
-        assert_eq!(result.stress_category.as_str(), "no thermal stress");
+        assert_eq!(
+            result.stress_category.map(|c| c.as_str()),
+            Some("no thermal stress")
+        );
     });
 }
 

@@ -36,7 +36,7 @@ fn main() {
     println!("  UTCI: {:.1}°C", utci_result1.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result1.stress_category.as_str()
+        utci_result1.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     // WBGT calculation (outdoor with solar load)
@@ -80,7 +80,7 @@ fn main() {
     println!("  UTCI: {:.1}°C", utci_result2.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result2.stress_category.as_str()
+        utci_result2.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     let twb2 = wet_bulb_temperature(tdb2, rh2);
@@ -122,7 +122,7 @@ fn main() {
     println!("  UTCI: {:.1}°C", utci_result3.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result3.stress_category.as_str()
+        utci_result3.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     println!("\n--- Summary ---");
