@@ -32,7 +32,9 @@ use thermalcomfort::utilities::{
     clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
     p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
-use thermalcomfort::{ClothingInsulation, Mass, MetabolicRate, Sex};
+use thermalcomfort::{
+    AirPermeability, ClothingInsulation, Mass, MetabolicRate, Sex, TemperatureDelta,
+};
 
 /// Guard against validating the port against the wrong pythermalcomfort.
 ///
@@ -474,7 +476,7 @@ fn test_compare_ireq() {
                 Humidity::from_percent(rh),
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
-                p,
+                AirPermeability::from_l_per_m2_s(p),
                 Speed::from_meters_per_second(walk_sp),
                 IreqOptions::default(),
             );
@@ -2563,7 +2565,7 @@ fn test_compare_vertical_tmp_grad_ppd() {
                 Humidity::from_percent(rh),
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
-                grad,
+                TemperatureDelta::from_celsius(grad),
                 true,
             );
 
@@ -3011,7 +3013,11 @@ fn test_clo_intrinsic_insulation_ensemble_comparison() {
                 .unwrap();
 
             // Call Rust function
-            let rust_result = clo_intrinsic_insulation_ensemble(&garments);
+            let rust_garments: Vec<ClothingInsulation> = garments
+                .iter()
+                .map(|c| ClothingInsulation::from_clo(*c))
+                .collect();
+            let rust_result = clo_intrinsic_insulation_ensemble(&rust_garments);
 
             println!(
                 "Garments: {:?} - Python: {:.3}, Rust: {:.3}",

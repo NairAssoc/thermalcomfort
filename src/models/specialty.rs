@@ -3,7 +3,7 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv::{PmvPpdOptions, pmv_ppd_ashrae};
-use crate::{ClothingInsulation, MetabolicRate};
+use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
 use measurements::{Humidity, Length, Speed, Temperature};
 
 /// Calculate percentage dissatisfied due to ankle draft
@@ -135,7 +135,8 @@ fn ashrae55_ankle_inputs_valid(
 /// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 /// * `metabolic_rate` - Metabolic rate
 /// * `clothing_insulation` - Clothing insulation
-/// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m [°C]
+/// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m
+///   (a [`TemperatureDelta`], so the unit is explicit rather than implied)
 /// * `limit_inputs` - If true, returns NaN/false when any input is outside the ASHRAE 55
 ///   applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
 ///   1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
@@ -148,7 +149,9 @@ fn ashrae55_ankle_inputs_valid(
 ///
 /// ```
 /// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+/// use thermalcomfort::{
+///     Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation, TemperatureDelta,
+/// };
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     Temperature::from_celsius(25.0),
@@ -157,7 +160,7 @@ fn ashrae55_ankle_inputs_valid(
 ///     Humidity::from_percent(50.0),
 ///     MetabolicRate::from_met(1.2),
 ///     ClothingInsulation::from_clo(0.5),
-///     2.0,  // 2°C temperature gradient
+///     TemperatureDelta::from_celsius(2.0),
 ///     true,
 /// );
 /// println!("PPD vertical gradient: {:.1}%, Acceptable: {}", ppd, acceptable);
@@ -175,7 +178,7 @@ pub fn vertical_tmp_grad_ppd(
     relative_humidity: Humidity,
     metabolic_rate: MetabolicRate,
     clothing_insulation: ClothingInsulation,
-    vertical_temp_gradient: f64,
+    vertical_temp_gradient: TemperatureDelta,
     limit_inputs: bool,
 ) -> (f64, bool) {
     // Calculate PMV value for use in vertical temperature gradient equation.
@@ -194,6 +197,7 @@ pub fn vertical_tmp_grad_ppd(
         },
     );
     let pmv = pmv_result.pmv;
+    let vertical_temp_gradient = vertical_temp_gradient.as_celsius();
 
     // PPD calculation for vertical temperature gradient using ASHRAE 55-2023 formula
     let numerator =
@@ -391,7 +395,7 @@ mod tests {
             Humidity::from_percent(50.0),
             MetabolicRate::from_met(1.2),
             ClothingInsulation::from_clo(0.5),
-            2.0,
+            TemperatureDelta::from_celsius(2.0),
             true,
         );
         // PPD can be negative for comfortable conditions (formula artifact)
@@ -421,7 +425,7 @@ mod tests {
                 Humidity::from_percent(50.0),
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
-                2.0,
+                TemperatureDelta::from_celsius(2.0),
                 true,
             );
             assert!(ppd.is_nan(), "{label}: expected NaN with limit_inputs=true");
@@ -437,7 +441,7 @@ mod tests {
                 Humidity::from_percent(50.0),
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
-                2.0,
+                TemperatureDelta::from_celsius(2.0),
                 false,
             );
             assert!(
@@ -454,7 +458,7 @@ mod tests {
             Humidity::from_percent(50.0),
             MetabolicRate::from_met(1.2),
             ClothingInsulation::from_clo(0.5),
-            2.0,
+            TemperatureDelta::from_celsius(2.0),
             true,
         );
         assert!(

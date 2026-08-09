@@ -36,11 +36,19 @@ From the [`measurements`](https://crates.io/crates/measurements) crate:
 - `Pressure` - Pa, kPa, mmHg, atm, etc.
 
 Defined in this crate:
+- `TemperatureDelta` - A temperature *difference* (°C/K or °F). Distinct from `Temperature`,
+  which is absolute: a change of 1 °C is a change of 1.8 °F, with no offset
+- `AirPermeability` - Air permeability of clothing (l/(m²·s)), per ISO 11079
 - `ClothingInsulation` - Clothing insulation (clo, tog, m²·K/W)
 - `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
 - `Sex` - Biological sex for physiological models
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
+
+Physical quantities are newtypes on **inputs**; result structs return plain `f64`. Four input
+parameters remain untyped because no suitable type exists yet: solar angles (`solar_gain`,
+`transpose_sharp_altitude` — `measurements::Angle` is not re-exported), irradiance in W/m²
+(`esi`, `solar_gain`), and the blood-flow and sweating caps in `use_fans_heatwaves`.
 
 ### Optional `std` Feature
 
@@ -177,6 +185,7 @@ long exposure can last when the clothing available is not enough.
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::AirPermeability;
 use thermalcomfort::models::{ireq, IreqOptions, DurationLimitedExposure};
 
 fn main() {
@@ -187,7 +196,7 @@ fn main() {
         Humidity::from_percent(55.0),
         MetabolicRate::from_met(175.0 / 58.15),
         ClothingInsulation::from_clo(2.8),
-        50.0, // air permeability of clothing [l/(m²·s)]
+        AirPermeability::from_l_per_m2_s(50.0),
         Speed::from_meters_per_second(1.1),
         IreqOptions::default()
     );

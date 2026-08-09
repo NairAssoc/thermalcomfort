@@ -59,6 +59,76 @@ pub use utilities::{
 // Users should import these from thermalcomfort instead of directly from measurements
 pub use measurements::{Area, Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
+/// A temperature *difference*.
+///
+/// Distinct from [`Temperature`], which is absolute: 25 °C and 25 °F are different
+/// temperatures, but a *change* of 1 °C is a change of 1.8 °F, with no offset. Keeping
+/// the two apart stops a gradient being handed to something expecting an absolute
+/// reading, and makes the unit explicit at the API boundary instead of leaving it
+/// implied by a bare `f64`.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::TemperatureDelta;
+///
+/// let gradient = TemperatureDelta::from_celsius(2.0);
+/// assert!((gradient.as_fahrenheit() - 3.6).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct TemperatureDelta(f64);
+
+impl TemperatureDelta {
+    /// Construct from a difference in degrees Celsius (equivalently, kelvin)
+    pub const fn from_celsius(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Construct from a difference in degrees Fahrenheit
+    pub const fn from_fahrenheit(value: f64) -> Self {
+        Self(value / 1.8)
+    }
+
+    /// The difference in degrees Celsius (equivalently, kelvin)
+    pub const fn as_celsius(self) -> f64 {
+        self.0
+    }
+
+    /// The difference in degrees Fahrenheit
+    pub const fn as_fahrenheit(self) -> f64 {
+        self.0 * 1.8
+    }
+}
+
+/// Air permeability of clothing.
+///
+/// ISO 11079 expresses this in litres per square metre per second: the rate at which
+/// air passes through the fabric. It is a distinct dimension from air speed, so it gets
+/// its own type rather than reusing [`Speed`].
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::AirPermeability;
+///
+/// let p = AirPermeability::from_l_per_m2_s(50.0);
+/// assert!((p.as_l_per_m2_s() - 50.0).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct AirPermeability(f64);
+
+impl AirPermeability {
+    /// Construct from litres per square metre per second [l/(m²·s)]
+    pub const fn from_l_per_m2_s(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in litres per square metre per second [l/(m²·s)]
+    pub const fn as_l_per_m2_s(self) -> f64 {
+        self.0
+    }
+}
+
 /// Clothing insulation measurement.
 ///
 /// Represents thermal resistance of clothing per unit body surface area.
@@ -235,5 +305,29 @@ impl Sex {
             Sex::Male => 0.0,
             Sex::Female => 1.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod newtype_tests {
+    use super::*;
+
+    #[test]
+    fn temperature_delta_converts_without_an_offset() {
+        // A 1 °C change is a 1.8 °F change — no 32 degree offset
+        assert!((TemperatureDelta::from_celsius(1.0).as_fahrenheit() - 1.8).abs() < 1e-12);
+        assert!((TemperatureDelta::from_fahrenheit(1.8).as_celsius() - 1.0).abs() < 1e-12);
+        assert!(TemperatureDelta::from_celsius(0.0).as_fahrenheit().abs() < 1e-12);
+
+        let d = TemperatureDelta::from_celsius(3.5);
+        assert!(
+            (TemperatureDelta::from_fahrenheit(d.as_fahrenheit()).as_celsius() - 3.5).abs() < 1e-12
+        );
+    }
+
+    #[test]
+    fn air_permeability_round_trips() {
+        let p = AirPermeability::from_l_per_m2_s(50.0);
+        assert!((p.as_l_per_m2_s() - 50.0).abs() < 1e-12);
     }
 }

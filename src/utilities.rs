@@ -779,8 +779,13 @@ pub fn clo_correction_factor_environment(
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
+/// use thermalcomfort::ClothingInsulation;
 ///
-/// let garments = vec![0.25, 0.15, 0.1]; // shirt, pants, underwear
+/// let garments = [
+///     ClothingInsulation::from_clo(0.25), // shirt
+///     ClothingInsulation::from_clo(0.15), // pants
+///     ClothingInsulation::from_clo(0.10), // underwear
+/// ];
 /// let total = clo_intrinsic_insulation_ensemble(&garments);
 /// assert!(total > 0.0);
 /// ```
@@ -788,8 +793,8 @@ pub fn clo_correction_factor_environment(
 /// # References
 ///
 /// - ISO 9920:2009 Section 4.3
-pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[f64]) -> f64 {
-    let sum: f64 = clo_garments.iter().sum();
+pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[ClothingInsulation]) -> f64 {
+    let sum: f64 = clo_garments.iter().map(|c| c.as_clo()).sum();
     sum * 0.835 + 0.161
 }
 
@@ -1056,13 +1061,17 @@ mod tests {
     #[test]
     fn test_clo_intrinsic_insulation_ensemble() {
         // Test with typical garments - shirt + pants + underwear
-        let garments = [0.25, 0.24, 0.04]; // Long-sleeve shirt, thick trousers, underwear
+        let garments = [
+            ClothingInsulation::from_clo(0.25), // long-sleeve shirt
+            ClothingInsulation::from_clo(0.24), // thick trousers
+            ClothingInsulation::from_clo(0.04), // underwear
+        ];
         let total = clo_intrinsic_insulation_ensemble(&garments);
         // Formula: sum * 0.835 + 0.161 = 0.53 * 0.835 + 0.161 = 0.604
         assert!((total - 0.604).abs() < 0.01);
 
         // Test with single garment
-        let single = [0.5];
+        let single = [ClothingInsulation::from_clo(0.5)];
         let total_single = clo_intrinsic_insulation_ensemble(&single);
         // Formula: 0.5 * 0.835 + 0.161 = 0.579
         assert!((total_single - 0.579).abs() < 0.01);

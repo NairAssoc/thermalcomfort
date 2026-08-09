@@ -14,7 +14,7 @@
 //! - ISO 11079:2007 - Ergonomics of the thermal environment
 
 use crate::constants::MET_TO_W_M2;
-use crate::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
+use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 use libm::{exp, fabs, log, pow, round};
 
 /// Conversion between clo and m²·K/W
@@ -111,7 +111,7 @@ pub struct IreqResult {
 /// * `rh` - Relative humidity
 /// * `met` - Metabolic rate
 /// * `clo` - Clothing insulation actually available
-/// * `p` - Air permeability of clothing [l/(m²·s)]
+/// * `p` - Air permeability of clothing
 /// * `walk_sp` - Walking speed
 /// * `options` - Optional parameters, see [`IreqOptions`]
 ///
@@ -134,7 +134,9 @@ pub struct IreqResult {
 ///
 /// ```
 /// use thermalcomfort::models::ireq::{ireq, IreqOptions, DurationLimitedExposure};
-/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+/// use thermalcomfort::{
+///     AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature,
+/// };
 ///
 /// let result = ireq(
 ///     Temperature::from_celsius(-15.0),
@@ -143,7 +145,7 @@ pub struct IreqResult {
 ///     Humidity::from_percent(55.0),
 ///     MetabolicRate::from_met(175.0 / 58.15),
 ///     ClothingInsulation::from_clo(2.8),
-///     50.0,
+///     AirPermeability::from_l_per_m2_s(50.0),
 ///     Speed::from_meters_per_second(1.1),
 ///     IreqOptions::default(),
 /// );
@@ -162,7 +164,7 @@ pub fn ireq(
     rh: Humidity,
     met: MetabolicRate,
     clo: ClothingInsulation,
-    p: f64,
+    p: AirPermeability,
     walk_sp: Speed,
     options: IreqOptions,
 ) -> IreqResult {
@@ -175,6 +177,7 @@ pub fn ireq(
     let met_w = met.as_met() * MET_TO_W_M2;
     let wme_w = options.wme.as_met() * MET_TO_W_M2;
     let clo_m2c_w = clo.as_clo() * CLO_TO_M2K_W;
+    let p = p.as_l_per_m2_s();
 
     let valid = valid_iso_11079_inputs(met_w, tdb_c, vr_ms, walk_sp_ms);
 
@@ -445,7 +448,7 @@ mod tests {
             Humidity::from_percent(55.0),
             MetabolicRate::from_met(175.0 / 58.15),
             ClothingInsulation::from_clo(clo_val),
-            50.0,
+            AirPermeability::from_l_per_m2_s(50.0),
             Speed::from_meters_per_second(1.1),
             IreqOptions::default(),
         )
@@ -502,7 +505,7 @@ mod tests {
                 Humidity::from_percent(rh),
                 MetabolicRate::from_met(met),
                 ClothingInsulation::from_clo(clo),
-                p,
+                AirPermeability::from_l_per_m2_s(p),
                 Speed::from_meters_per_second(walk_sp),
                 IreqOptions::default(),
             );
@@ -543,7 +546,7 @@ mod tests {
             Humidity::from_percent(80.0),
             MetabolicRate::from_met(2.0),
             ClothingInsulation::from_clo(1.5),
-            50.0,
+            AirPermeability::from_l_per_m2_s(50.0),
             Speed::from_meters_per_second(0.5),
             IreqOptions::default(),
         );
@@ -570,7 +573,7 @@ mod tests {
             Humidity::from_percent(55.0),
             MetabolicRate::from_met(175.0 / 58.15),
             ClothingInsulation::from_clo(2.8),
-            50.0,
+            AirPermeability::from_l_per_m2_s(50.0),
             Speed::from_meters_per_second(1.1),
             IreqOptions {
                 limit_inputs: false,
