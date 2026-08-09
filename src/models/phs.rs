@@ -247,13 +247,29 @@ pub fn phs(
     let met = met.as_met();
     let clo = clo.as_clo();
 
+    // Water vapour partial pressure [kPa], computed per the selected edition. ISO 7933
+    // additionally bounds it, which the port previously did not check at all: outside
+    // the range pythermalcomfort masks every output to NaN.
+    let p_a = match options.model {
+        Iso7933Model::Iso2023 => 0.6105 * exp(17.27 * tdb / (tdb + 237.3)) * rh / 100.0,
+        Iso7933Model::Iso2004 => {
+            p_sat(Temperature::from_celsius(tdb)).as_pascals() / 1000.0 * rh / 100.0
+        }
+    };
+    // The 2004 edition has no lower bound on p_a; the 2023 edition sets it at 0.5 kPa.
+    let p_a_lower = match options.model {
+        Iso7933Model::Iso2023 => 0.5,
+        Iso7933Model::Iso2004 => 0.0,
+    };
+
     // Input validation
     if options.limit_inputs
         && (!(15.0..=50.0).contains(&tdb)
             || !(0.0..=60.0).contains(&tr)
             || !(0.0..=3.0).contains(&v)
-            || !(1.7..=7.5).contains(&met)
-            || !(0.1..=1.0).contains(&clo))
+            || !(100.0..=450.0).contains(&(met * MET_TO_W_M2))
+            || !(0.1..=1.0).contains(&clo)
+            || !(p_a_lower..=4.5).contains(&p_a))
     {
         return PhsResult {
             t_re: f64::NAN,
@@ -320,7 +336,11 @@ pub fn phs(
     // Maximum sweat rate
     let sw_max = match options.model {
         Iso7933Model::Iso2004 => {
-            let mut sw = (met - 32.0) * a_dubois;
+            // ISO 7933 expresses this in W/m2, not met. With `met` left in met units the
+            // bracket was always negative, so sw_max clamped to its 250 floor (312.5
+            // when acclimatised) instead of tracking metabolic rate - which then bound
+            // the required sweat rate and shifted t_re by ~1 degC.
+            let mut sw = (met * MET_TO_W_M2 - 32.0) * a_dubois;
             sw = sw.clamp(250.0, 400.0);
             if options.acclimatized { sw * 1.25 } else { sw }
         }
@@ -345,15 +365,33 @@ pub fn phs(
     let mut walk_sp = opt_walk_sp;
     let walking = walk_sp > 0.0;
     if !walking {
-        walk_sp = 0.0052 * (met * MET_TO_W_M2 - MET_TO_W_M2);
+        // ISO 7933 uses a literal 58 here, not the 58.15 met->W/m2 factor.
+        walk_sp = 0.0052 * (met * MET_TO_W_M2 - 58.0);
         walk_sp = walk_sp.min(0.7);
     }
 
-    // Relative air velocity
+    // Relative air velocity.
+    //
+    // ISO 7933 distinguishes unidirectional walking (theta != 0, where the walking
+    // vector is projected onto the air-speed axis) from omni-directional walking
+    // (theta == 0, where the faster of the two simply wins). The port previously applied
+    // the unidirectional formula unconditionally and then took `v.max(v_diff)` rather
+    // than the projection itself, which changed sweat_loss_g by ~47 g at walk_sp ~1 m/s.
     let v_r = if walking {
-        let theta_rad = options.theta * core::f64::consts::PI / 180.0;
-        let v_diff = (v - walk_sp * cos(theta_rad)).abs();
-        v.max(v_diff)
+        if options.theta != 0.0 {
+            // Unidirectional walking
+            // ISO 7933 (and pythermalcomfort) use a literal 3.14159 here, not PI. The
+            // truncation is part of the standard's arithmetic, so matching it is
+            // required for parity rather than an oversight to be "corrected".
+            #[allow(clippy::approx_constant)]
+            const ISO_PI: f64 = 3.14159;
+            let theta_rad = options.theta * ISO_PI / 180.0;
+            (v - walk_sp * cos(theta_rad)).abs()
+        } else if v < walk_sp {
+            walk_sp
+        } else {
+            v
+        }
     } else {
         v
     };
@@ -501,8 +539,8 @@ pub fn phs(
         // Heat flows
         let convection = fcl * hc_dyn * (t_cl - tdb);
         let radiation = fcl * h_r * (t_cl - tr);
-        let e_max = (p_sk - p_a) / r_t_dyn;
-        let e_req = met * MET_TO_W_M2
+        let mut e_max = (p_sk - p_a) / r_t_dyn;
+        let mut e_req = met * MET_TO_W_M2
             - d_stored_eq
             - options.wme.as_met() * MET_TO_W_M2
             - c_res
@@ -512,9 +550,16 @@ pub fn phs(
         let w_req = e_req / e_max.max(1e-6);
 
         // Required sweat rate
+        // Python *mutates* e_req and e_max to zero in these branches, and both mutated
+        // values are used downstream (d_storage uses e_req, e_p uses e_max). Branching
+        // without mutating left the originals in play for every cool-condition case.
         let sw_req = if e_req <= 0.0 {
+            e_req = 0.0;
             0.0
-        } else if e_max <= 0.0 || w_req >= 1.7 {
+        } else if e_max <= 0.0 {
+            e_max = 0.0;
+            sw_max
+        } else if w_req >= 1.7 {
             sw_max
         } else {
             let e_v_eff = if w_req > 1.0 {
@@ -619,27 +664,17 @@ pub fn phs(
             x
         }
     };
-    let round_0 = |x: f64| {
-        if options.round_output {
-            if x >= 0.0 {
-                (x + 0.5) as i64 as f64
-            } else {
-                (x - 0.5) as i64 as f64
-            }
-        } else {
-            x
-        }
-    };
 
     // Round t_sk_t_cr_wg to 4 decimal places
     let t_sk_t_cr_wg_rounded = if options.round_output {
-        let scaled = t_sk_t_cr_wg * 10000.0;
+        // pythermalcomfort rounds this to 2 decimals, not 4
+        let scaled = t_sk_t_cr_wg * 100.0;
         let rounded = if scaled >= 0.0 {
             (scaled + 0.5) as i64 as f64
         } else {
             (scaled - 0.5) as i64 as f64
         };
-        rounded / 10000.0
+        rounded / 100.0
     } else {
         t_sk_t_cr_wg
     };
@@ -650,10 +685,10 @@ pub fn phs(
         t_cr: round_1(t_cr),
         t_cr_eq: round_1(t_cr_eq),
         t_sk_t_cr_wg: t_sk_t_cr_wg_rounded,
-        d_lim_loss_50: round_0(d_lim_loss_50),
-        d_lim_loss_95: round_0(d_lim_loss_95),
-        d_lim_t_re: round_0(d_lim_t_re),
-        sweat_loss_g: round_0(sweat_loss_g),
+        d_lim_loss_50: round_1(d_lim_loss_50),
+        d_lim_loss_95: round_1(d_lim_loss_95),
+        d_lim_t_re: round_1(d_lim_t_re),
+        sweat_loss_g: round_1(sweat_loss_g),
         sweat_rate_watt: round_1(sweat_rate_watt),
         evap_load_wm2_min: round_1(evap_load_wm2_min),
     }

@@ -17,12 +17,13 @@ use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::{
-    CoolingEffectOptions, GaggeTwoNodesOptions, SetOptions, UtciOptions, cooling_effect,
-    pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, two_nodes_gagge, use_fans_heatwaves, utci,
+    CoolingEffectOptions, GaggeTwoNodesOptions, Iso7933Model, PhsOptions, PhsPosture, SetOptions,
+    UtciOptions, cooling_effect, phs, pmv_ppd_ashrae, pmv_ppd_iso, set_tmp, two_nodes_gagge,
+    use_fans_heatwaves, utci,
 };
 use thermalcomfort::utilities::Posture;
 use thermalcomfort::{
-    Area, ClothingInsulation, Humidity, MetabolicRate, Pressure, Speed, Temperature,
+    Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Pressure, Speed, Temperature,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -681,6 +682,159 @@ fn sweep_use_fans_heatwaves() {
                 if py_flag != rust_flag {
                     return Err(format!("{name}: Rust {rust_flag:?}, Python {py_flag:?}"));
                 }
+            }
+            Ok(())
+        });
+    });
+}
+
+#[test]
+fn sweep_phs() {
+    // ISO 7933 has the largest option surface in the crate, and essentially none of it
+    // is varied by the hand-written tests: posture, i_mst, a_p, drink, weight, height,
+    // walk_sp, theta, acclimatized and the 2004/2023 model edition.
+    let domain = Domain::new()
+        .real("tdb", 15.0, 50.0)
+        .real("tr", 15.0, 60.0)
+        .real("v", 0.0, 3.0)
+        .real("rh", 5.0, 95.0)
+        .real("met", 1.0, 5.0)
+        .real("clo", 0.1, 1.5)
+        .real("wme", 0.0, 1.0)
+        .real("i_mst", 0.2, 0.6)
+        .real("a_p", 0.0, 1.0)
+        .real("weight", 50.0, 110.0)
+        .real("height", 1.5, 2.0)
+        .real("walk_sp", 0.0, 1.5)
+        .real("theta", 0.0, 180.0)
+        .enumerated("posture", 3)
+        .enumerated("model", 2)
+        .flag("drink")
+        .flag("acclimatized")
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+        let fields = [
+            FieldCmp::new("t_re", 0.06),
+            FieldCmp::new("t_sk", 0.06),
+            FieldCmp::new("t_cr", 0.06),
+            FieldCmp::new("t_cr_eq", 0.06),
+            FieldCmp::new("t_sk_t_cr_wg", 0.06),
+            FieldCmp::new("d_lim_loss_50", 0.6),
+            FieldCmp::new("d_lim_loss_95", 0.6),
+            FieldCmp::new("d_lim_t_re", 0.6),
+            FieldCmp::new("sweat_loss_g", 1.1).rel(1e-3),
+            FieldCmp::new("sweat_rate_watt", 0.6).rel(1e-3),
+            FieldCmp::new("evap_load_wm2_min", 0.6).rel(1e-3),
+        ];
+
+        run_sweep("sweep_phs", &domain, |s: &Sample| {
+            let (tdb, tr, v, rh, met, clo, wme, i_mst, a_p, weight, height, walk_sp, theta) = (
+                s.real("tdb"),
+                s.real("tr"),
+                s.real("v"),
+                s.real("rh"),
+                s.real("met"),
+                s.real("clo"),
+                s.real("wme"),
+                s.real("i_mst"),
+                s.real("a_p"),
+                s.real("weight"),
+                s.real("height"),
+                s.real("walk_sp"),
+                s.real("theta"),
+            );
+            let (posture, py_posture) = match s.index("posture") {
+                0 => (PhsPosture::Sitting, "sitting"),
+                1 => (PhsPosture::Standing, "standing"),
+                _ => (PhsPosture::Crouching, "crouching"),
+            };
+            let (model, py_model) = match s.index("model") {
+                0 => (Iso7933Model::Iso2004, "7933-2004"),
+                _ => (Iso7933Model::Iso2023, "7933-2023"),
+            };
+            let drink = s.flag("drink");
+            let acclimatized = s.flag("acclimatized");
+            let round_output = s.flag("round_output");
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+                ("model", py_model.into_pyobject(py).unwrap().into_any()),
+                ("i_mst", i_mst.into_pyobject(py).unwrap().into_any()),
+                ("a_p", a_p.into_pyobject(py).unwrap().into_any()),
+                (
+                    "drink",
+                    (if drink { 1_i64 } else { 0 })
+                        .into_pyobject(py)
+                        .unwrap()
+                        .into_any(),
+                ),
+                ("weight", weight.into_pyobject(py).unwrap().into_any()),
+                ("height", height.into_pyobject(py).unwrap().into_any()),
+                ("walk_sp", walk_sp.into_pyobject(py).unwrap().into_any()),
+                ("theta", theta.into_pyobject(py).unwrap().into_any()),
+                (
+                    "acclimatized",
+                    (if acclimatized { 100_i64 } else { 0 })
+                        .into_pyobject(py)
+                        .unwrap()
+                        .into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("phs")
+                .unwrap()
+                .call((tdb, tr, v, rh, met, clo, py_posture), Some(&kwargs))
+                .map_err(|e| format!("python raised: {e}"))?;
+
+            let rust = phs(
+                Temperature::from_celsius(tdb),
+                Temperature::from_celsius(tr),
+                Speed::from_meters_per_second(v),
+                Humidity::from_percent(rh),
+                MetabolicRate::from_met(met),
+                ClothingInsulation::from_clo(clo),
+                posture,
+                PhsOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    round_output,
+                    model,
+                    i_mst,
+                    a_p,
+                    drink,
+                    weight: Mass::from_kilograms(weight),
+                    height: Length::from_meters(height),
+                    walk_sp: Speed::from_meters_per_second(walk_sp),
+                    theta,
+                    acclimatized,
+                    ..Default::default()
+                },
+            );
+
+            let values = [
+                rust.t_re,
+                rust.t_sk,
+                rust.t_cr,
+                rust.t_cr_eq,
+                rust.t_sk_t_cr_wg,
+                rust.d_lim_loss_50,
+                rust.d_lim_loss_95,
+                rust.d_lim_t_re,
+                rust.sweat_loss_g,
+                rust.sweat_rate_watt,
+                rust.evap_load_wm2_min,
+            ];
+            for (field, rust_value) in fields.iter().zip(values) {
+                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
             Ok(())
         });

@@ -15,6 +15,13 @@ pub enum NanPolicy {
 pub struct FieldCmp {
     pub name: &'static str,
     pub tol: f64,
+    /// Optional relative tolerance, as a fraction of the larger magnitude.
+    ///
+    /// For quantities built by integrating over many timesteps (PHS runs 480 minutes),
+    /// per-step float differences accumulate in proportion to the result, so an absolute
+    /// tolerance is the wrong instrument: it is either too tight at large magnitudes or
+    /// far too slack at small ones. A field passes if EITHER bound is met.
+    pub rel: Option<f64>,
     pub nan: NanPolicy,
 }
 
@@ -23,8 +30,15 @@ impl FieldCmp {
         Self {
             name,
             tol,
+            rel: None,
             nan: NanPolicy::MustMatch,
         }
+    }
+
+    /// Also accept a relative difference of `rel` (e.g. `1e-4` for 0.01%).
+    pub fn rel(mut self, rel: f64) -> Self {
+        self.rel = Some(rel);
+        self
     }
 
     pub fn nan(mut self, policy: NanPolicy) -> Self {
@@ -48,12 +62,20 @@ pub fn compare_field(field: &FieldCmp, rust: f64, py: f64) -> Result<(), String>
         (false, true) => Err(format!("{}: Rust {rust}, Python NaN", field.name)),
         (false, false) => {
             let delta = (rust - py).abs();
-            if delta <= field.tol {
+            let rel_ok = field
+                .rel
+                .is_some_and(|r| delta <= r * rust.abs().max(py.abs()));
+            if delta <= field.tol || rel_ok {
                 Ok(())
             } else {
                 Err(format!(
-                    "{}: Rust {rust}, Python {py} (delta {delta:.6}, tol {})",
-                    field.name, field.tol
+                    "{}: Rust {rust}, Python {py} (delta {delta:.6}, tol {}{})",
+                    field.name,
+                    field.tol,
+                    match field.rel {
+                        Some(r) => format!(", rel {r:e}"),
+                        None => String::new(),
+                    }
                 ))
             }
         }
