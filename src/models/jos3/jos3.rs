@@ -76,6 +76,8 @@ use super::construction::{self, BodyParameterError, BodyPartsInputError};
 use super::matrix::{self, IDICT, NUM_NODES};
 use super::parameters::{BODY_PART_NAMES, NUM_BODY_PARTS, defaults};
 use super::thermoregulation::{self as threg, Posture, ShiveringOptions, ThermoregulationError};
+use core::time::Duration;
+
 use crate::models::pmv::PmvPpdIsoOptions;
 use crate::utilities::{BsaFormula, antoine, round_to};
 use crate::{
@@ -90,41 +92,6 @@ pub const NUM_SFVEIN_PARTS: usize = 12;
 /// Number of body segments with a muscle (and fat) layer: head and pelvis only.
 /// Python: `len(VINDEX["muscle"])` (== `len(VINDEX["fat"])`).
 pub const NUM_MUSCLE_FAT_PARTS: usize = 2;
-
-// ---------------------------------------------------------------------------
-// Duration
-// ---------------------------------------------------------------------------
-
-/// A simulation time step, in seconds.
-///
-/// `no_std` rules out `std::time::Duration`, and the `measurements` crate this crate's
-/// physical-quantity newtypes come from has no time-duration type of its own. Python's
-/// `dtime` is a plain `int | float` number of seconds; this is that value given a name at
-/// the API boundary rather than a bare `f64`, the same reasoning behind
-/// [`crate::TemperatureDelta`] existing alongside [`Temperature`].
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Duration(f64);
-
-impl Duration {
-    /// Construct from a whole number of seconds.
-    #[must_use]
-    pub const fn from_secs(value: u32) -> Self {
-        Self(value as f64)
-    }
-
-    /// Construct from a (possibly fractional) number of seconds. Python's `dtime` accepts
-    /// `int | float`; this is the `float` case.
-    #[must_use]
-    pub const fn from_secs_f64(value: f64) -> Self {
-        Self(value)
-    }
-
-    /// The duration in seconds.
-    #[must_use]
-    pub const fn as_secs_f64(self) -> f64 {
-        self.0
-    }
-}
 
 // ---------------------------------------------------------------------------
 // PerBodyPart / Jos3Conditions
@@ -865,6 +832,28 @@ impl Jos3Model {
     /// Returns [`Jos3Error::BodyParts`] if a [`Jos3Conditions`] field cannot be resolved
     /// (e.g. a [`PerBodyPart::ByName`] missing a body-part name), or
     /// [`Jos3Error::Thermoregulation`] if `conditions.par < 1`.
+    ///
+    /// # Examples
+    ///
+    /// Two phases, changing the environment in between — the reason this is an explicit
+    /// `advance` rather than a one-shot function.
+    ///
+    /// ```
+    /// use thermalcomfort::models::jos3::Jos3Builder;
+    /// use core::time::Duration;
+    ///
+    /// let mut sim = Jos3Builder::new().build().expect("defaults are valid");
+    ///
+    /// let mut conditions = sim.conditions();
+    /// sim.advance(&conditions, 30, Duration::from_secs(60))?;
+    ///
+    /// // Step the air temperature down and carry straight on from the current state.
+    /// conditions.tdb = thermalcomfort::models::jos3::PerBodyPart::Uniform(20.0);
+    /// sim.advance(&conditions, 30, Duration::from_secs(60))?;
+    ///
+    /// assert_eq!(sim.results().t_skin_mean.len(), 61); // initial row + 60 steps
+    /// # Ok::<(), thermalcomfort::models::jos3::Jos3Error>(())
+    /// ```
     pub fn advance(
         &mut self,
         conditions: &Jos3Conditions<'_>,
