@@ -60,13 +60,80 @@
 //!   part of this port) — the same reasoning [`super::construction::LAYER_INDEX_TABLE`]
 //!   already documents for its own hardcoded copy of `IDICT`-derived data.
 
-use libm::{fabs, fmax, fmin, pow};
+use libm::{fabs, pow};
 
 use super::construction;
 use super::matrix::IDICT;
 use super::parameters::{NUM_BODY_PARTS, defaults};
 use crate::utilities::{BsaFormula, antoine};
 use crate::{BmrEquation, Sex, Temperature};
+
+// ---------------------------------------------------------------------------
+// NaN-faithful min/max
+// ---------------------------------------------------------------------------
+//
+// JOS3 legitimately produces NaN trajectories: when a subject's reference-environment
+// metabolic rate falls below ISO 7730's 0.8 met floor, the operative-temperature PMV
+// search returns NaN, `_reset_setpt` seeds tdb/tr with NaN, and Python's whole
+// simulation is NaN from there on. A clamp that silently drops the NaN would heal an
+// invalid simulation into a plausible-looking wrong number, so every clamp below has
+// to reproduce the NaN behaviour of the exact Python construct it ports.
+//
+// `libm::fmin`/`fmax` are IEEE-754/C99 `fmin`/`fmax`, which *discard* NaN and return
+// the other operand (`fmin(NaN, 1.0) == 1.0`). That matches neither Python construct
+// used here, so neither is imported: use one of the four helpers instead.
+
+/// Mirrors CPython's two-argument builtin `min(a, b)`, which is `b if b < a else a`.
+///
+/// NaN handling is therefore *order-dependent*: `min(nan, 1) == nan` but
+/// `min(1, nan) == 1`, because a NaN in `b` makes `b < a` false and loses. Callers
+/// must preserve Python's argument order. This is not `libm::fmin`, which always
+/// discards NaN, nor `np.minimum`, which always propagates it.
+#[inline]
+fn py_min(a: f64, b: f64) -> f64 {
+    if b < a { b } else { a }
+}
+
+/// Mirrors CPython's two-argument builtin `max(a, b)`, which is `b if b > a else a`.
+///
+/// NaN handling is therefore *order-dependent*: `max(nan, 1) == nan` but
+/// `max(1, nan) == 1`, because a NaN in `b` makes `b > a` false and loses. Callers
+/// must preserve Python's argument order. This is not `libm::fmax`, which always
+/// discards NaN, nor `np.maximum`, which always propagates it.
+#[inline]
+fn py_max(a: f64, b: f64) -> f64 {
+    if b > a { b } else { a }
+}
+
+/// Mirrors `np.minimum(a, b)`, which propagates NaN from *either* operand.
+///
+/// This is not `libm::fmin`, which returns the non-NaN operand instead, and not the
+/// builtin `min`, whose NaN behaviour depends on argument order.
+#[inline]
+fn np_minimum(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+/// Mirrors `np.maximum(a, b)`, which propagates NaN from *either* operand.
+///
+/// This is not `libm::fmax`, which returns the non-NaN operand instead, and not the
+/// builtin `max`, whose NaN behaviour depends on argument order.
+#[inline]
+fn np_maximum(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b > a {
+        b
+    } else {
+        a
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Posture
@@ -283,7 +350,7 @@ pub(crate) fn fixed_hc(
 ) -> [f64; NUM_BODY_PARTS] {
     let mean_hc = weighted_average(&hc, &defaults::LOCAL_BSA);
     let mean_va = weighted_average(&v, &defaults::LOCAL_BSA);
-    let mean_hc_whole = fmax(3.0, 8.600_001 * pow(mean_va, 0.53));
+    let mean_hc_whole = py_max(3.0, 8.600_001 * pow(mean_va, 0.53));
     let mut fixed = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
         fixed[i] = hc[i] * mean_hc_whole / mean_hc;
@@ -408,8 +475,8 @@ pub(crate) fn error_signals(err_sk: [f64; NUM_BODY_PARTS]) -> (f64, f64) {
     let mut warm_signal_sum = 0.0;
     let mut cold_signal_sum = 0.0;
     for i in 0..NUM_BODY_PARTS {
-        warm_signal_sum += fmax(err_sk[i], 0.0) * RECEPTOR[i];
-        cold_signal_sum += -fmin(err_sk[i], 0.0) * RECEPTOR[i];
+        warm_signal_sum += np_maximum(err_sk[i], 0.0) * RECEPTOR[i];
+        cold_signal_sum += -np_minimum(err_sk[i], 0.0) * RECEPTOR[i];
     }
     (warm_signal_sum, cold_signal_sum)
 }
@@ -468,7 +535,7 @@ pub(crate) fn evaporation(
     ];
 
     let mut sig_sweat = (371.2 * err_cr[0]) + (33.64 * (wrms - clds));
-    sig_sweat = fmax(sig_sweat, 0.0);
+    sig_sweat = py_max(sig_sweat, 0.0);
     sig_sweat *= bsar;
 
     // Signal decrement by aging
@@ -488,7 +555,7 @@ pub(crate) fn evaporation(
     for i in 0..NUM_BODY_PARTS {
         let e_sweat_i = SKIN_SWEAT[i] * sig_sweat * sd_sweat[i] * pow(2.0, err_sk[i] / 10.0);
         let mut wet_i = 0.06 + 0.94 * (e_sweat_i / e_max[i]);
-        wet_i = fmin(wet_i, 1.0); // Wettedness' upper limit
+        wet_i = np_minimum(wet_i, 1.0); // Wettedness' upper limit
         wet[i] = wet_i;
         e_sk[i] = wet_i * e_max[i];
         e_sweat[i] = (wet_i - 0.06) / 0.94 * e_max[i]; // Effective sweating
@@ -532,8 +599,8 @@ pub(crate) fn skin_blood_flow(
 
     let mut sig_dilat = (100.5 * err_cr[0]) + (6.4 * (wrms - clds));
     let mut sig_stric = (-10.8 * err_cr[0]) + (-10.8 * (wrms - clds));
-    sig_dilat = fmax(sig_dilat, 0.0);
-    sig_stric = fmax(sig_stric, 0.0);
+    sig_dilat = py_max(sig_dilat, 0.0);
+    sig_stric = py_max(sig_stric, 0.0);
 
     // Signal decrement by aging
     let (sd_dilat, sd_stric): ([f64; NUM_BODY_PARTS], [f64; NUM_BODY_PARTS]) = if age < 60 {
@@ -591,10 +658,10 @@ pub(crate) fn ava_blood_flow(
     let mut sig_ava_hand = 0.265 * (err_msk + 0.43) + 0.953 * (err_bcr + 0.1905) + 0.9126;
     let mut sig_ava_foot = 0.265 * (err_msk - 0.997) + 0.953 * (err_bcr + 0.0095) + 0.9126;
 
-    sig_ava_hand = fmin(sig_ava_hand, 1.0);
-    sig_ava_hand = fmax(sig_ava_hand, 0.0);
-    sig_ava_foot = fmin(sig_ava_foot, 1.0);
-    sig_ava_foot = fmax(sig_ava_foot, 0.0);
+    sig_ava_hand = py_min(sig_ava_hand, 1.0);
+    sig_ava_hand = py_max(sig_ava_hand, 0.0);
+    sig_ava_foot = py_min(sig_ava_foot, 1.0);
+    sig_ava_foot = py_max(sig_ava_foot, 0.0);
 
     // Basal blood flow rate to the standard body [-]
     let bfb_rate = construction::bfb_rate(height, weight, bsa_equation, age, ci);
@@ -643,7 +710,7 @@ pub(crate) fn basal_met(
 
     // Set minimum BMR value in W
     let min_bmr_in_w = 68.0;
-    fmax(bmr, min_bmr_in_w)
+    py_max(bmr, min_bmr_in_w)
 }
 
 /// Calculate local basal metabolic rate \[W\].
@@ -778,7 +845,7 @@ pub(crate) fn shivering(
     ];
     // integrated error signal of shivering
     let mut sig_shiv = 24.36 * clds * (-err_cr[0]);
-    sig_shiv = fmax(sig_shiv, 0.0);
+    sig_shiv = py_max(sig_shiv, 0.0);
 
     if let Some(opts) = options {
         if opts.shivering_threshold {
@@ -904,7 +971,7 @@ pub(crate) fn nonshivering(
     let thres = (1.80 * bat + 2.43) + 5.62; // [W]
 
     let mut sig_nst = 2.8 * clds; // [W]
-    sig_nst = fmin(sig_nst, thres);
+    sig_nst = py_min(sig_nst, thres);
 
     // Distribution coefficient of thermogenesis by non-shivering
     const NSTF: [f64; NUM_BODY_PARTS] = [

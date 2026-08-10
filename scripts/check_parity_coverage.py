@@ -207,6 +207,7 @@ PYTHON_TO_RUST: dict[str, str] = {
     "operative_tmp": "operative_temperature",
     "BodySurfaceAreaEquations": "BsaFormula",
     "Postures": "Posture",
+    "JOS3": "Jos3Model",
 }
 
 # pythermalcomfort names that need no Rust counterpart. Each needs a reason.
@@ -215,7 +216,12 @@ PYTHON_EXEMPT: dict[str, str] = {
     "valid_range": "internal applicability helper; the port applies the same masks inside each model",
     "validate_type": "Python runtime type checking; Rust does this at compile time",
     "adaptive_cooling_effect": "implemented as a private helper in src/models/adaptive.rs and exercised through both adaptive models",
-    "DefaultSkinTemperature": "JOS3 support type; only meaningful once JOS3 is ported",
+    "DefaultSkinTemperature": "a per-body-part default-skin-temperature NamedTuple in "
+    "utilities.py, referenced nowhere else in pythermalcomfort (confirmed by grepping the "
+    "installed package) -- not even by JOS3, now ported, which seeds skin temperature from "
+    "its own internal Default.skin_temperature = 34 (a single scalar, ported as "
+    "defaults::SKIN_TEMPERATURE). Dead public data in the library being ported, not a used "
+    "constant, so there is nothing for a Rust port to call.",
     "Models": "a single enum of every standard upstream supports; the port encodes the "
     "choice per function instead - Iso7933Model for PHS, use_iso/use_ashrae flags for the "
     "psychrometric helpers - so there is no one type to map it to",
@@ -224,10 +230,7 @@ PYTHON_EXEMPT: dict[str, str] = {
 # pythermalcomfort API with no Rust port yet. A backlog, not an exemption: reported on
 # every run but does not fail, so that pre-existing gaps cannot mask a NEW one appearing
 # upstream. Entries should only ever be removed.
-PYTHON_NOT_PORTED: dict[str, str] = {
-    "JOS3": "17-segment whole-body thermoregulation model; no Rust counterpart. "
-    "Tracked in docs/superpowers/plans/outstanding-parity-work.md",
-}
+PYTHON_NOT_PORTED: dict[str, str] = {}
 
 
 def check_python_direction() -> tuple[bool, list[str]]:

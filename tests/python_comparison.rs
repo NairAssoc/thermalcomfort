@@ -4,11 +4,13 @@
 //! Python package across a wide range of inputs and edge cases.
 
 use approx::assert_abs_diff_eq;
+use core::time::Duration;
 use measurements::{Angle, Area, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::AdaptiveOptions;
+use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions, PmvPpdInputs,
     PmvPpdIsoOptions,
@@ -40,8 +42,8 @@ use thermalcomfort::utilities::{
     p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    AirPermeability, ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate, Sex,
-    TemperatureDelta,
+    ActivityRatio, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
+    HeatFluxDensity, Mass, MetabolicRate, Sex, TemperatureDelta,
 };
 
 /// Guard against validating the port against the wrong pythermalcomfort.
@@ -3899,6 +3901,718 @@ fn test_sports_heat_stress_risk_comparison() {
             assert_abs_diff_eq!(rust_result.t_high, py_t_high, epsilon = 0.5);
             assert_abs_diff_eq!(rust_result.t_extreme, py_t_extreme, epsilon = 0.5);
             assert_eq!(rust_result.recommendation, py_recommendation.as_str());
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// JOS3
+// ---------------------------------------------------------------------------
+//
+// JOS3 is a stateful, 17-body-segment, 85-node thermoregulation model. Python drives it
+// through mutable properties (`model.tdb = ...`) plus `simulate(times, dtime)`; the Rust
+// port uses a builder ([`Jos3Builder`]) and an explicit [`Jos3Model::advance`] call that
+// takes the whole environment snapshot ([`Jos3Conditions`]) for that call. `results()`
+// accumulates one row per step (plus the constructor's own reference-steady-state row),
+// mirroring Python's `JOS3.results()`/`JOS3.dict_results()`.
+//
+// Compared against `results()`, NOT `dict_results()`, deliberately: `dict_results()` is
+// broken in pythermalcomfort 4.4.0 for every per-body-part field. Its implementation
+// (`models/jos3.py`, `dict_results`) does `values = value.__dict__` and then
+// `zip(keys, values)` -- iterating a *dict* yields its keys, not its values -- so e.g.
+// `dict_results()['t_skin_head']` is `['head', 'head', 'head', ...]` at every timestep,
+// never the temperature. Confirmed directly against 4.4.0. `results()` shares the exact
+// same underlying `_history` and is not affected by this bug (`results().t_skin.head`
+// gives the real trajectory). Do NOT "fix" this back to `dict_results()`: the point of
+// this suite is to match upstream's *values*, not to reproduce its defects.
+
+/// The 17 JOS3 body segment names, canonical order. Matches
+/// [`thermalcomfort::models::jos3::Jos3Model::body_names`] and pythermalcomfort's
+/// `JOS3BodyParts.get_attribute_names()`.
+const JOS3_BODY_NAMES: [&str; 17] = [
+    "head",
+    "neck",
+    "chest",
+    "back",
+    "pelvis",
+    "left_shoulder",
+    "left_arm",
+    "left_hand",
+    "right_shoulder",
+    "right_arm",
+    "right_hand",
+    "left_thigh",
+    "left_leg",
+    "left_foot",
+    "right_thigh",
+    "right_leg",
+    "right_foot",
+];
+
+/// A plain numeric field on Python's `JOS3Output`/`results()`, read across every step.
+fn jos3_f64_series(py_output: &Bound<'_, PyAny>, field: &str) -> Vec<f64> {
+    py_output
+        .getattr(field)
+        .unwrap_or_else(|e| panic!("{field}: missing on Python JOS3Output: {e}"))
+        .call_method0("tolist")
+        .unwrap_or_else(|e| panic!("{field}: tolist() raised: {e}"))
+        .extract()
+        .unwrap_or_else(|e| panic!("{field}: could not extract as Vec<f64>: {e}"))
+}
+
+/// `sex` is the one string-valued field.
+fn jos3_sex_series(py_output: &Bound<'_, PyAny>) -> Vec<Sex> {
+    let raw: Vec<String> = py_output
+        .getattr("sex")
+        .unwrap()
+        .call_method0("tolist")
+        .unwrap()
+        .extract()
+        .unwrap();
+    raw.iter()
+        .map(|s| match s.as_str() {
+            "male" => Sex::Male,
+            "female" => Sex::Female,
+            other => panic!("sex: unexpected value {other:?}"),
+        })
+        .collect()
+}
+
+/// `simulation_time` is `datetime.timedelta`, not a plain number, so it needs its own
+/// accessor rather than [`jos3_f64_series`].
+fn jos3_simulation_time_series(py_output: &Bound<'_, PyAny>) -> Vec<f64> {
+    let obj = py_output.getattr("simulation_time").unwrap();
+    let n = obj.len().unwrap();
+    (0..n)
+        .map(|i| {
+            obj.get_item(i)
+                .unwrap()
+                .call_method0("total_seconds")
+                .unwrap()
+                .extract()
+                .unwrap()
+        })
+        .collect()
+}
+
+/// One series per body segment, in [`JOS3_BODY_NAMES`] order, for a 17-wide field
+/// (`t_skin`, `tdb`, `bf_core`, ...).
+fn jos3_body_part_series(py_output: &Bound<'_, PyAny>, field: &str) -> [Vec<f64>; 17] {
+    let body = py_output
+        .getattr(field)
+        .unwrap_or_else(|e| panic!("{field}: missing on Python JOS3Output: {e}"));
+    std::array::from_fn(|i| {
+        body.getattr(JOS3_BODY_NAMES[i])
+            .unwrap_or_else(|e| panic!("{field}.{}: {e}", JOS3_BODY_NAMES[i]))
+            .call_method0("tolist")
+            .unwrap()
+            .extract()
+            .unwrap()
+    })
+}
+
+/// The head/pelvis pair for a muscle- or fat-layer field (`t_muscle`, `bf_fat`, ...) --
+/// upstream only ever populates those two of `JOS3BodyParts`'s 17 attributes for these.
+fn jos3_head_pelvis_series(py_output: &Bound<'_, PyAny>, field: &str) -> (Vec<f64>, Vec<f64>) {
+    let body = py_output
+        .getattr(field)
+        .unwrap_or_else(|e| panic!("{field}: missing on Python JOS3Output: {e}"));
+    let get = |name: &str| -> Vec<f64> {
+        body.getattr(name)
+            .unwrap_or_else(|e| panic!("{field}.{name}: {e}"))
+            .call_method0("tolist")
+            .unwrap()
+            .extract()
+            .unwrap()
+    };
+    (get("head"), get("pelvis"))
+}
+
+/// `t_superficial_vein`'s 12 raw values, positionally.
+///
+/// `pass_values_to_jos3_body_parts` (`jos3_functions/construction.py`) zips the *full*
+/// 17-name list against the 12 raw superficial-vein values with `strict=False`, because
+/// `t_superficial_vein`'s field is built with the default `body_parts=None` rather than
+/// the explicit `["head", "pelvis"]` the muscle/fat fields use. That leaves the values
+/// sitting under the wrong body-part names (raw index 0 -- physically `left_shoulder`'s
+/// reading -- ends up under the `head` attribute, and so on for the first 12 canonical
+/// names) and the last 5 canonical attributes (`left_leg` through `right_foot`) unset.
+/// This mislabeling is a pre-existing upstream quirk, not something this port reproduces
+/// or needs to: since the zip is positional, reading the first 12 canonical names in
+/// order recovers the 12 raw values in the same order
+/// [`thermalcomfort::models::jos3::Jos3Model::t_superficial_vein`]/
+/// `Jos3Results::t_superficial_vein` use. Verified directly against 4.4.0.
+fn jos3_superficial_vein_series(py_output: &Bound<'_, PyAny>) -> [Vec<f64>; 12] {
+    let body = py_output
+        .getattr("t_superficial_vein")
+        .unwrap_or_else(|e| panic!("t_superficial_vein: missing on Python JOS3Output: {e}"));
+    std::array::from_fn(|i| {
+        body.getattr(JOS3_BODY_NAMES[i])
+            .unwrap()
+            .call_method0("tolist")
+            .unwrap()
+            .extract()
+            .unwrap()
+    })
+}
+
+/// One value comparison, tolerant of both sides agreeing on NaN (not currently expected
+/// for any case swept here, but cheap to allow rather than panic obscurely on).
+fn assert_jos3_close(label: &str, field: &str, step: usize, rust: f64, py: f64) {
+    let ok = (rust.is_nan() && py.is_nan()) || (rust - py).abs() <= 1e-9;
+    assert!(
+        ok,
+        "{label}: {field}[{step}] mismatch: rust={rust}, python={py}, diff={:.3e}",
+        (rust - py).abs()
+    );
+}
+
+/// Compare every field of a Rust [`Jos3Results`] against `py_model.results()` (see the
+/// module-level comment above for why `results()` and not `dict_results()`), over every
+/// step in the trajectory.
+fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, label: &str) {
+    let py = py_model
+        .call_method0("results")
+        .unwrap_or_else(|e| panic!("{label}: JOS3.results() raised: {e}"));
+
+    let n = rust.simulation_time.len();
+    assert_eq!(
+        jos3_f64_series(&py, "t_skin_mean").len(),
+        n,
+        "{label}: trajectory length"
+    );
+
+    // -- simulation_time (timedelta) --
+    let py_sim_time = jos3_simulation_time_series(&py);
+    for (step, (&r, &p)) in rust
+        .simulation_time
+        .iter()
+        .zip(py_sim_time.iter())
+        .enumerate()
+    {
+        assert_jos3_close(label, "simulation_time", step, r, p);
+    }
+
+    // -- age (int) --
+    let py_age: Vec<i32> = py
+        .getattr("age")
+        .unwrap()
+        .call_method0("tolist")
+        .unwrap()
+        .extract()
+        .unwrap();
+    assert_eq!(rust.age, py_age, "{label}: age");
+
+    // -- sex (string) --
+    assert_eq!(rust.sex, jos3_sex_series(&py), "{label}: sex");
+
+    // -- plain scalar fields --
+    let scalar_fields: [(&str, &Vec<f64>); 16] = [
+        ("dt", &rust.dt),
+        ("t_skin_mean", &rust.t_skin_mean),
+        ("w_mean", &rust.w_mean),
+        (
+            "weight_loss_by_evap_and_res",
+            &rust.weight_loss_by_evap_and_res,
+        ),
+        ("cardiac_output", &rust.cardiac_output),
+        ("q_thermogenesis_total", &rust.q_thermogenesis_total),
+        ("q_res", &rust.q_res),
+        ("height", &rust.height),
+        ("weight", &rust.weight),
+        ("fat", &rust.fat),
+        ("t_cb", &rust.t_cb),
+        ("par", &rust.par),
+        ("bf_ava_hand", &rust.bf_ava_hand),
+        ("bf_ava_foot", &rust.bf_ava_foot),
+        ("q_res_sensible", &rust.q_res_sensible),
+        ("q_res_latent", &rust.q_res_latent),
+    ];
+    for (field, rust_series) in scalar_fields {
+        assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
+        let py_series = jos3_f64_series(&py, field);
+        assert_eq!(py_series.len(), n, "{label}: {field} python length");
+        for (step, (&r, &p)) in rust_series.iter().zip(py_series.iter()).enumerate() {
+            assert_jos3_close(label, field, step, r, p);
+        }
+    }
+
+    // -- 17-wide per-body-part fields --
+    let body17_fields: [(&str, &Vec<[f64; 17]>); 31] = [
+        ("t_skin", &rust.t_skin),
+        ("t_core", &rust.t_core),
+        ("w", &rust.w),
+        ("q_skin2env", &rust.q_skin2env),
+        ("bsa", &rust.bsa),
+        ("t_core_set", &rust.t_core_set),
+        ("t_skin_set", &rust.t_skin_set),
+        ("t_artery", &rust.t_artery),
+        ("t_vein", &rust.t_vein),
+        ("to", &rust.to),
+        ("r_t", &rust.r_t),
+        ("r_et", &rust.r_et),
+        ("tdb", &rust.tdb),
+        ("tr", &rust.tr),
+        ("rh", &rust.rh),
+        ("v", &rust.v),
+        ("clo", &rust.clo),
+        ("e_skin", &rust.e_skin),
+        ("e_max", &rust.e_max),
+        ("e_sweat", &rust.e_sweat),
+        ("bf_core", &rust.bf_core),
+        ("bf_skin", &rust.bf_skin),
+        ("q_bmr_core", &rust.q_bmr_core),
+        ("q_bmr_skin", &rust.q_bmr_skin),
+        ("q_work", &rust.q_work),
+        ("q_shiv", &rust.q_shiv),
+        ("q_nst", &rust.q_nst),
+        ("q_thermogenesis_core", &rust.q_thermogenesis_core),
+        ("q_thermogenesis_skin", &rust.q_thermogenesis_skin),
+        ("q_skin2env_sensible", &rust.q_skin2env_sensible),
+        ("q_skin2env_latent", &rust.q_skin2env_latent),
+    ];
+    for (field, rust_series) in body17_fields {
+        assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
+        let py_series = jos3_body_part_series(&py, field);
+        for (part_idx, part_name) in JOS3_BODY_NAMES.iter().enumerate() {
+            let py_part = &py_series[part_idx];
+            assert_eq!(py_part.len(), n, "{label}: {field}.{part_name} length");
+            for step in 0..n {
+                assert_jos3_close(
+                    label,
+                    &format!("{field}.{part_name}"),
+                    step,
+                    rust_series[step][part_idx],
+                    py_part[step],
+                );
+            }
+        }
+    }
+
+    // -- 2-wide (head, pelvis) fields --
+    let body2_fields: [(&str, &Vec<[f64; 2]>); 8] = [
+        ("t_muscle", &rust.t_muscle),
+        ("t_fat", &rust.t_fat),
+        ("bf_muscle", &rust.bf_muscle),
+        ("bf_fat", &rust.bf_fat),
+        ("q_bmr_muscle", &rust.q_bmr_muscle),
+        ("q_bmr_fat", &rust.q_bmr_fat),
+        ("q_thermogenesis_muscle", &rust.q_thermogenesis_muscle),
+        ("q_thermogenesis_fat", &rust.q_thermogenesis_fat),
+    ];
+    for (field, rust_series) in body2_fields {
+        assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
+        let (py_head, py_pelvis) = jos3_head_pelvis_series(&py, field);
+        assert_eq!(py_head.len(), n, "{label}: {field}.head length");
+        assert_eq!(py_pelvis.len(), n, "{label}: {field}.pelvis length");
+        for step in 0..n {
+            assert_jos3_close(
+                label,
+                &format!("{field}.head"),
+                step,
+                rust_series[step][0],
+                py_head[step],
+            );
+            assert_jos3_close(
+                label,
+                &format!("{field}.pelvis"),
+                step,
+                rust_series[step][1],
+                py_pelvis[step],
+            );
+        }
+    }
+
+    // -- t_superficial_vein (12-wide, positional -- see jos3_superficial_vein_series) --
+    assert_eq!(
+        rust.t_superficial_vein.len(),
+        n,
+        "{label}: t_superficial_vein rust length"
+    );
+    let py_sfvein = jos3_superficial_vein_series(&py);
+    for (k, py_k) in py_sfvein.iter().enumerate() {
+        assert_eq!(py_k.len(), n, "{label}: t_superficial_vein[{k}] length");
+        for (step, &p) in py_k.iter().enumerate() {
+            assert_jos3_close(
+                label,
+                &format!("t_superficial_vein[{k}]"),
+                step,
+                rust.t_superficial_vein[step][k],
+                p,
+            );
+        }
+    }
+}
+
+/// Constructor variation: all 3 `bmr_equation` values, all 4 `bsa_equation` values, both
+/// sexes, and 4 distinct height/weight/age/fat/ci combinations, cycled together so every
+/// (bmr, bsa, sex) triple in the 3x4x2 = 24-way cross-product is checked against a
+/// different physique rather than all against the same one. Each combination also takes
+/// 3 steps at its own reference environment (`Jos3Model::conditions()`, i.e. whatever
+/// `reset_setpoint` left active) so `run_step` and the 85x85 matrix solve are exercised
+/// for every combination, not just the constructor's own steady-state search.
+#[test]
+fn test_jos3_constructor_variation_comparison() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        struct BodySpec {
+            height_m: f64,
+            weight_kg: f64,
+            age: i32,
+            fat_percent: f64,
+            ci: f64,
+        }
+        let specs = [
+            BodySpec {
+                height_m: 1.72,
+                weight_kg: 74.43,
+                age: 20,
+                fat_percent: 15.0,
+                ci: 2.59,
+            }, // pythermalcomfort's own defaults
+            BodySpec {
+                height_m: 1.55,
+                weight_kg: 55.0,
+                age: 65,
+                fat_percent: 28.0,
+                ci: 3.2,
+            },
+            BodySpec {
+                height_m: 1.90,
+                weight_kg: 95.0,
+                age: 35,
+                fat_percent: 12.0,
+                ci: 2.1,
+            },
+            BodySpec {
+                height_m: 1.60,
+                weight_kg: 48.0,
+                age: 8,
+                fat_percent: 20.0,
+                ci: 2.8,
+            },
+        ];
+
+        let bmr_equations = [
+            (BmrEquation::HarrisBenedict, "harris-benedict"),
+            (
+                BmrEquation::HarrisBenedictOriginal,
+                "harris-benedict_origin",
+            ),
+            (BmrEquation::Japanese, "japanese"),
+        ];
+        let bsa_equations = [
+            (BsaFormula::DuBois, "dubois"),
+            (BsaFormula::Takahira, "takahira"),
+            (BsaFormula::Fujimoto, "fujimoto"),
+            (BsaFormula::Kurazumi, "kurazumi"),
+        ];
+        let sexes = [(Sex::Male, "male"), (Sex::Female, "female")];
+
+        let mut combo = 0usize;
+        for &(bmr, bmr_str) in &bmr_equations {
+            for &(bsa, bsa_str) in &bsa_equations {
+                for &(sex, sex_str) in &sexes {
+                    let spec = &specs[combo % specs.len()];
+                    let label = format!("constructor[{bmr_str}/{bsa_str}/{sex_str}/#{combo}]");
+                    combo += 1;
+
+                    let kwargs = [
+                        (
+                            "height",
+                            spec.height_m.into_pyobject(py).unwrap().into_any(),
+                        ),
+                        (
+                            "weight",
+                            spec.weight_kg.into_pyobject(py).unwrap().into_any(),
+                        ),
+                        (
+                            "fat",
+                            spec.fat_percent.into_pyobject(py).unwrap().into_any(),
+                        ),
+                        ("age", spec.age.into_pyobject(py).unwrap().into_any()),
+                        ("sex", sex_str.into_pyobject(py).unwrap().into_any()),
+                        ("ci", spec.ci.into_pyobject(py).unwrap().into_any()),
+                        (
+                            "bmr_equation",
+                            bmr_str.into_pyobject(py).unwrap().into_any(),
+                        ),
+                        (
+                            "bsa_equation",
+                            bsa_str.into_pyobject(py).unwrap().into_any(),
+                        ),
+                    ]
+                    .into_py_dict(py)
+                    .unwrap();
+
+                    let py_model = models
+                        .getattr("JOS3")
+                        .unwrap()
+                        .call((), Some(&kwargs))
+                        .unwrap_or_else(|e| panic!("{label}: JOS3() raised: {e}"));
+
+                    let mut rust_model = Jos3Builder::new()
+                        .height(Length::from_meters(spec.height_m))
+                        .weight(Mass::from_kilograms(spec.weight_kg))
+                        .age(spec.age)
+                        .fat(BodyFat::new(spec.fat_percent).expect("in range"))
+                        .sex(sex)
+                        .cardiac_index(CardiacIndex::from_liters_per_minute_per_square_meter(
+                            spec.ci,
+                        ))
+                        .bmr_equation(bmr)
+                        .bsa_equation(bsa)
+                        .build()
+                        .unwrap_or_else(|e| panic!("{label}: Jos3Builder::build failed: {e}"));
+
+                    py_model
+                        .getattr("simulate")
+                        .unwrap()
+                        .call1((3, 60))
+                        .unwrap_or_else(|e| panic!("{label}: JOS3.simulate raised: {e}"));
+
+                    let conditions = rust_model.conditions();
+                    rust_model
+                        .advance(&conditions, 3, Duration::from_secs(60))
+                        .unwrap_or_else(|e| panic!("{label}: advance failed: {e}"));
+
+                    assert_jos3_matches_python(&py_model, rust_model.results(), &label);
+                }
+            }
+        }
+    });
+}
+
+/// Posture variation: every posture string upstream's setter actually recognizes
+/// (`models/jos3.py:1471-1491`) -- `standing`; `sitting`/`sedentary`; `lying`/`supine`.
+/// `Reclining`/`Crouching` are not among them: upstream's setter silently leaves the
+/// previous posture in place for an unrecognized string rather than raising (a defect,
+/// not behaviour -- see `Jos3Error::UnsupportedPosture`, which refuses those two instead
+/// of reproducing the silent no-op), so they are deliberately not swept here.
+#[test]
+fn test_jos3_posture_variants_comparison() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let postures = [
+            (Posture::Standing, "standing"),
+            (Posture::Sitting, "sitting"),
+            (Posture::Sedentary, "sedentary"),
+            (Posture::Lying, "lying"),
+            (Posture::Supine, "supine"),
+        ];
+
+        for (posture, posture_str) in postures {
+            let label = format!("posture[{posture_str}]");
+
+            let py_model = models
+                .getattr("JOS3")
+                .unwrap()
+                .call0()
+                .unwrap_or_else(|e| panic!("{label}: JOS3() raised: {e}"));
+            py_model.setattr("posture", posture_str).unwrap();
+            py_model.setattr("tdb", 24.0).unwrap();
+            py_model.setattr("tr", 24.0).unwrap();
+            py_model.setattr("rh", 55.0).unwrap();
+            py_model.setattr("v", 0.2).unwrap();
+            py_model.setattr("clo", 0.6).unwrap();
+            py_model
+                .getattr("simulate")
+                .unwrap()
+                .call1((5, 60))
+                .unwrap_or_else(|e| panic!("{label}: JOS3.simulate raised: {e}"));
+
+            let mut rust_model = Jos3Builder::new()
+                .build()
+                .unwrap_or_else(|e| panic!("{label}: build failed: {e}"));
+            let mut conditions = rust_model.conditions();
+            conditions.tdb = PerBodyPart::Uniform(24.0);
+            conditions.tr = PerBodyPart::Uniform(24.0);
+            conditions.rh = PerBodyPart::Uniform(55.0);
+            conditions.v = PerBodyPart::Uniform(0.2);
+            conditions.clo = PerBodyPart::Uniform(0.6);
+            conditions.posture = posture;
+            rust_model
+                .advance(&conditions, 5, Duration::from_secs(60))
+                .unwrap_or_else(|e| panic!("{label}: advance failed: {e}"));
+
+            assert_jos3_matches_python(&py_model, rust_model.results(), &label);
+        }
+    });
+}
+
+/// Multi-phase run: two subjects, each advanced through three phases that change the
+/// environment between calls -- exactly the scenario the builder+advance API exists for
+/// (see the `jos3` module docs). Phase 1 is uniform conditions at the default dtime;
+/// phase 2 switches to per-body-part-by-segment conditions, a posture change, a `par`
+/// change, and a non-default (fractional) dtime; phase 3 switches to per-body-part-by-name
+/// conditions, another posture change, and a `to` override (which takes over both `tdb`
+/// and `tr`, mirroring Python's `to` setter). Every phase builds its conditions from
+/// `Jos3Model::conditions()` (the model's current environment) and overrides only what
+/// changes, exactly mirroring how Python's per-property setters leave everything else
+/// untouched between `simulate` calls.
+#[test]
+fn test_jos3_multiphase_run_comparison() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        struct Subject {
+            label: &'static str,
+            height_m: f64,
+            weight_kg: f64,
+            age: i32,
+            fat_percent: f64,
+            sex: Sex,
+            py_sex: &'static str,
+        }
+        let subjects = [
+            Subject {
+                label: "female/25/1.65",
+                height_m: 1.65,
+                weight_kg: 58.0,
+                age: 25,
+                fat_percent: 22.0,
+                sex: Sex::Female,
+                py_sex: "female",
+            },
+            Subject {
+                label: "male/50/1.80",
+                height_m: 1.80,
+                weight_kg: 82.0,
+                age: 50,
+                fat_percent: 18.0,
+                sex: Sex::Male,
+                py_sex: "male",
+            },
+        ];
+
+        for subject in subjects {
+            let kwargs = [
+                (
+                    "height",
+                    subject.height_m.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "weight",
+                    subject.weight_kg.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "fat",
+                    subject.fat_percent.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("age", subject.age.into_pyobject(py).unwrap().into_any()),
+                ("sex", subject.py_sex.into_pyobject(py).unwrap().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+            let py_model = models
+                .getattr("JOS3")
+                .unwrap()
+                .call((), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{}: JOS3() raised: {e}", subject.label));
+
+            let mut rust_model = Jos3Builder::new()
+                .height(Length::from_meters(subject.height_m))
+                .weight(Mass::from_kilograms(subject.weight_kg))
+                .age(subject.age)
+                .fat(BodyFat::new(subject.fat_percent).expect("in range"))
+                .sex(subject.sex)
+                .build()
+                .unwrap_or_else(|e| panic!("{}: build failed: {e}", subject.label));
+
+            // -- Phase 1: uniform conditions, standing, default dtime. --
+            py_model.setattr("tdb", 26.0).unwrap();
+            py_model.setattr("tr", 26.0).unwrap();
+            py_model.setattr("rh", 50.0).unwrap();
+            py_model.setattr("v", 0.1).unwrap();
+            py_model.setattr("clo", 0.5).unwrap();
+            py_model.setattr("par", 1.2).unwrap();
+            py_model
+                .getattr("simulate")
+                .unwrap()
+                .call1((5, 60))
+                .unwrap_or_else(|e| panic!("{}: phase 1 simulate raised: {e}", subject.label));
+
+            let mut conditions = rust_model.conditions();
+            conditions.tdb = PerBodyPart::Uniform(26.0);
+            conditions.tr = PerBodyPart::Uniform(26.0);
+            conditions.rh = PerBodyPart::Uniform(50.0);
+            conditions.v = PerBodyPart::Uniform(0.1);
+            conditions.clo = PerBodyPart::Uniform(0.5);
+            conditions.par = ActivityRatio::from_ratio(1.2);
+            rust_model
+                .advance(&conditions, 5, Duration::from_secs(60))
+                .unwrap_or_else(|e| panic!("{}: phase 1 advance failed: {e}", subject.label));
+
+            // -- Phase 2: per-body-part-by-segment conditions, sitting, a `par` change,
+            // and a non-default, fractional dtime (37.5s). --
+            let tdb2: [f64; 17] = std::array::from_fn(|i| 20.0 + 0.4 * i as f64);
+            let tr2: [f64; 17] = std::array::from_fn(|i| 21.0 + 0.3 * i as f64);
+            let rh2: [f64; 17] = std::array::from_fn(|i| 35.0 + 1.5 * i as f64);
+            let v2: [f64; 17] = std::array::from_fn(|i| 0.05 + 0.02 * i as f64);
+            let clo2: [f64; 17] = std::array::from_fn(|i| 0.2 + 0.03 * i as f64);
+
+            py_model.setattr("tdb", tdb2.to_vec()).unwrap();
+            py_model.setattr("tr", tr2.to_vec()).unwrap();
+            py_model.setattr("rh", rh2.to_vec()).unwrap();
+            py_model.setattr("v", v2.to_vec()).unwrap();
+            py_model.setattr("clo", clo2.to_vec()).unwrap();
+            py_model.setattr("par", 1.5).unwrap();
+            py_model.setattr("posture", "sitting").unwrap();
+            py_model
+                .getattr("simulate")
+                .unwrap()
+                .call1((4, 37.5))
+                .unwrap_or_else(|e| panic!("{}: phase 2 simulate raised: {e}", subject.label));
+
+            let mut conditions = rust_model.conditions();
+            conditions.tdb = PerBodyPart::BySegment(tdb2);
+            conditions.tr = PerBodyPart::BySegment(tr2);
+            conditions.rh = PerBodyPart::BySegment(rh2);
+            conditions.v = PerBodyPart::BySegment(v2);
+            conditions.clo = PerBodyPart::BySegment(clo2);
+            conditions.par = ActivityRatio::from_ratio(1.5);
+            conditions.posture = Posture::Sitting;
+            rust_model
+                .advance(&conditions, 4, Duration::from_secs_f64(37.5))
+                .unwrap_or_else(|e| panic!("{}: phase 2 advance failed: {e}", subject.label));
+
+            // -- Phase 3: per-body-part-by-name conditions via a `to` override (which
+            // takes over both `tdb` and `tr` -- Python's `to` setter), lying. --
+            let by_name: Vec<(&str, f64)> = JOS3_BODY_NAMES
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (*name, 30.0 - 0.2 * i as f64))
+                .collect();
+            let rh3: [f64; 17] = std::array::from_fn(|i| 60.0 - 0.5 * i as f64);
+
+            let py_to_dict = by_name.clone().into_py_dict(py).unwrap();
+            py_model.setattr("to", py_to_dict).unwrap();
+            py_model.setattr("rh", rh3.to_vec()).unwrap();
+            py_model.setattr("v", 0.15).unwrap();
+            py_model.setattr("clo", 0.8).unwrap();
+            py_model.setattr("posture", "lying").unwrap();
+            py_model
+                .getattr("simulate")
+                .unwrap()
+                .call1((3, 90))
+                .unwrap_or_else(|e| panic!("{}: phase 3 simulate raised: {e}", subject.label));
+
+            let mut conditions = rust_model.conditions();
+            conditions.rh = PerBodyPart::BySegment(rh3);
+            conditions.v = PerBodyPart::Uniform(0.15);
+            conditions.clo = PerBodyPart::Uniform(0.8);
+            conditions.posture = Posture::Lying;
+            conditions.to = Some(PerBodyPart::ByName(&by_name));
+            rust_model
+                .advance(&conditions, 3, Duration::from_secs(90))
+                .unwrap_or_else(|e| panic!("{}: phase 3 advance failed: {e}", subject.label));
+
+            assert_jos3_matches_python(&py_model, rust_model.results(), subject.label);
         }
     });
 }

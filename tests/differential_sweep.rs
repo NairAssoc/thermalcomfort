@@ -10,13 +10,15 @@
 
 mod support;
 
-use pyo3::exceptions::PyOverflowError;
+use core::time::Duration;
+use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
+use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
@@ -52,8 +54,9 @@ use thermalcomfort::utilities::{
     hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    AirPermeability, Angle, Area, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass,
-    MetabolicRate, Power, Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
+    ActivityRatio, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
+    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Power, Pressure,
+    Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -1254,6 +1257,431 @@ fn sweep_two_nodes_gagge_sleep() {
                 }
             }
             Ok(())
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// JOS3
+// ---------------------------------------------------------------------------
+
+/// The 17 JOS3 body segment names, canonical order. Duplicated from
+/// `tests/python_comparison.rs` rather than shared: each parity-test binary is
+/// self-contained (see that file's own copy and `py_float_seq` above for precedent).
+const JOS3_BODY_NAMES: [&str; 17] = [
+    "head",
+    "neck",
+    "chest",
+    "back",
+    "pelvis",
+    "left_shoulder",
+    "left_arm",
+    "left_hand",
+    "right_shoulder",
+    "right_arm",
+    "right_hand",
+    "left_thigh",
+    "left_leg",
+    "left_foot",
+    "right_thigh",
+    "right_leg",
+    "right_foot",
+];
+
+fn jos3_f64_series(py_output: &Bound<'_, PyAny>, field: &str) -> Result<Vec<f64>, String> {
+    py_output
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python JOS3Output: {e}"))?
+        .call_method0("tolist")
+        .map_err(|e| format!("{field}: tolist() raised: {e}"))?
+        .extract()
+        .map_err(|e| format!("{field}: could not extract as Vec<f64>: {e}"))
+}
+
+fn jos3_body_part_series(
+    py_output: &Bound<'_, PyAny>,
+    field: &str,
+) -> Result<[Vec<f64>; 17], String> {
+    let body = py_output
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python JOS3Output: {e}"))?;
+    let mut out: [Vec<f64>; 17] = Default::default();
+    for (i, part) in JOS3_BODY_NAMES.iter().enumerate() {
+        out[i] = body
+            .getattr(*part)
+            .map_err(|e| format!("{field}.{part}: {e}"))?
+            .call_method0("tolist")
+            .map_err(|e| format!("{field}.{part}: tolist() raised: {e}"))?
+            .extract()
+            .map_err(|e| format!("{field}.{part}: could not extract as Vec<f64>: {e}"))?;
+    }
+    Ok(out)
+}
+
+fn jos3_head_pelvis_series(
+    py_output: &Bound<'_, PyAny>,
+    field: &str,
+) -> Result<(Vec<f64>, Vec<f64>), String> {
+    let body = py_output
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python JOS3Output: {e}"))?;
+    let get = |name: &str| -> Result<Vec<f64>, String> {
+        body.getattr(name)
+            .map_err(|e| format!("{field}.{name}: {e}"))?
+            .call_method0("tolist")
+            .map_err(|e| format!("{field}.{name}: tolist() raised: {e}"))?
+            .extract()
+            .map_err(|e| format!("{field}.{name}: could not extract as Vec<f64>: {e}"))
+    };
+    Ok((get("head")?, get("pelvis")?))
+}
+
+/// `t_superficial_vein`'s 12 raw values, positionally -- see the identical helper (and
+/// its long comment on upstream's `pass_values_to_jos3_body_parts` mislabeling) in
+/// `tests/python_comparison.rs`. Reading the first 12 canonical body-part names in order
+/// recovers the 12 raw values in the same order the Rust port uses.
+fn jos3_superficial_vein_series(py_output: &Bound<'_, PyAny>) -> Result<[Vec<f64>; 12], String> {
+    let body = py_output
+        .getattr("t_superficial_vein")
+        .map_err(|e| format!("t_superficial_vein: missing on Python JOS3Output: {e}"))?;
+    let mut out: [Vec<f64>; 12] = Default::default();
+    for (i, part) in JOS3_BODY_NAMES.iter().take(12).enumerate() {
+        out[i] = body
+            .getattr(*part)
+            .map_err(|e| format!("t_superficial_vein.{part}: {e}"))?
+            .call_method0("tolist")
+            .map_err(|e| format!("t_superficial_vein.{part}: tolist() raised: {e}"))?
+            .extract()
+            .map_err(|e| {
+                format!("t_superficial_vein.{part}: could not extract as Vec<f64>: {e}")
+            })?;
+    }
+    Ok(out)
+}
+
+fn jos3_close(field: &str, step: usize, rust: f64, py: f64) -> Result<(), String> {
+    if (rust.is_nan() && py.is_nan()) || (rust - py).abs() <= 1e-9 {
+        Ok(())
+    } else {
+        Err(format!(
+            "{field}[{step}]: rust={rust}, python={py}, diff={:.3e}",
+            (rust - py).abs()
+        ))
+    }
+}
+
+/// Compare every field of a Rust [`Jos3Results`] against `py_model.results()`, over
+/// every step. `results()`, not `dict_results()` -- see `tests/python_comparison.rs`
+/// for why (a genuine pythermalcomfort 4.4.0 bug makes `dict_results()` return
+/// attribute-name strings instead of values for every per-body-part field).
+fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), String> {
+    let py = py_model
+        .call_method0("results")
+        .map_err(|e| format!("JOS3.results() raised: {e}"))?;
+
+    let n = rust.simulation_time.len();
+
+    let scalar_fields: [(&str, &Vec<f64>); 16] = [
+        ("dt", &rust.dt),
+        ("t_skin_mean", &rust.t_skin_mean),
+        ("w_mean", &rust.w_mean),
+        (
+            "weight_loss_by_evap_and_res",
+            &rust.weight_loss_by_evap_and_res,
+        ),
+        ("cardiac_output", &rust.cardiac_output),
+        ("q_thermogenesis_total", &rust.q_thermogenesis_total),
+        ("q_res", &rust.q_res),
+        ("height", &rust.height),
+        ("weight", &rust.weight),
+        ("fat", &rust.fat),
+        ("t_cb", &rust.t_cb),
+        ("par", &rust.par),
+        ("bf_ava_hand", &rust.bf_ava_hand),
+        ("bf_ava_foot", &rust.bf_ava_foot),
+        ("q_res_sensible", &rust.q_res_sensible),
+        ("q_res_latent", &rust.q_res_latent),
+    ];
+    for (field, rust_series) in scalar_fields {
+        if rust_series.len() != n {
+            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+        }
+        let py_series = jos3_f64_series(&py, field)?;
+        if py_series.len() != n {
+            return Err(format!("{field}: python length {} != {n}", py_series.len()));
+        }
+        for (step, (&r, &p)) in rust_series.iter().zip(py_series.iter()).enumerate() {
+            jos3_close(field, step, r, p)?;
+        }
+    }
+
+    let body17_fields: [(&str, &Vec<[f64; 17]>); 31] = [
+        ("t_skin", &rust.t_skin),
+        ("t_core", &rust.t_core),
+        ("w", &rust.w),
+        ("q_skin2env", &rust.q_skin2env),
+        ("bsa", &rust.bsa),
+        ("t_core_set", &rust.t_core_set),
+        ("t_skin_set", &rust.t_skin_set),
+        ("t_artery", &rust.t_artery),
+        ("t_vein", &rust.t_vein),
+        ("to", &rust.to),
+        ("r_t", &rust.r_t),
+        ("r_et", &rust.r_et),
+        ("tdb", &rust.tdb),
+        ("tr", &rust.tr),
+        ("rh", &rust.rh),
+        ("v", &rust.v),
+        ("clo", &rust.clo),
+        ("e_skin", &rust.e_skin),
+        ("e_max", &rust.e_max),
+        ("e_sweat", &rust.e_sweat),
+        ("bf_core", &rust.bf_core),
+        ("bf_skin", &rust.bf_skin),
+        ("q_bmr_core", &rust.q_bmr_core),
+        ("q_bmr_skin", &rust.q_bmr_skin),
+        ("q_work", &rust.q_work),
+        ("q_shiv", &rust.q_shiv),
+        ("q_nst", &rust.q_nst),
+        ("q_thermogenesis_core", &rust.q_thermogenesis_core),
+        ("q_thermogenesis_skin", &rust.q_thermogenesis_skin),
+        ("q_skin2env_sensible", &rust.q_skin2env_sensible),
+        ("q_skin2env_latent", &rust.q_skin2env_latent),
+    ];
+    for (field, rust_series) in body17_fields {
+        if rust_series.len() != n {
+            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+        }
+        let py_series = jos3_body_part_series(&py, field)?;
+        for (part_idx, part_name) in JOS3_BODY_NAMES.iter().enumerate() {
+            let py_part = &py_series[part_idx];
+            if py_part.len() != n {
+                return Err(format!(
+                    "{field}.{part_name}: python length {} != {n}",
+                    py_part.len()
+                ));
+            }
+            for step in 0..n {
+                jos3_close(
+                    &format!("{field}.{part_name}"),
+                    step,
+                    rust_series[step][part_idx],
+                    py_part[step],
+                )?;
+            }
+        }
+    }
+
+    let body2_fields: [(&str, &Vec<[f64; 2]>); 8] = [
+        ("t_muscle", &rust.t_muscle),
+        ("t_fat", &rust.t_fat),
+        ("bf_muscle", &rust.bf_muscle),
+        ("bf_fat", &rust.bf_fat),
+        ("q_bmr_muscle", &rust.q_bmr_muscle),
+        ("q_bmr_fat", &rust.q_bmr_fat),
+        ("q_thermogenesis_muscle", &rust.q_thermogenesis_muscle),
+        ("q_thermogenesis_fat", &rust.q_thermogenesis_fat),
+    ];
+    for (field, rust_series) in body2_fields {
+        if rust_series.len() != n {
+            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+        }
+        let (py_head, py_pelvis) = jos3_head_pelvis_series(&py, field)?;
+        for step in 0..n {
+            jos3_close(
+                &format!("{field}.head"),
+                step,
+                rust_series[step][0],
+                py_head[step],
+            )?;
+            jos3_close(
+                &format!("{field}.pelvis"),
+                step,
+                rust_series[step][1],
+                py_pelvis[step],
+            )?;
+        }
+    }
+
+    if rust.t_superficial_vein.len() != n {
+        return Err(format!(
+            "t_superficial_vein: rust length {} != {n}",
+            rust.t_superficial_vein.len()
+        ));
+    }
+    let py_sfvein = jos3_superficial_vein_series(&py)?;
+    for (k, py_k) in py_sfvein.iter().enumerate() {
+        for (step, &p) in py_k.iter().enumerate() {
+            jos3_close(
+                &format!("t_superficial_vein[{k}]"),
+                step,
+                rust.t_superficial_vein[step][k],
+                p,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn sweep_jos3() {
+    // Upstream rounds every JOS3 output field (`models/jos3.py`: 2 dp for most fields, 1
+    // dp for `cardiac_output`, 3 dp for `r_t`/`r_et`, 5 dp for
+    // `weight_loss_by_evap_and_res` -- see `Jos3Model::run_step`), so a comparison of
+    // rounded values cannot see drift smaller than that rounding step. The Rust port
+    // solves the same 85x85 system with an LU decomposition where Python computes an
+    // explicit matrix inverse (`Jos3Model::run_step`'s own doc comment); that is more
+    // numerically accurate, and the two are expected to diverge by a few ULP per step
+    // in the *unrounded* internal body-temperature state, which is carried forward
+    // unrounded from one step to the next on both sides. A run of a handful of steps
+    // cannot accumulate that into anything visible after 2-5 dp rounding and would pass
+    // whether or not the port were correct. `duration` below draws up to 500 steps (at
+    // a drawn dtime of up to 120s, i.e. up to 16+ hours of simulated time) specifically
+    // so that if the LU/inverse difference -- or any other genuine bug -- ever grows
+    // large enough to cross a rounding boundary, this sweep is positioned to catch it.
+    let domain = Domain::new()
+        .real("height", 1.3, 2.0)
+        .real("weight", 35.0, 140.0)
+        .real("age", 10.0, 90.0)
+        .real("fat", 5.0, 40.0)
+        .real("ci", 1.5, 4.0)
+        .enumerated("bmr_equation", 3)
+        .enumerated("bsa_equation", 4)
+        .flag("sex")
+        .real("tdb", 10.0, 35.0)
+        .real("tr", 10.0, 35.0)
+        .real("rh", 20.0, 80.0)
+        .real("v", 0.0, 1.2)
+        .real("clo", 0.2, 1.8)
+        .real("par", 1.0, 2.5)
+        .enumerated("posture", 5)
+        .real("dtime", 30.0, 120.0)
+        .enumerated("duration", 4);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep("sweep_jos3", &domain, |s: &Sample| {
+            let height = s.real("height");
+            let weight = s.real("weight");
+            let age = s.real("age").round() as i32;
+            let fat = s.real("fat");
+            let ci = s.real("ci");
+            let (bmr, py_bmr) = match s.index("bmr_equation") {
+                0 => (BmrEquation::HarrisBenedict, "harris-benedict"),
+                1 => (
+                    BmrEquation::HarrisBenedictOriginal,
+                    "harris-benedict_origin",
+                ),
+                _ => (BmrEquation::Japanese, "japanese"),
+            };
+            let (bsa, py_bsa) = match s.index("bsa_equation") {
+                0 => (BsaFormula::DuBois, "dubois"),
+                1 => (BsaFormula::Takahira, "takahira"),
+                2 => (BsaFormula::Fujimoto, "fujimoto"),
+                _ => (BsaFormula::Kurazumi, "kurazumi"),
+            };
+            let (sex, py_sex) = if s.flag("sex") {
+                (Sex::Female, "female")
+            } else {
+                (Sex::Male, "male")
+            };
+            let tdb = s.real("tdb");
+            let tr = s.real("tr");
+            let rh = s.real("rh");
+            let v = s.real("v");
+            let clo = s.real("clo");
+            let par = s.real("par");
+            let (posture, py_posture) = match s.index("posture") {
+                0 => (Posture::Standing, "standing"),
+                1 => (Posture::Sitting, "sitting"),
+                2 => (Posture::Sedentary, "sedentary"),
+                3 => (Posture::Lying, "lying"),
+                _ => (Posture::Supine, "supine"),
+            };
+            let dtime = s.real("dtime");
+            // At least "a few hundred steps" per the brief; see the comment above the
+            // domain for why the run needs to be long, not just varied.
+            let steps: u32 = match s.index("duration") {
+                0 => 80,
+                1 => 200,
+                2 => 350,
+                _ => 500,
+            };
+
+            let kwargs = [
+                ("height", height.into_pyobject(py).unwrap().into_any()),
+                ("weight", weight.into_pyobject(py).unwrap().into_any()),
+                ("fat", fat.into_pyobject(py).unwrap().into_any()),
+                ("age", age.into_pyobject(py).unwrap().into_any()),
+                ("sex", py_sex.into_pyobject(py).unwrap().into_any()),
+                ("ci", ci.into_pyobject(py).unwrap().into_any()),
+                ("bmr_equation", py_bmr.into_pyobject(py).unwrap().into_any()),
+                ("bsa_equation", py_bsa.into_pyobject(py).unwrap().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_model = models
+                .getattr("JOS3")
+                .unwrap()
+                .call((), Some(&kwargs))
+                .map_err(|e| format!("python JOS3() raised: {e}"))?;
+
+            let call = (|| -> PyResult<()> {
+                py_model.setattr("tdb", tdb)?;
+                py_model.setattr("tr", tr)?;
+                py_model.setattr("rh", rh)?;
+                py_model.setattr("v", v)?;
+                py_model.setattr("clo", clo)?;
+                py_model.setattr("par", par)?;
+                py_model.setattr("posture", py_posture)?;
+                py_model
+                    .getattr("simulate")?
+                    .call1((steps, dtime))
+                    .map(|_| ())
+            })();
+            match call {
+                Ok(()) => {}
+                // A physically-invalid combination the thermoregulation loop cannot
+                // solve (e.g. a negative convective/radiative coefficient) -- Python
+                // raises a bare ValueError with no structured type to match on, mirrored
+                // by `ThermoregulationError` on the Rust side. There is no reference
+                // value to compare against, so the sample is skipped rather than
+                // counted as a divergence, the same way `sweep_two_nodes_gagge_sleep`
+                // skips upstream's OverflowError.
+                Err(e) if e.is_instance_of::<PyValueError>(py) => return Ok(()),
+                Err(e) => return Err(format!("python raised: {e}")),
+            }
+
+            let mut rust_model = Jos3Builder::new()
+                .height(Length::from_meters(height))
+                .weight(Mass::from_kilograms(weight))
+                .age(age)
+                .fat(BodyFat::new(fat).expect("domain stays inside [1, 90]"))
+                .sex(sex)
+                .cardiac_index(CardiacIndex::from_liters_per_minute_per_square_meter(ci))
+                .bmr_equation(bmr)
+                .bsa_equation(bsa)
+                .build()
+                .map_err(|e| format!("rust build failed where python succeeded: {e}"))?;
+
+            let mut conditions = rust_model.conditions();
+            conditions.tdb = PerBodyPart::Uniform(tdb);
+            conditions.tr = PerBodyPart::Uniform(tr);
+            conditions.rh = PerBodyPart::Uniform(rh);
+            conditions.v = PerBodyPart::Uniform(v);
+            conditions.clo = PerBodyPart::Uniform(clo);
+            conditions.par = ActivityRatio::from_ratio(par);
+            conditions.posture = posture;
+
+            rust_model
+                .advance(&conditions, steps, Duration::from_secs_f64(dtime))
+                .map_err(|e| format!("rust advance failed where python succeeded: {e}"))?;
+
+            jos3_results_match(&py_model, rust_model.results())
         });
     });
 }
