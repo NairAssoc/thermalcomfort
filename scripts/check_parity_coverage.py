@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
-"""Fail if any public model/utility function lacks a cross-library parity test.
+"""Check parity coverage in both directions.
 
-The port's correctness claim rests entirely on comparing against pythermalcomfort. A
-function with no parity test is unverified no matter how many unit tests it has, because
-unit tests assert against values a human transcribed once — they cannot notice upstream
-changing. This check makes that gap a build failure rather than a matter of discipline.
+1. Rust -> Python: every public Rust function has a cross-library parity test. A function
+   with no parity test is unverified no matter how many unit tests it has, because unit
+   tests assert against values a human transcribed once — they cannot notice upstream
+   changing.
+
+2. Python -> Rust: every public pythermalcomfort name has a Rust port. This direction was
+   missing until 2026-08-09, and its absence is not hypothetical: `JOS3`, an entire
+   17-segment thermoregulation model, was absent from the port while the build stayed
+   green and the README claimed "100% Feature Complete". Direction 1 cannot see that, by
+   construction — it only ever asks questions about names the port already has.
+
+Direction 2 imports the installed pythermalcomfort, so `make parity-coverage` now needs
+the reference package importable and refuses to run against the wrong version. It fails
+loudly rather than skipping: a completeness check that silently does nothing when the
+reference is missing is the same hole it was written to close.
 
 Run via `make parity-coverage` (included in `make lint`).
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -145,6 +157,165 @@ def _is_defined_fn(name: str, rust_files: list[Path]) -> bool:
     return any(pattern.search(p.read_text()) for p in rust_files)
 
 
+def public_rust_identifiers() -> set[str]:
+    """Every publicly reachable Rust name: functions, structs, enums and type aliases.
+
+    The Python direction needs more than functions, because pythermalcomfort exposes
+    some of its API as classes (`JOS3`, `Sports`) that a Rust port would spell as a
+    struct rather than a `fn`.
+    """
+    names = public_function_names()
+    for path in sorted(SRC.rglob("*.rs")):
+        text = path.read_text()
+        names.update(
+            re.findall(r"^pub (?:struct|enum|type|trait) (\w+)", text, re.MULTILINE)
+        )
+    return names
+
+
+def python_public_api() -> dict[str, str]:
+    """Map every public pythermalcomfort name to the module it came from.
+
+    Imported rather than parsed: the point of this direction is to notice when
+    *upstream* grows something the port does not have, and only the installed package
+    knows that.
+    """
+    import pythermalcomfort.models as py_models
+    import pythermalcomfort.utilities as py_utilities
+
+    api: dict[str, str] = {}
+    for label, module in (("models", py_models), ("utilities", py_utilities)):
+        for name in dir(module):
+            if name.startswith("_"):
+                continue
+            obj = getattr(module, name)
+            if not (callable(obj) or isinstance(obj, type)):
+                continue
+            # Only things pythermalcomfort itself defines; skip re-exported numpy etc.
+            origin = getattr(obj, "__module__", "") or ""
+            if not origin.startswith("pythermalcomfort"):
+                continue
+            api[name] = label
+    return api
+
+
+# pythermalcomfort names the Rust port spells differently.
+PYTHON_TO_RUST: dict[str, str] = {
+    "wet_bulb_tmp": "wet_bulb_temperature",
+    "dew_point_tmp": "dew_point_temperature",
+    "mean_radiant_tmp": "mean_radiant_temperature",
+    "operative_tmp": "operative_temperature",
+    "BodySurfaceAreaEquations": "BsaFormula",
+    "Postures": "Posture",
+}
+
+# pythermalcomfort names that need no Rust counterpart. Each needs a reason.
+PYTHON_EXEMPT: dict[str, str] = {
+    "units_converter": "the Rust API takes typed quantities, so unit conversion is the type system's job",
+    "valid_range": "internal applicability helper; the port applies the same masks inside each model",
+    "validate_type": "Python runtime type checking; Rust does this at compile time",
+    "adaptive_cooling_effect": "implemented as a private helper in src/models/adaptive.rs and exercised through both adaptive models",
+    "DefaultSkinTemperature": "JOS3 support type; only meaningful once JOS3 is ported",
+    "Models": "a single enum of every standard upstream supports; the port encodes the "
+    "choice per function instead - Iso7933Model for PHS, use_iso/use_ashrae flags for the "
+    "psychrometric helpers - so there is no one type to map it to",
+}
+
+# pythermalcomfort API with no Rust port yet. A backlog, not an exemption: reported on
+# every run but does not fail, so that pre-existing gaps cannot mask a NEW one appearing
+# upstream. Entries should only ever be removed.
+PYTHON_NOT_PORTED: dict[str, str] = {
+    "JOS3": "17-segment whole-body thermoregulation model; no Rust counterpart. "
+    "Tracked in docs/superpowers/plans/outstanding-parity-work.md",
+}
+
+
+def check_python_direction() -> tuple[bool, list[str]]:
+    """Fail if pythermalcomfort exposes something the port has not implemented.
+
+    This is the direction the Rust-side check cannot see. `make parity-coverage` asks
+    "does every Rust function have a parity test"; it never asked "does every Python
+    function have a Rust port", which is how an entire missing model (JOS3) stayed
+    invisible while the build was green.
+    """
+    try:
+        api = python_public_api()
+    except ImportError as exc:
+        print(
+            f"error: could not import pythermalcomfort, so the Python-to-Rust "
+            f"completeness check cannot run: {exc}\n"
+            f"Set it up with: make setup-parity",
+            file=sys.stderr,
+        )
+        return True, []
+
+    expected = os.environ.get("PTC_VERSION")
+    if expected:
+        import pythermalcomfort
+
+        actual = pythermalcomfort.__version__
+        if actual != expected:
+            print(
+                f"error: comparing against pythermalcomfort {actual}, but this crate "
+                f"ports {expected}. The completeness check would be inventorying the "
+                f"wrong API.\nFix with: make setup-parity",
+                file=sys.stderr,
+            )
+            return True, []
+
+    rust = public_rust_identifiers()
+    unported = sorted(
+        name
+        for name in api
+        if name not in PYTHON_EXEMPT
+        and PYTHON_TO_RUST.get(name, name) not in rust
+    )
+
+    failed = False
+
+    stale = sorted(
+        n for n in (PYTHON_EXEMPT | PYTHON_NOT_PORTED) if n not in api
+    )
+    if stale:
+        failed = True
+        print(
+            "Stale entries in PYTHON_EXEMPT/PYTHON_NOT_PORTED (no longer in "
+            "pythermalcomfort, remove them):",
+            file=sys.stderr,
+        )
+        for name in stale:
+            print(f"  - {name}", file=sys.stderr)
+
+    resolved = sorted(n for n in PYTHON_NOT_PORTED if n in api and n not in unported)
+    if resolved:
+        failed = True
+        print(
+            f"\n{len(resolved)} pythermalcomfort name(s) now have a Rust port but are "
+            f"still listed in PYTHON_NOT_PORTED. Remove them:\n",
+            file=sys.stderr,
+        )
+        for name in resolved:
+            print(f"  - {name}", file=sys.stderr)
+
+    new_gaps = sorted(set(unported) - PYTHON_NOT_PORTED.keys())
+    if new_gaps:
+        failed = True
+        print(
+            f"\n{len(new_gaps)} pythermalcomfort name(s) have no Rust counterpart:\n",
+            file=sys.stderr,
+        )
+        for name in new_gaps:
+            print(f"  - {name} (pythermalcomfort.{api[name]})", file=sys.stderr)
+        print(
+            "\nPort it, or add it to PYTHON_TO_RUST if the port spells it differently, "
+            "or to PYTHON_EXEMPT with a reason if it needs no counterpart.\n",
+            file=sys.stderr,
+        )
+
+    outstanding = sorted(set(unported) & PYTHON_NOT_PORTED.keys())
+    return failed, outstanding
+
+
 def main() -> int:
     missing_files = [p for p in PARITY_TEST_FILES if not p.exists()]
     if missing_files:
@@ -212,6 +383,10 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    # The other direction: does every pythermalcomfort name have a Rust port?
+    py_failed, py_outstanding = check_python_direction()
+    failed = failed or py_failed
+
     if failed:
         return 1
 
@@ -219,6 +394,9 @@ def main() -> int:
     print(f"✓ {tested} public functions have parity tests, {len(EXEMPT)} exempt")
     if outstanding:
         print(f"  {len(outstanding)} known gap(s) outstanding: {', '.join(outstanding)}")
+    print("✓ every pythermalcomfort name has a Rust port or a recorded reason")
+    if py_outstanding:
+        print(f"  {len(py_outstanding)} not ported yet: {', '.join(py_outstanding)}")
     return 0
 
 

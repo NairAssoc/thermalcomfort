@@ -46,7 +46,7 @@ help:
 	@echo "  make test           - Run the full suite in both no_std and std configurations"
 	@echo "  make sweep          - Deep randomised differential sweep (SWEEP_N=$(SWEEP_N))"
 	@echo "  make verify         - Run lint + the full suite including Python parity tests"
-	@echo "  make parity-coverage- Check every public model/utility has a parity test"
+	@echo "  make parity-coverage- Check parity tests exist AND every upstream name is ported"
 	@echo "  make parity-version - Print the pythermalcomfort version this port targets"
 	@echo "  make fmt            - Check code formatting"
 	@echo "  make clippy         - Run clippy linter"
@@ -78,10 +78,13 @@ clippy:
 	@echo "Running clippy..."
 	@cargo clippy --all-targets --all-features -- -D warnings
 
-# Every public model/utility must have a cross-library parity test
+# Every public model/utility must have a cross-library parity test, and every
+# pythermalcomfort name must have a Rust port. The second direction needs the reference
+# package importable, hence PARITY_ENV: it inventories the *installed* API, because only
+# that can reveal something upstream has and this port does not.
 parity-coverage:
 	@echo "Checking parity test coverage..."
-	@$(PYTHON) scripts/check_parity_coverage.py
+	@$(PARITY_ENV) PTC_VERSION=$(PTC_VERSION) $(PYTHON) scripts/check_parity_coverage.py
 
 # Lint target: formatting, clippy, and parity coverage
 lint: fmt clippy parity-coverage
