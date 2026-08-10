@@ -5,11 +5,12 @@ public model and utility except `two_nodes_gagge_sleep` (unported, below), `make
 runs it deep, and CI runs a short one on every push. See `README.md` under "Differential sweep" for how to run and reproduce.
 The plan that produced it, and the 24 defects it closed, are in git history.
 
-Three items remain. **All are blocked on a decision only the developer can make** — none
-is waiting on implementation effort, and none can be resolved by reading more code.
+Three pieces of work remain, in the order they should be done. The API pass is **decided**
+and ready to implement. JOS3 and the sleep model each carry one open decision, noted in
+place.
 
 `make parity-coverage` now checks both directions, so a future upstream release growing a
-model the port lacks will fail the build rather than pass silently. JOS3 below is recorded
+model the port lacks will fail the build rather than pass silently. JOS3 is recorded
 in `PYTHON_NOT_PORTED` in `scripts/check_parity_coverage.py`: reported on every run,
 non-fatal, so it cannot mask the *next* gap.
 
@@ -17,9 +18,91 @@ The upstream source is not in the repo. If `/tmp/ptc_diff` has been cleared, get
 with `pip download pythermalcomfort==4.4.0 --no-deps --no-binary :all: -d /tmp/` and
 `tar xzf`.
 
+**This branch is a major bump — 3.9.8 to 4.4.0 — so breaking API changes are in scope and
+this is the window for them.** Earlier notes in this repo said the opposite ("the crate
+version tracks pythermalcomfort's and cannot take a major bump on its own schedule"). That
+reasoning applies to a patch or minor release; it does not apply here, and the API pass
+below depends on that.
+
 ---
 
-## Port `JOS3` — next up
+---
+
+## 1. API modernisation — decided 2026-08-10
+
+Unit confusion and positional swapping are both ordinary API calling errors, and the crate
+currently only defends against the first. Two orthogonal mechanisms, applied together:
+
+**Rule 1 — every dimensioned or bounded value is a newtype, on inputs *and* outputs.**
+Catches °C-vs-°F and isolates conversion from calculation: convert once at the boundary,
+calculate in plain `f64`, construct the newtype at the end. The crate already does the
+input half of this.
+
+**Rule 2 — every model takes a named input struct.** Catches positional swapping, which
+Rule 1 cannot: `adaptive_ashrae(tdb, tr, t_running_mean, v)` is fully newtyped today and
+all three temperatures are silently interchangeable. Measured worst cases:
+
+| Function | Swappable run |
+|---|---|
+| `solar_gain` | **7 consecutive `f64`** (5 are [0,1] fractions) |
+| `adaptive_ashrae`, `adaptive_en` | 3 consecutive `Temperature` |
+| `wbgt` | 2 consecutive `Temperature` (`twb`, `tg`) |
+| `heat_index_rothfusz` | 2 consecutive `bool` (`round_output`, `limit_inputs`) |
+| `use_fans_heatwaves` | 14 parameters |
+
+Shape: a required-fields `XInputs` struct with **no `Default`** (so every field must be
+named) plus the existing defaulted `XOptions`. Extends the `*Options` pattern already in
+the crate rather than inventing a parallel one.
+
+```rust
+adaptive_ashrae(
+    AdaptiveInputs {
+        tdb: Temperature::from_celsius(25.0),
+        tr: Temperature::from_celsius(25.0),
+        t_running_mean: Temperature::from_celsius(20.0),
+        v: Speed::from_meters_per_second(0.1),
+    },
+    Default::default(),
+)
+```
+
+**Role newtypes are NOT needed.** `DryBulb`/`MeanRadiant`/`WetBulb` were considered for the
+cross-model seams; once inputs are named structs, naming supplies the role distinction the
+type would have encoded. Two mechanisms, not three.
+
+### Output typing
+
+Outputs are currently all plain `f64`, which reintroduces on the way out the confusion the
+input types prevent. Concretely: `wbgt()` returns `f64` while `work_capacity_iso()` takes
+`wbgt: Temperature`, so the natural pipeline forces `Temperature::from_celsius(result)` —
+this crate's own tests do that re-wrap 8 times.
+
+| Output kind | Becomes |
+|---|---|
+| Absolute temperatures (`pet`, `utci`, `set`, `t_re`, `tmp_cmf`, `wbgt`, …) | `Temperature` |
+| Temperature *differences* (`SolarGainResult.delta_mrt`, `cooling_effect()`) | `TemperatureDelta` — **actively wrong today**, indistinguishable from absolute values |
+| Heat flows in W/m² (`e_skin`, `q_sensible`, …) | `HeatFluxDensity` (new) |
+| Genuinely dimensionless (`pmv`, `ppd`, `di`, risk levels, capacity %) | stay `f64` |
+
+### New types required
+
+`CardiacIndex` (L/(min·m²)), `HeatFluxDensity` (W/m²), `ActivityRatio` (PAR, dimensionless
+multiple of BMR), `BodyFat` (percentage). The last two follow `WorkEfficiency`: bounded,
+and an out-of-range value yields a plausible-looking wrong answer rather than failing.
+`BsaFormula` already exists and covers JOS3's `bsa_equation`; `bmr_equation` needs a new
+enum.
+
+### Cost, honestly
+
+~40 signatures and ~40 result structs, plus every test, doctest and example that touches
+them. That is a larger diff than JOS3 itself. It is much cheaper before JOS3 than after,
+because JOS3 adds 6,100 lines that would otherwise be written twice.
+
+---
+
+---
+
+## 2. Port `JOS3`
 
 **Blocked on: two architectural decisions, plus whether the size is worth it.**
 
@@ -79,7 +162,9 @@ intended ratchet.
 
 ---
 
-## Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
+---
+
+## 3. Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
 
 **Blocked on: what shape should the Rust function return?**
 
@@ -92,7 +177,11 @@ single `GaggeTwoNodesResult`. The options are:
 3. Take a duration and return a trajectory of that length — most flexible, largest API.
 
 **Recommendation: option 2**, for consistency with the Ji model, which was ported to a
-`heapless::Vec` trajectory and now matches Python exactly.
+`heapless::Vec` trajectory and now matches Python exactly. The API pass above also settles
+the surrounding shape: a named `SleepInputs` struct, and trajectory elements carrying
+`Temperature`/`HeatFluxDensity` rather than bare `f64`. Note the current single-struct
+signature returns values the model cannot actually produce, so keeping it is not the
+conservative option it looks like.
 
 **What is wrong today.** `src/models/two_nodes_gagge.rs::two_nodes_gagge_sleep` delegates
 to the standard Gagge model at a fixed `met_sleep = 0.7`, and computes
@@ -125,51 +214,15 @@ to `tests/differential_sweep.rs` following the Ji sweep, which compares whole tr
 
 ---
 
-## The `measurements::Temperature` round-trip
+---
 
-**Blocked on: should the public API carry raw Celsius instead of typed quantities?**
+## Closed: the `measurements::Temperature` round-trip
 
-`Temperature::from_celsius(21.4).as_celsius()` differs from 21.4 by 2.1e-14 — the type
-round-trips through Kelvin. Every public entry point takes `Temperature`, so the caller's
-Celsius value is perturbed before any model sees it, which flips exact boundary
-comparisons.
-
-Concretely: `adaptive_ashrae(tdb=21.4, tr=21.8, t_running_mean=23.4, v=0.11,
-limit_inputs=false)` gives `acceptability_80 = True` in Python and `False` here, because
-the operative temperature lands either side of the band edge.
-
-This is the only defect from the review that no amount of work inside the models can fix.
-Closing it means the public API carries raw `f64` Celsius rather than
-`measurements::Temperature`, which is a large break and contradicts the crate's
-typed-quantity design.
-
-**Scale:** 8 of 6000 swept adaptive acceptability cases. The differential sweep does not
-currently fail on it because the adaptive sweeps compare the numeric band edges, where the
-perturbation is far below tolerance; only the derived booleans flip.
-
-**Options:**
-
-1. Accept and document it as a known limitation — zero API churn, 8-in-6000 stays wrong.
-2. Take raw `f64` Celsius on public entry points — fixes it, large break, loses the type
-   safety the crate is built around.
-3. Replace `measurements::Temperature` with a crate-local temperature newtype that stores
-   Celsius directly — fixes it, keeps typed quantities, but is a breaking change to every
-   signature's type name and drops the `measurements` interop.
-
-**Recommendation: option 3** if a break is affordable, otherwise option 1.
-
-**Constraint on timing:** this crate's version tracks pythermalcomfort's, so the port
-cannot take a major bump on its own schedule. A breaking change is therefore cheap only
-when upstream majors (4.x -> 5.x), or if the port deliberately departs from the
-version-mirroring convention.
-
-**Batch with it, if a break happens.** The same class of API item, recorded during the
-2026-08-09 newtype audit and deliberately deferred:
-
-- `SolarGainResult.delta_mrt` and the `f64` returned by `cooling_effect` are temperature
-  *differences* and should be `TemperatureDelta`, but the crate's convention is that
-  result structs return plain `f64`.
-- Solar angles (`solar_gain`, `transpose_sharp_altitude`) are bare `f64` degrees;
-  `measurements::Angle` exists but is not re-exported.
-- Irradiance in W/m² (`esi`, `solar_gain`) has no type in `measurements`.
-- The blood-flow and sweating caps in `use_fans_heatwaves` are bare dimensional rates.
+**Not reproducible — removed from this list on 2026-08-10.** The round-trip through Kelvin
+is real (`from_celsius(21.4).as_celsius()` differs by 2.13e-14), but the consequence
+recorded for it was not. The documented failing case —
+`adaptive_ashrae(21.4, 21.8, 23.4, 0.11, limit_inputs=false)` — now agrees with Python on
+both acceptability booleans, and 80,000 swept adaptive samples comparing those booleans
+found zero divergence. 1e-14 °C only matters where a float feeds a discrete comparison,
+and nothing in the swept space lands that close to a band edge. Do not spend a crate-local
+temperature type on it.

@@ -33,7 +33,7 @@ pyo3 = { version = "0.23", features = ["auto-initialize"] }
 default = []
 # Retained as a no-op so existing `features = ["std"]` dependants keep building. It used
 # to switch PET onto nalgebra; nalgebra is now unconditional and the two solvers it chose
-# between produced identical results, so there is nothing left to gate. The crate version
-# tracks pythermalcomfort's and cannot take a major bump on its own schedule, so this
-# stays until upstream majors.
+# between produced identical results, so there is nothing left to gate. Kept rather than
+# deleted purely as a courtesy - 3.9.x users get a working build instead of an unknown-
+# feature error - and it can go whenever that courtesy expires.
 std = []
