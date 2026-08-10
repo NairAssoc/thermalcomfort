@@ -11,17 +11,17 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 /// Result of fan use during heatwaves assessment
 #[derive(Debug, Clone, Copy)]
 pub struct UseFansHeatwavesResult {
-    /// Heat loss from skin (W)
+    /// Total evaporative heat loss from skin [W/m²]
     pub e_skin: f64,
-    /// Heat loss from regulatory sweating (W)
+    /// Heat lost by evaporation of regulatory sweat [W/m²]
     pub e_rsw: f64,
-    /// Maximum evaporative capacity (W)
+    /// Maximum evaporative capacity [W/m²]
     pub e_max: f64,
-    /// Sensible heat loss (W)
+    /// Sensible heat loss [W/m²]
     pub q_sensible: f64,
-    /// Total heat loss from skin (W)
+    /// Total heat loss from skin [W/m²]
     pub q_skin: f64,
-    /// Heat loss by respiration (W)
+    /// Heat loss by respiration [W/m²]
     pub q_res: f64,
     /// Core temperature [°C]
     pub t_core: f64,

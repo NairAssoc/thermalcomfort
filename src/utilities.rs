@@ -62,20 +62,7 @@ pub enum Posture {
     Crouching,
 }
 
-impl Posture {
-    /// Get the radiation area ratio for this posture
-    ///
-    /// This is the ratio between the radiation area of the body
-    /// and the total body surface area.
-    pub fn radiation_area_ratio(&self) -> f64 {
-        match self {
-            Posture::Standing => 0.73,
-            Posture::Sitting => 0.70,
-            // For other postures, use standing as default
-            _ => 0.73,
-        }
-    }
-}
+impl Posture {}
 
 /// Model standards
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

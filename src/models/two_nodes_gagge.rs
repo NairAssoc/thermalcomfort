@@ -21,11 +21,11 @@ pub struct GaggeTwoNodesResult {
     pub e_rsw: f64,
     /// Maximum evaporative capacity [W/m²]
     pub e_max: f64,
-    /// Total sensible heat loss (W)
+    /// Total sensible heat loss [W/m²]
     pub q_sensible: f64,
-    /// Total heat loss from skin (W)
+    /// Total heat loss from skin [W/m²]
     pub q_skin: f64,
-    /// Heat loss due to respiration (W)
+    /// Heat loss due to respiration [W/m²]
     pub q_res: f64,
     /// Core temperature [°C]
     pub t_core: f64,
