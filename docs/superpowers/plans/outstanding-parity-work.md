@@ -1,16 +1,76 @@
 # Outstanding parity work
 
-The randomised differential sweep is built and complete: `tests/differential_sweep.rs`
-covers every public model and utility, `make sweep` runs it deep, and CI runs a short one
-on every push. See `README.md` under "Differential sweep" for how to run and reproduce.
+The randomised differential sweep is built: `tests/differential_sweep.rs` covers every
+public model and utility except `two_nodes_gagge_sleep` (unported, below), `make sweep`
+runs it deep, and CI runs a short one on every push. See `README.md` under "Differential sweep" for how to run and reproduce.
 The plan that produced it, and the 24 defects it closed, are in git history.
 
-Two items remain. **Both are blocked on a decision only the developer can make** — neither
-is waiting on implementation effort, and neither can be resolved by reading more code.
+Three items remain. **All are blocked on a decision only the developer can make** — none
+is waiting on implementation effort, and none can be resolved by reading more code.
+
+`make parity-coverage` now checks both directions, so a future upstream release growing a
+model the port lacks will fail the build rather than pass silently. JOS3 below is recorded
+in `PYTHON_NOT_PORTED` in `scripts/check_parity_coverage.py`: reported on every run,
+non-fatal, so it cannot mask the *next* gap.
+
+The upstream source is not in the repo. If `/tmp/ptc_diff` has been cleared, get it back
+with `pip download pythermalcomfort==4.4.0 --no-deps --no-binary :all: -d /tmp/` and
+`tar xzf`.
 
 ---
 
-## A. Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
+## Port `JOS3` — next up
+
+**Blocked on: two architectural decisions, plus whether the size is worth it.**
+
+pythermalcomfort's 17-segment whole-body thermoregulation model. It is the only upstream
+model with no Rust counterpart at all, and it is the largest thing in the package by a
+wide margin.
+
+**Reconnaissance (2026-08-10), so it need not be redone:**
+
+| | |
+|---|---|
+| Size | **~6,100 lines** of Python: `models/jos3.py` 1650, `jos3_functions/parameters.py` 1627, `thermoregulation.py` 1575, `construction.py` 789, `matrix.py` 452 |
+| Dependencies | **numpy only — no scipy.** No root-finding, unlike PET and SET |
+| Numerics | Solves an **85×85 dense linear system** each step: `np.linalg.inv(arr_a)` then `np.dot` (`models/jos3.py:1010` and `:1046`) |
+| State | 85-element body-temperature vector; stateful across calls |
+| API | A **class**, not a function: `JOS3(height, weight, fat, age, sex, ci, bmr_equation, bsa_equation)`, then `simulate()`, with 25 properties and `dict_results()` / `to_csv()` |
+
+For scale: the entire existing port is ~76 public functions, and the largest single model
+ported so far (the Ji two-node model) is a few hundred lines. JOS3 alone is comparable to
+a significant fraction of the crate. **Worth confirming it is wanted before starting** —
+"not ported" is a defensible permanent answer for a model this size, and is now recorded
+honestly in the README rather than papered over.
+
+**Decision 1 — `no_std` or `std`-gated?** The 85×85 inverse is the crux. The crate is
+`no_std` by default and only pulls `nalgebra` under the `std` feature, for PET's 3×3 LU.
+Options: gate JOS3 behind `std` entirely (simplest, but the crate's selling point is
+`no_std`); hand-roll a dense LU with partial pivoting for `no_std` (85×85 is not hard, but
+it is new numerical code that needs its own tests); or restructure to avoid the explicit
+inverse — note Python inverts and multiplies, where solving directly is both faster and
+better conditioned, so a Rust port need not reproduce the inversion.
+
+**Decision 2 — what shape is the Rust API?** Python is a stateful object whose properties
+are mutated between `simulate()` calls (set `tdb`, simulate 60 min, change it, simulate
+again). This is the same class of question as the sleep model's return shape. Options: a
+struct with `&mut self` methods mirroring Python; a builder plus an explicit step/advance
+API; or a pure function taking a schedule of conditions and returning a trajectory.
+
+**Recommendation:** settle Decision 1 first — if it lands on `std`-gated, `nalgebra`
+already provides the solve and Decision 2 becomes the only real work. Use the
+`superpowers:brainstorming` skill on Decision 2 before writing code; it is a genuine
+design question, not a transcription.
+
+**Once decided**, the porting routine is the established one: transcribe
+statement-for-statement, then add `sweep_jos3` to `tests/differential_sweep.rs` comparing
+whole trajectories (the Ji and ridge-regression sweeps are the pattern), and remove the
+`PYTHON_NOT_PORTED` entry — the checker will fail until it is removed, which is the
+intended ratchet.
+
+---
+
+## Port `two_nodes_gagge_sleep` to the Yan et al. (2022) model
 
 **Blocked on: what shape should the Rust function return?**
 
@@ -56,7 +116,7 @@ to `tests/differential_sweep.rs` following the Ji sweep, which compares whole tr
 
 ---
 
-## C. The `measurements::Temperature` round-trip
+## The `measurements::Temperature` round-trip
 
 **Blocked on: should the public API carry raw Celsius instead of typed quantities?**
 
