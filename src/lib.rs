@@ -339,6 +339,167 @@ impl Default for MetabolicRate {
     }
 }
 
+/// A density of heat flow rate: power per unit area.
+///
+/// Models report skin evaporation, sensible loss and respiratory loss in W/m², while
+/// [`Power`] alone would be watts over the whole body. Keeping the two apart stops a
+/// per-area flux being summed with a whole-body power. Signed: heat flows both ways.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::HeatFluxDensity;
+///
+/// let e_skin = HeatFluxDensity::from_watts_per_square_meter(32.2);
+/// assert!((e_skin.as_watts_per_square_meter() - 32.2).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct HeatFluxDensity(f64);
+
+impl HeatFluxDensity {
+    /// Construct from watts per square metre [W/m²]
+    pub const fn from_watts_per_square_meter(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in watts per square metre [W/m²]
+    pub const fn as_watts_per_square_meter(self) -> f64 {
+        self.0
+    }
+}
+
+/// Cardiac index: cardiac output normalised by body surface area.
+///
+/// JOS3 uses it to set the basal blood-flow distribution. Deliberately unbounded, because
+/// pythermalcomfort does not validate it — `validate_body_parameters` checks height,
+/// weight, age and body fat only, so imposing a range here would reject inputs upstream
+/// accepts and break parity.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::CardiacIndex;
+///
+/// let ci = CardiacIndex::from_liters_per_minute_per_square_meter(2.59);
+/// assert!((ci.as_liters_per_minute_per_square_meter() - 2.59).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct CardiacIndex(f64);
+
+impl CardiacIndex {
+    /// pythermalcomfort's default, 2.59 L/(min·m²) (`Default.cardiac_index`)
+    pub const DEFAULT: Self = Self(2.59);
+
+    /// Construct from litres per minute per square metre [L/(min·m²)]
+    pub const fn from_liters_per_minute_per_square_meter(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in litres per minute per square metre [L/(min·m²)]
+    pub const fn as_liters_per_minute_per_square_meter(self) -> f64 {
+        self.0
+    }
+}
+
+/// Physical activity ratio (PAR): metabolic rate as a multiple of basal metabolic rate.
+///
+/// Dimensionless, and distinct from [`MetabolicRate`], which is an absolute rate in met.
+/// Unbounded for the same reason as [`CardiacIndex`]: pythermalcomfort does not validate
+/// it.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::ActivityRatio;
+///
+/// let par = ActivityRatio::from_ratio(1.25);
+/// assert!((par.as_ratio() - 1.25).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct ActivityRatio(f64);
+
+impl ActivityRatio {
+    /// pythermalcomfort's default, 1.25 (`Default.physical_activity_ratio`)
+    pub const DEFAULT: Self = Self(1.25);
+
+    /// Construct from a dimensionless multiple of basal metabolic rate
+    pub const fn from_ratio(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// The ratio, as a dimensionless multiple of basal metabolic rate
+    pub const fn as_ratio(self) -> f64 {
+        self.0
+    }
+}
+
+/// Body fat, as a percentage of total body mass.
+///
+/// Bounded on `[1, 90]`, which is not a range chosen here: it is exactly what
+/// `validate_body_parameters` enforces in pythermalcomfort's
+/// `jos3_functions/construction.py`. Like [`WorkEfficiency`], an out-of-range value does
+/// not fail loudly — it yields a plausible-looking body composition and a wrong heat
+/// balance — so the range is enforced at construction rather than documented.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::BodyFat;
+///
+/// let fat = BodyFat::new(15.0).expect("15% is in range");
+/// assert!((fat.as_percent() - 15.0).abs() < 1e-12);
+///
+/// // Upstream rejects these, so this crate cannot represent them
+/// assert!(BodyFat::new(0.5).is_none());
+/// assert!(BodyFat::new(95.0).is_none());
+/// assert!(BodyFat::new(f64::NAN).is_none());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct BodyFat(f64);
+
+impl BodyFat {
+    /// Construct from a percentage in `[1, 90]`, returning `None` outside that range.
+    ///
+    /// NaN is rejected: it would propagate silently through the whole heat balance.
+    pub fn new(value: f64) -> Option<Self> {
+        if value.is_nan() || !(1.0..=90.0).contains(&value) {
+            None
+        } else {
+            Some(Self(value))
+        }
+    }
+
+    /// The body fat as a percentage of total body mass
+    pub const fn as_percent(self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for BodyFat {
+    /// pythermalcomfort's default, 15% (`Default.body_fat`)
+    fn default() -> Self {
+        Self(15.0)
+    }
+}
+
+/// Which equation estimates basal metabolic rate.
+///
+/// Mirrors pythermalcomfort's `bmr_equation` string, dispatched in
+/// `jos3_functions/thermoregulation.py::basal_met`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BmrEquation {
+    /// Harris-Benedict, revised — upstream's default (`"harris-benedict"`)
+    #[default]
+    HarrisBenedict,
+    /// Harris-Benedict as originally published (`"harris-benedict_origin"`)
+    HarrisBenedictOriginal,
+    /// Ganpule's equation for a Japanese population.
+    ///
+    /// Upstream accepts either `"japanese"` or `"ganpule"` for this; they select the same
+    /// equation, so there is one variant rather than two.
+    Japanese,
+}
+
 /// Biological sex for physiological calculations
 ///
 /// Used in models that differentiate physiological responses by sex,
@@ -364,6 +525,47 @@ impl Sex {
 #[cfg(test)]
 mod newtype_tests {
     use super::*;
+
+    #[test]
+    fn body_fat_enforces_upstreams_range_and_nothing_wider() {
+        // The bounds are pythermalcomfort's, from validate_body_parameters: [1, 90].
+        assert!(BodyFat::new(1.0).is_some());
+        assert!(BodyFat::new(90.0).is_some());
+        assert!(BodyFat::new(0.999).is_none());
+        assert!(BodyFat::new(90.001).is_none());
+        assert!(BodyFat::new(f64::NAN).is_none());
+        assert!(BodyFat::new(f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn unvalidated_upstream_parameters_stay_unbounded() {
+        // pythermalcomfort validates height, weight, age and body fat — not these two.
+        // Rejecting a value upstream accepts would be a parity break, so they take any
+        // finite value, including implausible ones.
+        assert!((CardiacIndex::from_liters_per_minute_per_square_meter(0.0)
+            .as_liters_per_minute_per_square_meter())
+        .abs()
+            < 1e-12);
+        assert!((ActivityRatio::from_ratio(-1.0).as_ratio() + 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn defaults_match_pythermalcomfort() {
+        // jos3_functions/parameters.py, class Default
+        assert!(
+            (CardiacIndex::DEFAULT.as_liters_per_minute_per_square_meter() - 2.59).abs() < 1e-12
+        );
+        assert!((ActivityRatio::DEFAULT.as_ratio() - 1.25).abs() < 1e-12);
+        assert!((BodyFat::default().as_percent() - 15.0).abs() < 1e-12);
+        assert_eq!(BmrEquation::default(), BmrEquation::HarrisBenedict);
+    }
+
+    #[test]
+    fn heat_flux_density_is_signed() {
+        // Heat flows both directions; a flux type that clamped at zero would lose that.
+        let loss = HeatFluxDensity::from_watts_per_square_meter(-12.5);
+        assert!((loss.as_watts_per_square_meter() + 12.5).abs() < 1e-12);
+    }
 
     #[test]
     fn temperature_delta_converts_without_an_offset() {
