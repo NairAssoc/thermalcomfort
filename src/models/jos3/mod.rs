@@ -34,3 +34,11 @@ pub use jos3::{
 // has no equivalent elsewhere in the crate (`utilities::CLO_TYPICAL_ENSEMBLES` is
 // whole-body only), so it is re-exported here as real public surface.
 pub use parameters::{ClothingEnsemble, LOCAL_CLO_TYPICAL_ENSEMBLES};
+// These three error types are `pub` inside `pub(crate)` submodules, but callers of
+// `Jos3Error`/`Jos3BuildError` need to match on them (not just `Display` them) to tell
+// which validation failed -- `PerBodyPart::resolve` returns `BodyPartsInputError`
+// directly, too. Re-exporting them here (rather than making `construction`/
+// `thermoregulation` public) keeps the rest of those modules internal while making this
+// part of the error surface actually nameable from outside the crate.
+pub use construction::{BodyParameterError, BodyPartsInputError};
+pub use thermoregulation::ThermoregulationError;

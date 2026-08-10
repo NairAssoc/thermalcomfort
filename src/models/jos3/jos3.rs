@@ -75,11 +75,11 @@ use nalgebra::{DMatrix, DVector};
 use super::construction::{self, BodyParameterError, BodyPartsInputError};
 use super::matrix::{self, IDICT, NUM_NODES};
 use super::parameters::{BODY_PART_NAMES, NUM_BODY_PARTS, defaults};
-use super::thermoregulation::{self as threg, Posture, ShiveringOptions, ThermoregulationError};
+use super::thermoregulation::{self as threg, ShiveringOptions, ThermoregulationError};
 use core::time::Duration;
 
 use crate::models::pmv::PmvPpdIsoOptions;
-use crate::utilities::{BsaFormula, antoine, round_to};
+use crate::utilities::{BsaFormula, Posture, antoine, round_to};
 use crate::{
     ActivityRatio, BmrEquation, BodyFat, CardiacIndex, Length, Mass, MetabolicRate, Sex,
     Temperature,
@@ -151,6 +151,25 @@ impl<'a> PerBodyPart<'a> {
 /// `Jos3Model::to`): Python's `@to.setter` assigns the same input to both `_tdb` and
 /// `_tr`. Here, `to: Some(_)` does the same and takes priority over `tdb`/`tr` when
 /// applied; `to: None` leaves `tdb`/`tr` as given.
+///
+/// `posture` is [`crate::utilities::Posture`] — the crate-wide posture enum, not one
+/// private to this module — so every variant is nameable from outside the crate:
+///
+/// ```
+/// use thermalcomfort::models::jos3::Jos3Builder;
+/// use thermalcomfort::utilities::Posture;
+/// use core::time::Duration;
+///
+/// let mut sim = Jos3Builder::new().build().expect("defaults are valid");
+/// assert_eq!(sim.posture(), Posture::Standing);
+///
+/// let mut conditions = sim.conditions();
+/// conditions.posture = Posture::Sitting;
+/// sim.advance(&conditions, 1, Duration::from_secs(60))?;
+///
+/// assert_eq!(sim.posture(), Posture::Sitting);
+/// # Ok::<(), thermalcomfort::models::jos3::Jos3Error>(())
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Jos3Conditions<'a> {
     /// Dry bulb air temperature, °C. Python: `JOS3.tdb`.
@@ -260,6 +279,18 @@ pub enum Jos3Error {
     /// nonsingular) for any physically sane conductance/blood-flow/capacity input. This
     /// variant exists so a pathological input is reported rather than panicking.
     SingularSystem,
+    /// A [`Jos3Conditions::posture`] value JOS3 doesn't define a coefficient table for
+    /// (i.e. anything but [`Posture::Standing`], [`Posture::Sitting`]/
+    /// [`Posture::Sedentary`], or [`Posture::Lying`]/[`Posture::Supine`]).
+    ///
+    /// Python's `posture` setter (`models/jos3.py:1471-1491`) has no equivalent error:
+    /// its `elif isinstance(inp, str):` branch matches `standing`/`sitting`/
+    /// `sedentary`/`lying`/`supine` and otherwise falls through doing nothing, so an
+    /// unrecognized *string* silently leaves `self._posture` at whatever it was set to
+    /// last (the `else` branch that resets to `standing` and prints a warning only
+    /// triggers for a non-string `inp`). This port refuses the value instead of
+    /// reproducing that silent no-op.
+    UnsupportedPosture(Posture),
 }
 
 impl core::fmt::Display for Jos3Error {
@@ -271,6 +302,12 @@ impl core::fmt::Display for Jos3Error {
                 write!(
                     f,
                     "the JOS3 system matrix was singular and could not be solved"
+                )
+            }
+            Jos3Error::UnsupportedPosture(posture) => {
+                write!(
+                    f,
+                    "JOS3 has no coefficient table for posture {posture:?}; use Standing, Sitting/Sedentary, or Lying/Supine"
                 )
             }
         }
@@ -286,6 +323,24 @@ impl From<BodyPartsInputError> for Jos3Error {
 impl From<ThermoregulationError> for Jos3Error {
     fn from(e: ThermoregulationError) -> Self {
         Jos3Error::Thermoregulation(e)
+    }
+}
+
+/// Map [`Jos3Conditions::posture`]'s public [`Posture`] down to the 3-way posture
+/// [`threg::conv_coef`]/[`threg::rad_coef`] key their coefficient tables on.
+///
+/// Python: the body of the `posture` setter (`models/jos3.py:1471-1491`), restricted to
+/// the string branch (the `0`/`1`/`2` integer shorthands have no equivalent here — every
+/// caller already has a [`Posture`] value, not a bare integer): `standing` -> standing;
+/// `sitting`/`sedentary` -> sitting; `lying`/`supine` -> lying. See
+/// [`Jos3Error::UnsupportedPosture`] for how this port's behavior differs from Python's
+/// for every other [`Posture`] variant.
+fn map_posture(posture: Posture) -> Result<threg::Posture, Jos3Error> {
+    match posture {
+        Posture::Standing => Ok(threg::Posture::Standing),
+        Posture::Sitting | Posture::Sedentary => Ok(threg::Posture::Sitting),
+        Posture::Lying | Posture::Supine => Ok(threg::Posture::Lying),
+        other => Err(Jos3Error::UnsupportedPosture(other)),
     }
 }
 
@@ -466,6 +521,7 @@ impl Jos3Builder {
             clo: [defaults::CLOTHING_INSULATION; NUM_BODY_PARTS],
             par: defaults::PHYSICAL_ACTIVITY_RATIO,
             posture: Posture::Standing,
+            internal_posture: threg::Posture::Standing,
 
             pre_shiv: 0.0,
             elapsed_seconds: 0.0,
@@ -583,7 +639,15 @@ pub struct Jos3Model {
     v: [f64; NUM_BODY_PARTS],
     clo: [f64; NUM_BODY_PARTS],
     par: f64,
+    /// Public-facing posture, exactly as last set via [`Jos3Conditions::posture`].
+    /// Python: `self._posture`.
     posture: Posture,
+    /// [`posture`](Self::posture) mapped down to the 3-way posture
+    /// [`threg::conv_coef`]/[`threg::rad_coef`] key their coefficient tables on. Kept
+    /// alongside `posture` rather than remapped on every [`Jos3Model::run_step`] call,
+    /// and computed once in [`Jos3Model::apply_conditions`] where the mapping can be
+    /// rejected (see [`Jos3Error::UnsupportedPosture`]) before any state changes.
+    internal_posture: threg::Posture,
 
     // Thermoregulation state threaded between steps.
     pre_shiv: f64,
@@ -870,16 +934,14 @@ impl Jos3Model {
         Ok(())
     }
 
-    fn apply_conditions(
-        &mut self,
-        conditions: &Jos3Conditions<'_>,
-    ) -> Result<(), BodyPartsInputError> {
+    fn apply_conditions(&mut self, conditions: &Jos3Conditions<'_>) -> Result<(), Jos3Error> {
         self.tdb = conditions.tdb.resolve()?;
         self.tr = conditions.tr.resolve()?;
         self.rh = conditions.rh.resolve()?;
         self.v = conditions.v.resolve()?;
         self.clo = conditions.clo.resolve()?;
         self.par = conditions.par.as_ratio();
+        self.internal_posture = map_posture(conditions.posture)?;
         self.posture = conditions.posture;
         if let Some(to) = &conditions.to {
             let resolved = to.resolve()?;
@@ -934,10 +996,10 @@ impl Jos3Model {
         let tsk = self.t_skin();
 
         let hc = threg::fixed_hc(
-            threg::conv_coef(self.posture, self.v, self.tdb, tsk),
+            threg::conv_coef(self.internal_posture, self.v, self.tdb, tsk),
             self.v,
         );
-        let hr = threg::fixed_hr(threg::rad_coef(self.posture));
+        let hr = threg::fixed_hr(threg::rad_coef(self.internal_posture));
 
         let to = threg::operative_temp(self.tdb, self.tr, hc, hr);
         let r_t = threg::dry_r(hc, hr, self.clo)?;
