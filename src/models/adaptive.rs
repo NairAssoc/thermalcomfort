@@ -4,6 +4,7 @@
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
 use crate::psychrometrics::operative_temperature;
+use crate::utilities::round_to;
 use measurements::{Speed, Temperature};
 
 /// Result from ASHRAE 55 adaptive comfort model
@@ -66,11 +67,6 @@ impl Default for AdaptiveOptions {
             round_output: true,
         }
     }
-}
-
-/// Round to 1 decimal place
-fn round1(x: f64) -> f64 {
-    crate::utilities::round_half_even(x * 10.0) / 10.0
 }
 
 /// Cooling effect of elevated air speed, shared by the ASHRAE 55 and EN 16798 adaptive
@@ -302,13 +298,13 @@ pub fn adaptive_en(
 
     // Rounding is applied to each bound independently, after the bands are derived
     if options.round_output {
-        t_cmf = round1(t_cmf);
-        tmp_cmf_cat_i_low = round1(tmp_cmf_cat_i_low);
-        tmp_cmf_cat_i_up = round1(tmp_cmf_cat_i_up);
-        tmp_cmf_cat_ii_low = round1(tmp_cmf_cat_ii_low);
-        tmp_cmf_cat_ii_up = round1(tmp_cmf_cat_ii_up);
-        tmp_cmf_cat_iii_low = round1(tmp_cmf_cat_iii_low);
-        tmp_cmf_cat_iii_up = round1(tmp_cmf_cat_iii_up);
+        t_cmf = round_to(t_cmf, 1);
+        tmp_cmf_cat_i_low = round_to(tmp_cmf_cat_i_low, 1);
+        tmp_cmf_cat_i_up = round_to(tmp_cmf_cat_i_up, 1);
+        tmp_cmf_cat_ii_low = round_to(tmp_cmf_cat_ii_low, 1);
+        tmp_cmf_cat_ii_up = round_to(tmp_cmf_cat_ii_up, 1);
+        tmp_cmf_cat_iii_low = round_to(tmp_cmf_cat_iii_low, 1);
+        tmp_cmf_cat_iii_up = round_to(tmp_cmf_cat_iii_up, 1);
     }
 
     AdaptiveEnResult {

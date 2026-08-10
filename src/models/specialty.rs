@@ -3,6 +3,7 @@
 //! This module contains specialized models for specific comfort assessment scenarios.
 
 use crate::models::pmv::{PmvPpdAshraeOptions, PmvPpdInputs, pmv_ppd_ashrae};
+use crate::utilities::round_to;
 use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
 use measurements::{Humidity, Length, Speed, Temperature};
 
@@ -380,12 +381,15 @@ pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
     let sharp_new =
         libm::atan(libm::sin(sharp * to_rad) * libm::tan((90.0 - altitude) * to_rad)) * to_deg;
 
-    (round3(sharp_new), round3(altitude_new))
-}
-
-/// Round to 3 decimal places
-fn round3(x: f64) -> f64 {
-    crate::utilities::round_half_even(x * 1000.0) / 1000.0
+    // utilities.py:490's `transpose_sharp_altitude` is `@njit(cache=True)`-decorated.
+    // Numba compiles `round(x, n)` to its own multiply/rint/divide sequence
+    // (numba/cpython/builtins.py:262-278), which is numpy's ties-to-even rule, not
+    // CPython's exact-decimal builtin — confirmed by reading that source and by probing
+    // the compiled function directly: over 2,000,000 engineered tie-adjacent values it
+    // agreed with `np.round` on all of them and disagreed with the plain-Python `round`
+    // builtin on 5. So despite `sharp`/`altitude` being ordinary `float` parameters, the
+    // jit context makes this numpy's rule.
+    (round_to(sharp_new, 3), round_to(altitude_new, 3))
 }
 
 #[cfg(test)]

@@ -133,8 +133,10 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
     }
 
     // pythermalcomfort rounds this to one decimal before returning; without it the two
-    // implementations disagree in the second decimal for every input.
-    Temperature::from_celsius(round(sum_weighted / sum_weights * 10.0) / 10.0)
+    // implementations disagree in the second decimal for every input. `utilities.py:955`
+    // rounds a plain Python float (not a numba-jit or numpy value), so this is CPython's
+    // builtin decimal rounding, not numpy's.
+    Temperature::from_celsius(round_to_exact_decimal(sum_weighted / sum_weights, 1))
 }
 
 /// Calculate relative air speed which combines average air speed plus body movement

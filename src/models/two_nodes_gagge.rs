@@ -5,7 +5,7 @@
 
 extern crate alloc;
 
-use crate::utilities::{Posture, p_sat_torr};
+use crate::utilities::{Posture, p_sat_torr, round_to};
 use crate::{ClothingInsulation, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
@@ -98,12 +98,6 @@ fn fmax(a: f64, b: f64) -> f64 {
 #[inline]
 fn fmin(a: f64, b: f64) -> f64 {
     if a < b { a } else { b }
-}
-
-#[inline]
-fn round_to(value: f64, decimals: u32) -> f64 {
-    let multiplier = pow(10.0, decimals as f64);
-    libm::round(value * multiplier) / multiplier
 }
 
 /// Calculate the two-node Gagge model of human temperature regulation

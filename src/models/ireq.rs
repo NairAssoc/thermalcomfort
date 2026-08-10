@@ -14,6 +14,7 @@
 //! - ISO 11079:2007 - Ergonomics of the thermal environment
 
 use crate::constants::MET_TO_W_M2;
+use crate::utilities::round_to;
 use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 use libm::{exp, fabs, log, pow};
 
@@ -211,8 +212,8 @@ pub fn ireq(
         let non_physical = ireq_out < 0.0 || icl_out < 0.0;
 
         if options.round_output {
-            ireq_out = round1(ireq_out);
-            icl_out = round1(icl_out);
+            ireq_out = round_to(ireq_out, 1);
+            icl_out = round_to(icl_out, 1);
         }
 
         let mut dle_out = format_dle(solved.dle, options.round_output);
@@ -425,15 +426,10 @@ fn format_dle(dle: f64, round_output: bool) -> DurationLimitedExposure {
     if !(0.0..=DLE_CEILING_H).contains(&dle) {
         DurationLimitedExposure::MoreThanEight
     } else if round_output {
-        DurationLimitedExposure::Hours(round1(dle))
+        DurationLimitedExposure::Hours(round_to(dle, 1))
     } else {
         DurationLimitedExposure::Hours(dle)
     }
-}
-
-/// Round to 1 decimal place
-fn round1(x: f64) -> f64 {
-    crate::utilities::round_half_even(x * 10.0) / 10.0
 }
 
 #[cfg(test)]

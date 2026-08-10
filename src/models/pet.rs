@@ -95,7 +95,7 @@
 //!   Building and Environment 137:1-10
 
 use crate::numerical::brentq;
-use crate::utilities::body_surface_area_dubois;
+use crate::utilities::{body_surface_area_dubois, round_to};
 use crate::{ClothingInsulation, MetabolicRate, Sex, WorkEfficiency};
 use libm::{fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
@@ -847,12 +847,6 @@ fn p_sat_hpa(t: f64) -> f64 {
     // formulation, not the Magnus/Tetens approximation this used to hardcode. The two
     // differ by enough to move PET in the second decimal.
     crate::utilities::p_sat(Temperature::from_celsius(t)).as_pascals() / 100.0
-}
-
-#[inline]
-fn round_to(value: f64, decimals: u32) -> f64 {
-    let multiplier = pow(10.0, decimals as f64);
-    libm::round(value * multiplier) / multiplier
 }
 
 #[cfg(test)]

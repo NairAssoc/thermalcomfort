@@ -25,6 +25,7 @@
 
 use crate::models::phs::{Iso7933Model, PhsOptions, PhsPosture, phs};
 use crate::numerical::brentq;
+use crate::utilities::round_to_exact_decimal;
 use crate::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 /// Sport-specific parameters for heat stress risk calculation.
@@ -375,11 +376,6 @@ fn phs_core_temp(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f
     result.t_cr
 }
 
-/// Round to 1 decimal place (Python-compatible rounding)
-fn round1(x: f64) -> f64 {
-    libm::floor(x * 10.0 + 0.5) / 10.0
-}
-
 /// Floor-truncate to 1 decimal place toward negative infinity
 fn floor1(x: f64) -> f64 {
     libm::floor(x * 10.0) / 10.0
@@ -511,7 +507,7 @@ pub fn sports_heat_stress_risk(
 
     // The extreme band is entered at the *rounded* t_extreme — the same value returned
     // to callers — so the reported threshold and the risk level stay consistent.
-    let extreme_entry_t = round1(t_extreme).min(MAX_T_HIGH);
+    let extreme_entry_t = round_to_exact_decimal(t_extreme, 1).min(MAX_T_HIGH);
 
     // Calculate interpolated risk level (1.0-4.9 scale)
     let risk_level = if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
@@ -533,9 +529,9 @@ pub fn sports_heat_stress_risk(
 
     SportsHeatStressRisk {
         risk_level_interpolated: risk_level_floor,
-        t_medium: round1(t_medium),
-        t_high: round1(t_high),
-        t_extreme: round1(t_extreme),
+        t_medium: round_to_exact_decimal(t_medium, 1),
+        t_high: round_to_exact_decimal(t_high, 1),
+        t_extreme: round_to_exact_decimal(t_extreme, 1),
         recommendation: get_recommendation(risk_level_floor),
     }
 }
