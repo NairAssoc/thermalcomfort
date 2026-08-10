@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. All 40 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference, with two documented exceptions (see [Coverage](#coverage)).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,12 +12,14 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **100% Feature Complete**: All 40 core models from pythermalcomfort v4.4.0
-- **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
+- **Near-complete coverage**: every pythermalcomfort v4.4.0 model except `JOS3`, with two documented gaps (see [Coverage](#coverage))
+- **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std` compatible**: Works in embedded and WASM environments (default)
 - **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
-- **Rigorously Validated**: 243 tests (107 unit + 74 Python comparison + 62 doctests). Every
-  public function with a pythermalcomfort counterpart has a cross-library parity test.
+- **Rigorously Validated**: 302 tests (110 unit + 74 Python comparison + 65 doctests +
+  46 differential sweeps + 7 harness self-tests). Every public function with a
+  pythermalcomfort counterpart has a cross-library parity test, and all but one are also
+  driven through the randomised sweep.
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
@@ -275,6 +277,19 @@ All models produce identical results to pythermalcomfort v4.4.0. The only except
 The `no_std` PET solver uses a custom Newton-Raphson method with a full 3x3 Jacobian, which is less numerically stable than Python's scipy HYBRD algorithm in extreme conditions. Enabling the `std` feature switches to a MINPACK-based HYBRD solver for perfect accuracy in all conditions.
 
 All other models (PMV/PPD, UTCI, PHS, SET, Gagge variants, sports heat stress risk, etc.) produce identical results in both `no_std` and `std` builds.
+
+## Coverage
+
+Every public function is checked against pythermalcomfort by `make parity-coverage`, and
+every one except `two_nodes_gagge_sleep` is additionally driven through the randomised
+differential sweep. Two gaps are known and deliberate:
+
+| Gap | Status |
+|-----|--------|
+| `two_nodes_gagge_sleep` | Present but **not a faithful port**: it delegates to the standard Gagge model at a fixed 0.7 met, so `quilt_thickness` has no effect on the result. The function's doc comment describes the divergence in full. |
+| `JOS3` | **Not ported.** pythermalcomfort's 17-segment whole-body thermoregulation model has no Rust counterpart. |
+
+Both are tracked in `docs/superpowers/plans/outstanding-parity-work.md`.
 
 ## Testing
 
