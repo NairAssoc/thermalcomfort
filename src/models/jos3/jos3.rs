@@ -79,7 +79,7 @@ use super::thermoregulation::{self as threg, ShiveringOptions, ThermoregulationE
 use core::time::Duration;
 
 use crate::models::pmv::PmvPpdIsoOptions;
-use crate::utilities::{BsaFormula, Posture, antoine, round_to};
+use crate::utilities::{BsaFormula, Posture, antoine, round_to, round_to_exact_decimal};
 use crate::{
     ActivityRatio, BmrEquation, BodyFat, CardiacIndex, Length, Mass, MetabolicRate, Sex,
     Temperature,
@@ -1305,7 +1305,12 @@ impl Jos3Model {
             age: self.age,
             t_core_set: round_arr(setpt_cr, 2),
             t_skin_set: round_arr(setpt_sk, 2),
-            t_cb: round_to(self.t_body[matrix::CB], 2),
+            // Not `round_to`: `t_cb` is the one JOS3 output upstream rounds with
+            // CPython's builtin `round`, because its property casts through `float(...)`
+            // before rounding (`models/jos3.py:1073` and `:1606-1608`). Every other
+            // builtin `round(…)` in that return block is handed a `numpy.float64`, whose
+            // `__round__` is numpy's rule -- see `round_to_exact_decimal`.
+            t_cb: round_to_exact_decimal(self.t_body[matrix::CB], 2),
             t_artery: round_arr(self.t_artery(), 2),
             t_vein: round_arr(self.t_vein(), 2),
             t_superficial_vein: round_arr(self.t_superficial_vein(), 2),

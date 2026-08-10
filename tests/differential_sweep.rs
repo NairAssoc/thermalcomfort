@@ -14,7 +14,7 @@ use core::time::Duration;
 use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule, PyTuple};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
@@ -1359,26 +1359,171 @@ fn jos3_superficial_vein_series(py_output: &Bound<'_, PyAny>) -> Result<[Vec<f64
     Ok(out)
 }
 
-fn jos3_close(field: &str, step: usize, rust: f64, py: f64) -> Result<(), String> {
-    if (rust.is_nan() && py.is_nan()) || (rust - py).abs() <= 1e-9 {
-        Ok(())
-    } else {
-        Err(format!(
-            "{field}[{step}]: rust={rust}, python={py}, diff={:.3e}",
-            (rust - py).abs()
-        ))
+/// One field's Python series, named the way `jos3_close` reports it: `"t_cb"`,
+/// `"t_skin.head"`, or `"t_superficial_vein[3]"`. Used by the conditioning probe below
+/// to re-read a single failing field out of a second Python run.
+fn jos3_named_series(py_output: &Bound<'_, PyAny>, spec: &str) -> Result<Vec<f64>, String> {
+    if let Some(rest) = spec.strip_prefix("t_superficial_vein[") {
+        let k: usize = rest
+            .trim_end_matches(']')
+            .parse()
+            .map_err(|_| format!("{spec}: not a t_superficial_vein index"))?;
+        let all = jos3_superficial_vein_series(py_output)?;
+        return all
+            .into_iter()
+            .nth(k)
+            .ok_or_else(|| format!("{spec}: index out of range"));
+    }
+    let Some((field, part)) = spec.split_once('.') else {
+        return jos3_f64_series(py_output, spec);
+    };
+    py_output
+        .getattr(field)
+        .map_err(|e| format!("{spec}: missing on Python JOS3Output: {e}"))?
+        .getattr(part)
+        .map_err(|e| format!("{spec}: {e}"))?
+        .call_method0("tolist")
+        .map_err(|e| format!("{spec}: tolist() raised: {e}"))?
+        .extract()
+        .map_err(|e| format!("{spec}: could not extract as Vec<f64>: {e}"))
+}
+
+/// How far apart one JOS3 field is allowed to be, in the units upstream reports it in.
+///
+/// pythermalcomfort rounds nearly every JOS3 output before returning it (`models/jos3.py`
+/// lines 1054-1135), so a comparison of two rounded numbers cannot resolve anything below
+/// one rounding step. The Rust port solves the same 85x85 system by LU factorisation
+/// where Python multiplies by an explicitly inverted matrix; that is a legitimate ~1e-13
+/// relative difference in the *unrounded* value, and where the unrounded value happens to
+/// sit that close to a rounding boundary the two land on opposite sides and the reported
+/// values differ by exactly one step. `sweep_pet_steady` permits 0.0101 on its own
+/// 2-decimal output for the same reason and with the same reasoning.
+///
+/// This is a real loss of resolution, not a free pass: on a 2-decimal field the sweep can
+/// no longer see a genuine drift smaller than 0.01, and it is forced on the sweep by
+/// upstream rounding its own outputs -- there is no unrounded reference to compare
+/// against. The per-field steps below are therefore the *smallest* number that admits a
+/// boundary straddle for that field, not a blanket loose tolerance.
+///
+/// Each step is one unit in the field's last reported decimal, plus 1% slack so that the
+/// float nearest to (say) 0.02964 - 0.02963 = 1.0000000000000026e-5 compares as one step
+/// rather than one-and-a-bit.
+fn jos3_tolerance(field: &str) -> f64 {
+    // Strip the `.head` / `[3]` suffix the per-body-part comparisons append.
+    let base = field.split(['.', '[']).next().unwrap_or(field);
+    match base {
+        // Not rounded upstream at all: `dt` is the caller's own time step and
+        // height/weight/fat/par are echoed back off `self._height` and friends
+        // (jos3.py:1064-1070) with no rounding in between. Nothing can straddle a
+        // boundary that is never crossed, so these keep exact agreement.
+        "simulation_time" | "dt" | "height" | "weight" | "fat" | "par" => 1e-9,
+        // `round(co, 1)` -- jos3.py:1061. One step is 0.1.
+        "cardiac_output" => 0.101,
+        // `pass_values_to_jos3_body_parts(r_t, 3)` -- jos3.py:1085-1086. One step is 0.001.
+        "r_t" | "r_et" => 0.001_01,
+        // `round(wlesk.sum() + wleres, 5)` -- jos3.py:1060. One step is 1e-5.
+        "weight_loss_by_evap_and_res" => 1.01e-5,
+        // Everything else is 2 decimals, either `np.round(x, 2)` directly or via
+        // `pass_values_to_jos3_body_parts`, whose `round_digits` defaults to 2.
+        _ => 0.0101,
     }
 }
 
-/// Compare every field of a Rust [`Jos3Results`] against `py_model.results()`, over
-/// every step. `results()`, not `dict_results()` -- see `tests/python_comparison.rs`
-/// for why (a genuine pythermalcomfort 4.4.0 bug makes `dict_results()` return
-/// attribute-name strings instead of values for every per-body-part field).
-fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), String> {
-    let py = py_model
-        .call_method0("results")
-        .map_err(|e| format!("JOS3.results() raised: {e}"))?;
+/// A divergence found by [`jos3_results_match`].
+enum Jos3Mismatch {
+    /// Structural: a series is the wrong length, or a field is missing on the Python
+    /// side. Never a rounding artefact, so it is reported as-is.
+    Shape(String),
+    /// One field at one step disagreed by more than [`jos3_tolerance`]. Kept structured
+    /// rather than pre-formatted so `sweep_jos3` can re-measure that exact field and step
+    /// against the reference model's own last-bit sensitivity before calling it a defect.
+    Value {
+        field: String,
+        step: usize,
+        rust: f64,
+        py: f64,
+    },
+}
 
+impl Jos3Mismatch {
+    fn describe(&self) -> String {
+        match self {
+            Self::Shape(msg) => msg.clone(),
+            Self::Value {
+                field,
+                step,
+                rust,
+                py,
+            } => format!(
+                "{field}[{step}]: rust={rust}, python={py}, diff={:.3e} (tolerance {:.3e})",
+                (rust - py).abs(),
+                jos3_tolerance(field)
+            ),
+        }
+    }
+}
+
+impl From<String> for Jos3Mismatch {
+    fn from(msg: String) -> Self {
+        Self::Shape(msg)
+    }
+}
+
+fn jos3_close(field: &str, step: usize, rust: f64, py: f64) -> Result<(), Jos3Mismatch> {
+    if (rust.is_nan() && py.is_nan()) || (rust - py).abs() <= jos3_tolerance(field) {
+        Ok(())
+    } else {
+        Err(Jos3Mismatch::Value {
+            field: field.to_string(),
+            step,
+            rust,
+            py,
+        })
+    }
+}
+
+/// Does pythermalcomfort itself still produce a stable value for `field` up to `step`?
+///
+/// `base` and `perturbed` are two Python runs of the same sample that differ only in the
+/// last bit of `tdb`. JOS3 clips skin wettedness at saturation
+/// (`jos3_functions/thermoregulation.py:673`, `wet = np.minimum(wet, 1)`), and a body
+/// segment sitting exactly on that clip takes a different branch from one step to the
+/// next depending on bits far below any physical significance. Once a sample is in that
+/// regime the trajectory has a positive Lyapunov exponent: a measured example grew a
+/// 1-ULP input change into a 1.9e-4 output change -- roughly nineteen rounding steps of
+/// `weight_loss_by_evap_and_res` -- within seventeen steps, and moved 13 of that field's
+/// 200 rounded values.
+///
+/// Where that has happened there is no reference value to compare against: upstream's own
+/// answer is not a function of the inputs to any resolution the sweep can see, and *no*
+/// correct implementation would reproduce it. Such a sample is skipped, exactly as
+/// `sweep_pet_steady` skips the samples scipy's fsolve disowns.
+///
+/// The comparison is exact equality of the two *rounded* series, and it looks at every
+/// step up to and including the failing one: once the reference has visibly moved at an
+/// earlier step, nothing later in that field carries information either. A genuine port
+/// defect is not hidden by this, because a defect shows up on samples whose reference is
+/// stable, and the sweep counts and reports how many samples it discarded.
+fn jos3_reference_is_ulp_unstable(
+    base: &Bound<'_, PyAny>,
+    perturbed: &Bound<'_, PyAny>,
+    field: &str,
+    step: usize,
+) -> Result<bool, String> {
+    let a = jos3_named_series(base, field)?;
+    let b = jos3_named_series(perturbed, field)?;
+    let last = step
+        .min(a.len().saturating_sub(1))
+        .min(b.len().saturating_sub(1));
+    Ok((0..=last).any(|i| a[i] != b[i]))
+}
+
+/// Compare every field of a Rust [`Jos3Results`] against a Python `JOS3.results()`
+/// object, over every step. `results()`, not `dict_results()` -- see
+/// `tests/python_comparison.rs` for why (a genuine pythermalcomfort 4.4.0 bug makes
+/// `dict_results()` return attribute-name strings instead of values for every
+/// per-body-part field).
+fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), Jos3Mismatch> {
     let n = rust.simulation_time.len();
 
     let scalar_fields: [(&str, &Vec<f64>); 16] = [
@@ -1404,11 +1549,17 @@ fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result
     ];
     for (field, rust_series) in scalar_fields {
         if rust_series.len() != n {
-            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+            return Err(Jos3Mismatch::Shape(format!(
+                "{field}: rust length {} != {n}",
+                rust_series.len()
+            )));
         }
-        let py_series = jos3_f64_series(&py, field)?;
+        let py_series = jos3_f64_series(py, field)?;
         if py_series.len() != n {
-            return Err(format!("{field}: python length {} != {n}", py_series.len()));
+            return Err(Jos3Mismatch::Shape(format!(
+                "{field}: python length {} != {n}",
+                py_series.len()
+            )));
         }
         for (step, (&r, &p)) in rust_series.iter().zip(py_series.iter()).enumerate() {
             jos3_close(field, step, r, p)?;
@@ -1450,16 +1601,19 @@ fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result
     ];
     for (field, rust_series) in body17_fields {
         if rust_series.len() != n {
-            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+            return Err(Jos3Mismatch::Shape(format!(
+                "{field}: rust length {} != {n}",
+                rust_series.len()
+            )));
         }
-        let py_series = jos3_body_part_series(&py, field)?;
+        let py_series = jos3_body_part_series(py, field)?;
         for (part_idx, part_name) in JOS3_BODY_NAMES.iter().enumerate() {
             let py_part = &py_series[part_idx];
             if py_part.len() != n {
-                return Err(format!(
+                return Err(Jos3Mismatch::Shape(format!(
                     "{field}.{part_name}: python length {} != {n}",
                     py_part.len()
-                ));
+                )));
             }
             for step in 0..n {
                 jos3_close(
@@ -1484,9 +1638,12 @@ fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result
     ];
     for (field, rust_series) in body2_fields {
         if rust_series.len() != n {
-            return Err(format!("{field}: rust length {} != {n}", rust_series.len()));
+            return Err(Jos3Mismatch::Shape(format!(
+                "{field}: rust length {} != {n}",
+                rust_series.len()
+            )));
         }
-        let (py_head, py_pelvis) = jos3_head_pelvis_series(&py, field)?;
+        let (py_head, py_pelvis) = jos3_head_pelvis_series(py, field)?;
         for step in 0..n {
             jos3_close(
                 &format!("{field}.head"),
@@ -1504,12 +1661,12 @@ fn jos3_results_match(py_model: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result
     }
 
     if rust.t_superficial_vein.len() != n {
-        return Err(format!(
+        return Err(Jos3Mismatch::Shape(format!(
             "t_superficial_vein: rust length {} != {n}",
             rust.t_superficial_vein.len()
-        ));
+        )));
     }
-    let py_sfvein = jos3_superficial_vein_series(&py)?;
+    let py_sfvein = jos3_superficial_vein_series(py)?;
     for (k, py_k) in py_sfvein.iter().enumerate() {
         for (step, &p) in py_k.iter().enumerate() {
             jos3_close(
@@ -1540,6 +1697,15 @@ fn sweep_jos3() {
     // a drawn dtime of up to 120s, i.e. up to 16+ hours of simulated time) specifically
     // so that if the LU/inverse difference -- or any other genuine bug -- ever grows
     // large enough to cross a rounding boundary, this sweep is positioned to catch it.
+    //
+    // Two things follow from running that long, and both are handled below rather than
+    // by loosening the comparison wholesale. First, a boundary straddle is expected, so
+    // `jos3_tolerance` allows exactly one rounding step per field and no more. Second,
+    // some samples reach the skin-wettedness saturation clip and become genuinely
+    // chaotic, at which point pythermalcomfort's own output stops being a function of
+    // its inputs at any resolution this sweep can see; `jos3_reference_is_ulp_unstable`
+    // identifies those by re-running the reference with `tdb` moved one ULP, and they
+    // are skipped and counted rather than compared against.
     let domain = Domain::new()
         .real("height", 1.3, 2.0)
         .real("weight", 35.0, 140.0)
@@ -1562,6 +1728,8 @@ fn sweep_jos3() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
+
+        let ill_conditioned = std::cell::Cell::new(0usize);
 
         run_sweep("sweep_jos3", &domain, |s: &Sample| {
             let height = s.real("height");
@@ -1624,27 +1792,10 @@ fn sweep_jos3() {
             .into_py_dict(py)
             .unwrap();
 
-            let py_model = models
-                .getattr("JOS3")
-                .unwrap()
-                .call((), Some(&kwargs))
-                .map_err(|e| format!("python JOS3() raised: {e}"))?;
-
-            let call = (|| -> PyResult<()> {
-                py_model.setattr("tdb", tdb)?;
-                py_model.setattr("tr", tr)?;
-                py_model.setattr("rh", rh)?;
-                py_model.setattr("v", v)?;
-                py_model.setattr("clo", clo)?;
-                py_model.setattr("par", par)?;
-                py_model.setattr("posture", py_posture)?;
-                py_model
-                    .getattr("simulate")?
-                    .call1((steps, dtime))
-                    .map(|_| ())
-            })();
-            match call {
-                Ok(()) => {}
+            let py_results = match jos3_python_run(
+                &models, &kwargs, tdb, tr, rh, v, clo, par, py_posture, steps, dtime,
+            ) {
+                Ok(results) => results,
                 // A physically-invalid combination the thermoregulation loop cannot
                 // solve (e.g. a negative convective/radiative coefficient) -- Python
                 // raises a bare ValueError with no structured type to match on, mirrored
@@ -1654,7 +1805,7 @@ fn sweep_jos3() {
                 // skips upstream's OverflowError.
                 Err(e) if e.is_instance_of::<PyValueError>(py) => return Ok(()),
                 Err(e) => return Err(format!("python raised: {e}")),
-            }
+            };
 
             let mut rust_model = Jos3Builder::new()
                 .height(Length::from_meters(height))
@@ -1681,9 +1832,90 @@ fn sweep_jos3() {
                 .advance(&conditions, steps, Duration::from_secs_f64(dtime))
                 .map_err(|e| format!("rust advance failed where python succeeded: {e}"))?;
 
-            jos3_results_match(&py_model, rust_model.results())
+            match jos3_results_match(&py_results, rust_model.results()) {
+                Ok(()) => Ok(()),
+                Err(Jos3Mismatch::Shape(msg)) => Err(msg),
+                Err(mismatch @ Jos3Mismatch::Value { .. }) => {
+                    let Jos3Mismatch::Value { field, step, .. } = &mismatch else {
+                        unreachable!("matched on the Value variant")
+                    };
+                    // The field disagreed by more than one rounding step. Before calling
+                    // that a port defect, ask whether pythermalcomfort's own answer is
+                    // even a function of the inputs here: re-run it with `tdb` moved by a
+                    // single ULP and see whether the reference itself moves. See
+                    // `jos3_reference_is_ulp_unstable`.
+                    let probe = jos3_python_run(
+                        &models,
+                        &kwargs,
+                        next_up(tdb),
+                        tr,
+                        rh,
+                        v,
+                        clo,
+                        par,
+                        py_posture,
+                        steps,
+                        dtime,
+                    )
+                    .map_err(|e| format!("python raised on the conditioning probe: {e}"))?;
+
+                    if jos3_reference_is_ulp_unstable(&py_results, &probe, field, *step)? {
+                        ill_conditioned.set(ill_conditioned.get() + 1);
+                        Ok(())
+                    } else {
+                        Err(mismatch.describe())
+                    }
+                }
+            }
         });
+
+        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
+        eprintln!(
+            "sweep_jos3: skipped {} sample(s) whose pythermalcomfort reference is not \
+             stable under a 1-ULP change to tdb (skin-wettedness saturation chatter)",
+            ill_conditioned.get()
+        );
     });
+}
+
+/// Build and drive one Python `JOS3` run, returning its `results()`.
+///
+/// Factored out because the sweep runs it twice on a divergence: once for the reference
+/// and once with `tdb` nudged, to measure the reference's own last-bit sensitivity.
+#[allow(clippy::too_many_arguments)]
+fn jos3_python_run<'py>(
+    models: &Bound<'py, PyModule>,
+    kwargs: &Bound<'py, PyDict>,
+    tdb: f64,
+    tr: f64,
+    rh: f64,
+    v: f64,
+    clo: f64,
+    par: f64,
+    posture: &str,
+    steps: u32,
+    dtime: f64,
+) -> PyResult<Bound<'py, PyAny>> {
+    let model = models.getattr("JOS3")?.call((), Some(kwargs))?;
+    model.setattr("tdb", tdb)?;
+    model.setattr("tr", tr)?;
+    model.setattr("rh", rh)?;
+    model.setattr("v", v)?;
+    model.setattr("clo", clo)?;
+    model.setattr("par", par)?;
+    model.setattr("posture", posture)?;
+    model.getattr("simulate")?.call1((steps, dtime))?;
+    model.call_method0("results")
+}
+
+/// The next representable f64 above `value`.
+///
+/// Hand-rolled rather than `f64::next_up`, which stabilised in Rust 1.86 while this crate
+/// pins `rust-version = "1.85"`. Only ever called on the sweep's `tdb` axis, which is
+/// drawn from [10, 35], so the positive-finite bit-increment is the whole story.
+fn next_up(value: f64) -> f64 {
+    debug_assert!(value.is_finite() && value > 0.0);
+    f64::from_bits(value.to_bits() + 1)
 }
 
 #[test]
