@@ -31,6 +31,10 @@ use thermalcomfort::models::{
     work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
+use thermalcomfort::psychrometrics::{
+    dew_point_temperature, enthalpy_air, mean_radiant_temperature, operative_temperature,
+    psy_ta_rh, wet_bulb_temperature,
+};
 use thermalcomfort::utilities::{
     BsaFormula, Posture, antoine, body_surface_area, clo_area_factor,
     clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment,
@@ -3322,5 +3326,123 @@ fn sweep_clo_lookup_tables() {
                 );
             }
         }
+    });
+}
+
+#[test]
+fn sweep_psychrometrics() {
+    // These six live in src/psychrometrics.rs rather than src/utilities.rs, which is how
+    // they were missed when the utility sweeps were first written: they had hand-written
+    // parity cases, so the coverage checker stayed green while the space went unswept.
+    let domain = Domain::new()
+        .real("tdb", -20.0, 55.0)
+        .real("rh", 0.0, 100.0)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .real("hr", 0.0, 0.03)
+        .real("tr", -20.0, 60.0)
+        .real("tg", -20.0, 70.0)
+        .real("v", 0.0, 5.0)
+        .real("d", 0.05, 0.3)
+        .real("emissivity", 0.5, 1.0)
+        .flag("use_iso")
+        .flag("use_ashrae");
+
+    Python::with_gil(|py| {
+        let utils = import_reference(py, "pythermalcomfort.utilities")
+            .expect("failed to import pythermalcomfort.utilities");
+
+        run_sweep("sweep_psychrometrics", &domain, |s: &Sample| {
+            let (tdb, rh, p_atm, hr, tr, tg, v, d, emissivity) = (
+                s.real("tdb"),
+                s.real("rh"),
+                s.real("p_atm"),
+                s.real("hr"),
+                s.real("tr"),
+                s.real("tg"),
+                s.real("v"),
+                s.real("d"),
+                s.real("emissivity"),
+            );
+            let t = Temperature::from_celsius(tdb);
+
+            compare_field(
+                &FieldCmp::new("enthalpy_air", 1e-6),
+                enthalpy_air(t, hr),
+                py_util(&utils, "enthalpy_air", (tdb, hr))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("wet_bulb_temperature", 1e-9),
+                wet_bulb_temperature(t, Humidity::from_percent(rh)).as_celsius(),
+                py_util(&utils, "wet_bulb_tmp", (tdb, rh))?,
+            )?;
+
+            compare_field(
+                &FieldCmp::new("dew_point_temperature", 1e-9),
+                dew_point_temperature(t, Humidity::from_percent(rh)).as_celsius(),
+                py_util(&utils, "dew_point_tmp", (tdb, rh))?,
+            )?;
+
+            // Both standards on both helpers: the Rust port spells the choice as a bool,
+            // Python as a string, and neither pairing was previously exercised.
+            let use_iso = s.flag("use_iso");
+            let py_standard = if use_iso { "ISO" } else { "Mixed Convection" };
+            compare_field(
+                &FieldCmp::new("mean_radiant_temperature", 1e-9),
+                mean_radiant_temperature(
+                    Temperature::from_celsius(tg),
+                    t,
+                    Speed::from_meters_per_second(v),
+                    Length::from_meters(d),
+                    emissivity,
+                    use_iso,
+                )
+                .as_celsius(),
+                py_util(
+                    &utils,
+                    "mean_radiant_tmp",
+                    (tg, tdb, v, d, emissivity, py_standard),
+                )?,
+            )?;
+
+            let use_ashrae = s.flag("use_ashrae");
+            let py_op_standard = if use_ashrae { "ASHRAE" } else { "ISO" };
+            compare_field(
+                &FieldCmp::new("operative_temperature", 1e-9),
+                operative_temperature(
+                    t,
+                    Temperature::from_celsius(tr),
+                    Speed::from_meters_per_second(v),
+                    use_ashrae,
+                )
+                .as_celsius(),
+                py_util(&utils, "operative_tmp", (tdb, tr, v, py_op_standard))?,
+            )?;
+
+            // psy_ta_rh returns six fields; Python names two of them differently from
+            // the Rust struct, so they are paired explicitly rather than by name.
+            let py_psy = utils
+                .getattr("psy_ta_rh")
+                .unwrap()
+                .call1((tdb, rh, p_atm))
+                .map_err(|e| format!("psy_ta_rh raised: {e}"))?;
+            let rust_psy = psy_ta_rh(t, Humidity::from_percent(rh), Pressure::from_pascals(p_atm));
+
+            for (py_name, rust_value, tol) in [
+                ("p_sat", rust_psy.p_sat.as_pascals(), 1e-6),
+                ("p_vap", rust_psy.p_vap.as_pascals(), 1e-6),
+                ("hr", rust_psy.hr, 1e-9),
+                ("wet_bulb_tmp", rust_psy.t_wb.as_celsius(), 1e-9),
+                ("dew_point_tmp", rust_psy.t_dp.as_celsius(), 1e-9),
+                ("h", rust_psy.h, 1e-6),
+            ] {
+                compare_field(
+                    &FieldCmp::new(py_name, tol),
+                    rust_value,
+                    py_float(&py_psy, py_name)?,
+                )?;
+            }
+            Ok(())
+        });
     });
 }
