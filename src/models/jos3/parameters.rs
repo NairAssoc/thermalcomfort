@@ -539,6 +539,9 @@ pub struct ClothingEnsemble {
 ///
 /// Mirrors the Python `local_clo_typical_ensembles` dict (order: Python dict
 /// insertion order).
+// Several garments happen to have a local clo value of 3.14, which clippy reads as a
+// misspelled pi. They are measured insulation values from upstream's table, not constants.
+#[allow(clippy::approx_constant)]
 pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
     ClothingEnsemble {
         name: "nude (mesh chair)",

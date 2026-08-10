@@ -3,14 +3,68 @@
 //! Calculate the solar gain to the human body using the Effective Radiant Field (ERF).
 
 use crate::utilities::Posture;
+use crate::{HeatFluxDensity, TemperatureDelta};
+use measurements::Angle;
+
+/// The sun's position and the radiation reaching the occupant.
+///
+/// These are the six values `solar_gain` cannot supply a default for. Named rather than
+/// positional because the underlying call is seven consecutive `f64`s, five of them
+/// fractions on `[0, 1]`, and no type system distinguishes those from one another — a
+/// transposed `f_svv` and `f_bes` is a silently wrong answer, not a compile error.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SolarGainInputs {
+    /// Solar altitude above the horizontal, 0-90°
+    pub sol_altitude: Angle,
+    /// Solar horizontal angle relative to the front of the person, 0-180°
+    pub sharp: Angle,
+    /// Direct-beam solar radiation
+    pub sol_radiation_dir: HeatFluxDensity,
+    /// Total solar transmittance of the window `[0, 1]`
+    pub sol_transmittance: f64,
+    /// Sky-vault view fraction `[0, 1]`
+    pub f_svv: f64,
+    /// Fraction of body surface exposed to sun `[0, 1]`
+    pub f_bes: f64,
+}
+
+/// Optional parameters for [`solar_gain`], with pythermalcomfort's defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SolarGainOptions {
+    /// Average short-wave absorptivity of the occupant, 0.57-0.84
+    pub asw: f64,
+    /// Body posture
+    pub posture: Posture,
+    /// Floor reflectance `[0, 1]`
+    pub floor_reflectance: f64,
+    /// Round both outputs to one decimal place
+    pub round_output: bool,
+}
+
+impl Default for SolarGainOptions {
+    fn default() -> Self {
+        Self {
+            asw: 0.7,
+            posture: Posture::Sitting,
+            floor_reflectance: 0.6,
+            round_output: true,
+        }
+    }
+}
 
 /// Result of solar gain calculation
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SolarGainResult {
-    /// Effective Radiant Field [W/m²]
-    pub erf: f64,
-    /// Delta mean radiant temperature [°C]
-    pub delta_mrt: f64,
+    /// Effective Radiant Field
+    pub erf: HeatFluxDensity,
+    /// Amount by which the mean radiant temperature is raised by solar radiation.
+    ///
+    /// A [`TemperatureDelta`], not a [`Temperature`](measurements::Temperature): it is a
+    /// difference to be added to an absolute reading, and typing it as an absolute value
+    /// invited exactly that confusion.
+    pub delta_mrt: TemperatureDelta,
 }
 
 /// Calculate solar gain using the Effective Radiant Field
@@ -20,54 +74,59 @@ pub struct SolarGainResult {
 /// Also calculates the delta mean radiant temperature, which is the amount by which the
 /// mean radiant temperature should be increased if no solar radiation is present.
 ///
-/// # Arguments
-///
-/// * `sol_altitude` - Solar altitude [degrees from horizontal, 0-90]
-/// * `sharp` - Solar horizontal angle relative to front of person [degrees, 0-180]
-/// * `sol_radiation_dir` - Direct-beam solar radiation [W/m², typically 200-1000]
-/// * `sol_transmittance` - Total solar transmittance [0-1]
-/// * `f_svv` - Sky-vault view fraction [0-1]
-/// * `f_bes` - Fraction of body surface exposed to sun [0-1]
-/// * `asw` - Average short-wave absorptivity [0.57-0.84, default 0.7]
-/// * `posture` - Body posture
-/// * `floor_reflectance` - Floor reflectance [0-1, default 0.6]
-///
 /// # Returns
 ///
-/// SolarGainResult containing ERF and delta MRT
+/// [`SolarGainResult`] containing the ERF and the delta MRT.
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::solar_gain::solar_gain;
-/// use thermalcomfort::utilities::Posture;
+/// use thermalcomfort::models::solar_gain::{solar_gain, SolarGainInputs};
+/// use thermalcomfort::HeatFluxDensity;
+/// use measurements::Angle;
 ///
-/// let result = solar_gain(0.0, 120.0, 800.0, 0.5, 0.5, 0.5, 0.7, Posture::Sitting, 0.6);
-/// assert!(result.erf > 0.0);
+/// let result = solar_gain(
+///     SolarGainInputs {
+///         sol_altitude: Angle::from_degrees(0.0),
+///         sharp: Angle::from_degrees(120.0),
+///         sol_radiation_dir: HeatFluxDensity::from_watts_per_square_meter(800.0),
+///         sol_transmittance: 0.5,
+///         f_svv: 0.5,
+///         f_bes: 0.5,
+///     },
+///     Default::default(),
+/// );
+/// assert!(result.erf.as_watts_per_square_meter() > 0.0);
 /// ```
 ///
 /// # References
 ///
 /// - ASHRAE 55-2023 Appendix C
-#[allow(clippy::too_many_arguments)]
-pub fn solar_gain(
-    sol_altitude: f64,
-    sharp: f64,
-    sol_radiation_dir: f64,
-    sol_transmittance: f64,
-    f_svv: f64,
-    f_bes: f64,
-    asw: f64,
-    posture: Posture,
-    floor_reflectance: f64,
-) -> SolarGainResult {
+pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGainResult {
+    // Convert once here, then calculate in plain f64 throughout.
+    let sol_altitude = inputs.sol_altitude.as_degrees();
+    let sharp = inputs.sharp.as_degrees();
+    let sol_radiation_dir = inputs.sol_radiation_dir.as_watts_per_square_meter();
+    let SolarGainInputs {
+        sol_transmittance,
+        f_svv,
+        f_bes,
+        ..
+    } = inputs;
+    let SolarGainOptions {
+        asw,
+        posture,
+        floor_reflectance,
+        round_output,
+    } = options;
+
     // The fp lookup table only covers altitudes 0-90° and azimuths 0-180°. Outside that
     // there is no valid span to interpolate within, so return NaN rather than
     // extrapolating from the first span.
     if !(0.0..=90.0).contains(&sol_altitude) || !(0.0..=180.0).contains(&sharp) {
         return SolarGainResult {
-            erf: f64::NAN,
-            delta_mrt: f64::NAN,
+            erf: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            delta_mrt: TemperatureDelta::from_celsius(f64::NAN),
         };
     }
 
@@ -199,9 +258,20 @@ pub fn solar_gain(
     let erf = e_solar * (sw_abs / lw_abs);
     let delta_mrt = erf / (hr * f_eff);
 
+    // Upstream exposes this as `round_output`; rounding unconditionally, as this did
+    // before, left the full-precision values unobtainable.
+    let (erf, delta_mrt) = if round_output {
+        (
+            crate::utilities::round_half_even(erf * 10.0) / 10.0,
+            crate::utilities::round_half_even(delta_mrt * 10.0) / 10.0,
+        )
+    } else {
+        (erf, delta_mrt)
+    };
+
     SolarGainResult {
-        erf: crate::utilities::round_half_even(erf * 10.0) / 10.0,
-        delta_mrt: crate::utilities::round_half_even(delta_mrt * 10.0) / 10.0,
+        erf: HeatFluxDensity::from_watts_per_square_meter(erf),
+        delta_mrt: TemperatureDelta::from_celsius(delta_mrt),
     }
 }
 
@@ -219,59 +289,76 @@ fn find_span(arr: &[f64], x: f64) -> usize {
 mod tests {
     use super::*;
 
+    /// Inputs for a case, with the options left at their defaults.
+    fn inputs(alt: f64, sharp: f64, dir: f64, trans: f64, f_svv: f64, f_bes: f64) -> SolarGainInputs {
+        SolarGainInputs {
+            sol_altitude: Angle::from_degrees(alt),
+            sharp: Angle::from_degrees(sharp),
+            sol_radiation_dir: HeatFluxDensity::from_watts_per_square_meter(dir),
+            sol_transmittance: trans,
+            f_svv,
+            f_bes,
+        }
+    }
+
     #[test]
     fn test_solar_gain_out_of_range_is_nan() {
-        // The fp table covers altitude 0-90° and azimuth 0-180°; outside that both
-        // outputs are NaN, matching pythermalcomfort 4.4.0.
+        // The fp table covers altitude 0-90 degrees and azimuth 0-180 degrees; outside
+        // that both outputs are NaN, matching pythermalcomfort 4.4.0.
         for (alt, sharp) in [(-10.0, 120.0), (100.0, 120.0), (45.0, 200.0), (45.0, -5.0)] {
-            let result = solar_gain(alt, sharp, 800.0, 0.5, 0.5, 0.5, 0.7, Posture::Sitting, 0.6);
+            let result = solar_gain(inputs(alt, sharp, 800.0, 0.5, 0.5, 0.5), Default::default());
             assert!(
-                result.erf.is_nan() && result.delta_mrt.is_nan(),
+                result.erf.as_watts_per_square_meter().is_nan()
+                    && result.delta_mrt.as_celsius().is_nan(),
                 "expected NaN at sol_altitude={alt}, sharp={sharp}"
             );
         }
 
         // In-range case still computes (reference: erf=59.5, delta_mrt=14.2)
-        let result = solar_gain(
-            45.0,
-            120.0,
-            800.0,
-            0.5,
-            0.5,
-            0.5,
-            0.7,
-            Posture::Sitting,
-            0.6,
-        );
-        assert!((result.erf - 59.5).abs() < 0.5, "erf = {}", result.erf);
-        assert!(
-            (result.delta_mrt - 14.2).abs() < 0.5,
-            "delta_mrt = {}",
-            result.delta_mrt
-        );
+        let result = solar_gain(inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5), Default::default());
+        let erf = result.erf.as_watts_per_square_meter();
+        let delta_mrt = result.delta_mrt.as_celsius();
+        assert!((erf - 59.5).abs() < 0.5, "erf = {erf}");
+        assert!((delta_mrt - 14.2).abs() < 0.5, "delta_mrt = {delta_mrt}");
     }
 
     #[test]
     fn test_solar_gain_sitting() {
-        let result = solar_gain(0.0, 120.0, 800.0, 0.5, 0.5, 0.5, 0.7, Posture::Sitting, 0.6);
-        assert!(result.erf > 0.0);
-        assert!(result.delta_mrt > 0.0);
+        let result = solar_gain(inputs(0.0, 120.0, 800.0, 0.5, 0.5, 0.5), Default::default());
+        assert!(result.erf.as_watts_per_square_meter() > 0.0);
+        assert!(result.delta_mrt.as_celsius() > 0.0);
     }
 
     #[test]
     fn test_solar_gain_standing() {
         let result = solar_gain(
-            45.0,
-            90.0,
-            600.0,
-            0.7,
-            0.6,
-            0.7,
-            0.7,
-            Posture::Standing,
-            0.6,
+            inputs(45.0, 90.0, 600.0, 0.7, 0.6, 0.7),
+            SolarGainOptions {
+                posture: Posture::Standing,
+                ..Default::default()
+            },
         );
-        assert!(result.erf > 0.0);
-        assert!(result.delta_mrt > 0.0);
+        assert!(result.erf.as_watts_per_square_meter() > 0.0);
+        assert!(result.delta_mrt.as_celsius() > 0.0);
+    }
+
+    /// `round_output` is upstream's, and was hardcoded to `true` here. Turning it off
+    /// must expose digits that rounding to one decimal place would have removed.
+    #[test]
+    fn round_output_can_be_turned_off() {
+        let rounded = solar_gain(inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5), Default::default());
+        let exact = solar_gain(
+            inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5),
+            SolarGainOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+
+        let r = rounded.erf.as_watts_per_square_meter();
+        let e = exact.erf.as_watts_per_square_meter();
+        assert!((r * 10.0 - (r * 10.0).round()).abs() < 1e-9, "rounded erf {r} is not at one decimal");
+        assert!((e - r).abs() > 1e-12, "unrounded erf {e} equals the rounded {r}");
+        assert!((e - r).abs() < 0.05, "unrounded erf {e} is not within rounding of {r}");
     }
 }

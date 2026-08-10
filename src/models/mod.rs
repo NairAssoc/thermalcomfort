@@ -39,7 +39,7 @@ pub use ridge_regression::{
     PredictedBodyTemperatures, RidgeRegressionOptions, ridge_regression_predict_t_re_t_sk,
 };
 pub use set_tmp::{SetOptions, set_tmp};
-pub use solar_gain::{SolarGainResult, solar_gain};
+pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
 pub use specialty::{ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd};
 pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsValues, sports_heat_stress_risk,

@@ -57,7 +57,7 @@ pub use utilities::{
 
 // Re-export measurements types for convenience
 // Users should import these from thermalcomfort instead of directly from measurements
-pub use measurements::{Area, Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
+pub use measurements::{Angle, Area, Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
 
 /// A temperature *difference*.
 ///

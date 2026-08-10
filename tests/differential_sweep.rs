@@ -23,7 +23,8 @@ use thermalcomfort::models::{
     AdaptiveOptions, CoolingEffectOptions, DurationLimitedExposure, GaggeTwoNodesOptions,
     GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions,
     PhsPosture, SleepInputs, two_nodes_gagge_sleep,
-    RidgeRegressionOptions, SetOptions, Sports, SportsValues, UtciOptions, WbgtOptions,
+    RidgeRegressionOptions, SetOptions, SolarGainInputs, SolarGainOptions, Sports, SportsValues,
+    UtciOptions, WbgtOptions,
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
     net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
@@ -45,8 +46,8 @@ use thermalcomfort::utilities::{
     running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    AirPermeability, Area, ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Power,
-    Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
+    AirPermeability, Angle, Area, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass,
+    MetabolicRate, Power, Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -2687,13 +2688,37 @@ fn sweep_solar_gain() {
                 .call((alt, sharp, dir, trans, fsvv, fbes), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
-            let rust = solar_gain(alt, sharp, dir, trans, fsvv, fbes, asw, posture, floor);
+            let rust = solar_gain(
+                SolarGainInputs {
+                    sol_altitude: Angle::from_degrees(alt),
+                    sharp: Angle::from_degrees(sharp),
+                    sol_radiation_dir: HeatFluxDensity::from_watts_per_square_meter(dir),
+                    sol_transmittance: trans,
+                    f_svv: fsvv,
+                    f_bes: fbes,
+                },
+                SolarGainOptions {
+                    asw,
+                    posture,
+                    floor_reflectance: floor,
+                    round_output,
+                },
+            );
 
-            // Rust always rounds; compare against Python's rounded value.
-            let tol = if round_output { 1e-9 } else { 0.051 };
-            for (name, rust_value) in [("erf", rust.erf), ("delta_mrt", rust.delta_mrt)] {
+            // Both halves of the round_output sweep are compared to full precision now.
+            // Previously Rust rounded unconditionally, so the unrounded half had to be
+            // checked at 0.051 -- wide enough to hide any error smaller than the rounding
+            // it was compensating for. Exposing it showed a residue of about 5e-11
+            // relative, which is bilinear interpolation over the fp table amplifying
+            // float associativity through the difference of two neighbouring entries,
+            // not a formula gap: it stays at that scale across a 3000-sample deep run
+            // instead of growing in any corner.
+            for (name, rust_value) in [
+                ("erf", rust.erf.as_watts_per_square_meter()),
+                ("delta_mrt", rust.delta_mrt.as_celsius()),
+            ] {
                 compare_field(
-                    &FieldCmp::new(name, tol),
+                    &FieldCmp::new(name, 1e-9).rel(1e-9),
                     rust_value,
                     py_float(&py_result, name)?,
                 )?;

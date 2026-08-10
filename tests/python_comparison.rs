@@ -4,7 +4,7 @@
 //! Python package across a wide range of inputs and edge cases.
 
 use approx::assert_abs_diff_eq;
-use measurements::{Area, Humidity, Length, Power, Pressure, Speed, Temperature};
+use measurements::{Angle, Area, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,8 @@ use thermalcomfort::models::{
     adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
     heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
     pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
-    solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
+    SolarGainInputs, SolarGainOptions, solar_gain, thi, transpose_sharp_altitude,
+    two_nodes_gagge, two_nodes_gagge_ji,
     SleepInputs, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
@@ -33,7 +34,8 @@ use thermalcomfort::utilities::{
     p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    AirPermeability, ClothingInsulation, Mass, MetabolicRate, Sex, TemperatureDelta,
+    AirPermeability, ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate, Sex,
+    TemperatureDelta,
 };
 
 /// Guard against validating the port against the wrong pythermalcomfort.
@@ -2624,11 +2626,35 @@ fn test_compare_solar_gain() {
             };
 
             let rust_result = solar_gain(
-                alt, sharp, sol_rad, sol_trans, f_svv_val, f_bes, asw, posture, floor_refl,
+                SolarGainInputs {
+                    sol_altitude: Angle::from_degrees(alt),
+                    sharp: Angle::from_degrees(sharp),
+                    sol_radiation_dir: HeatFluxDensity::from_watts_per_square_meter(sol_rad),
+                    sol_transmittance: sol_trans,
+                    f_svv: f_svv_val,
+                    f_bes,
+                },
+                SolarGainOptions {
+                    asw,
+                    posture,
+                    floor_reflectance: floor_refl,
+                    ..Default::default()
+                },
             );
 
-            assert_abs_diff_eq!(rust_result.erf, py_erf, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.delta_mrt, py_delta_mrt, epsilon = 0.5);
+            // Both sides round to one decimal by default, so these agree exactly. The
+            // previous 1.0 and 0.5 tolerances were inherited from an era when this
+            // comparison was approximate.
+            assert_abs_diff_eq!(
+                rust_result.erf.as_watts_per_square_meter(),
+                py_erf,
+                epsilon = 1e-9
+            );
+            assert_abs_diff_eq!(
+                rust_result.delta_mrt.as_celsius(),
+                py_delta_mrt,
+                epsilon = 1e-9
+            );
         }
     });
 }
