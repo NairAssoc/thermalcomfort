@@ -216,13 +216,35 @@ to `tests/differential_sweep.rs` following the Ji sweep, which compares whole tr
 
 ---
 
-## Closed: the `measurements::Temperature` round-trip
+## REOPENED AND FIXED: the `measurements::Temperature` round-trip
 
-**Not reproducible — removed from this list on 2026-08-10.** The round-trip through Kelvin
-is real (`from_celsius(21.4).as_celsius()` differs by 2.13e-14), but the consequence
-recorded for it was not. The documented failing case —
-`adaptive_ashrae(21.4, 21.8, 23.4, 0.11, limit_inputs=false)` — now agrees with Python on
-both acceptability booleans, and 80,000 swept adaptive samples comparing those booleans
-found zero divergence. 1e-14 °C only matters where a float feeds a discrete comparison,
-and nothing in the swept space lands that close to a band edge. Do not spend a crate-local
-temperature type on it.
+**This section previously read "Closed: not reproducible" and told you not to spend a
+crate-local temperature type on it. That was wrong, and the way it was wrong is worth
+keeping.**
+
+The evidence behind the closure was real: 80,000 swept adaptive samples comparing
+acceptability booleans found zero divergence, and the reasoning was that 1e-14 °C only
+matters where a float feeds a discrete comparison, with nothing in the swept space landing
+that close to a band edge. Both true. The flaw was the last clause — it described the models
+that existed *then*.
+
+JOS3 does land on a band edge, deliberately. Its
+`_calculate_operative_temp_when_pmv_is_zero` is a damped fixed-point search that walks the
+operative temperature up onto ISO 7730's 30 °C applicability limit and *depends on crossing
+it* to get NaN back and take a retry branch. `Temperature` stores kelvin, so constructing one
+from 30.00000000000001 and reading it back gives exactly 30.0: the limit check passed, the
+retry never ran, and because set points are fixed at construction the subject's whole
+simulation was wrong — `t_skin_mean` 33.88 against Python's 32.93. One subject in a 3000-way
+constructor sweep, and an ordinary one.
+
+Fixed in 28adfa8: `pmv_ppd_iso` now has a plain-`f64` core that the newtype version wraps,
+and JOS3 calls the core. No crate-local temperature type was needed after all — the actual
+rule is narrower and stricter:
+
+> **Never re-wrap a plain `f64` into a newtype mid-calculation inside the crate.** Convert
+> once at the public boundary and calculate in `f64` throughout. Every in-crate caller
+> holding an `f64` must use the `*_celsius` entry point.
+
+The transferable lesson is about the closure, not the bug: "swept N samples, found nothing"
+bounds what the sweep *could* reach. A model added later can move the boundary the sweep was
+implicitly assuming.
