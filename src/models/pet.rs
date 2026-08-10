@@ -146,8 +146,6 @@ pub struct PetOptions {
     pub wme: WorkEfficiency,
     /// Posture
     pub posture: Posture,
-    /// Round output values
-    pub round_output: bool,
 }
 
 impl Default for PetOptions {
@@ -160,7 +158,6 @@ impl Default for PetOptions {
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
-            round_output: true,
         }
     }
 }
@@ -296,13 +293,11 @@ pub fn pet_steady(
         .find_map(|&(lo, hi)| brentq(find_pet, lo, hi, Some(0.0001), Some(300)).ok())
         .unwrap_or(f64::NAN);
 
-    let pet_rounded = if options.round_output {
-        round_to(pet, 2)
-    } else {
-        pet
-    };
-
-    PetResult { pet: pet_rounded }
+    // pet_steady.py:474 rounds unconditionally -- `return round(fsolve(...)[0], 2)`.
+    // There is no flag upstream, so an unrounded PET is a value Python cannot produce.
+    PetResult {
+        pet: round_to(pet, 2),
+    }
 }
 
 /// Solve the 3-node MEMI system for actual environment (std version with nalgebra)
@@ -909,7 +904,6 @@ mod tests {
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
-            round_output: true,
         };
 
         let result = pet_steady(

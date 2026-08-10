@@ -17,7 +17,10 @@ use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
-use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::pmv::{
+    Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
+    PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
+};
 use thermalcomfort::models::specialty::{
     AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
@@ -25,15 +28,14 @@ use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_
 use thermalcomfort::models::{
     AdaptiveOptions, CoolingEffectInputs, CoolingEffectOptions, DurationLimitedExposure,
     GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions,
-    PetPosture, PhsOptions, PhsPosture, SleepInputs, two_nodes_gagge_sleep,
-    RidgeRegressionOptions, SetOptions, SolarGainInputs, SolarGainOptions, Sports, SportsValues,
-    UtciOptions, WbgtInputs, WbgtOptions,
+    PetPosture, PhsOptions, PhsPosture, RidgeRegressionOptions, SetOptions, SleepInputs,
+    SolarGainInputs, SolarGainOptions, Sports, SportsValues, UtciOptions, WbgtInputs, WbgtOptions,
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
     net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
     ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk, thi,
-    two_nodes_gagge, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt,
+    wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
@@ -42,11 +44,12 @@ use thermalcomfort::psychrometrics::{
     psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BsaFormula, Posture, Units, antoine, body_surface_area, clo_area_factor,
-    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment,
-    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
-    clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
-    running_mean_outdoor_temperature, v_relative,
+    Ashrae55Model, BsaFormula, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
+    CloDynamicIsoInputs, CloDynamicIsoOptions, Iso9920Model, Posture, Units, antoine,
+    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
+    clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
+    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
     AirPermeability, Angle, Area, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass,
@@ -83,12 +86,17 @@ fn pmv_domain() -> Domain {
 
 #[test]
 fn sweep_pmv_ppd_iso() {
+    // `model` selects between "7730-2005" and "7730-2025"; both are formula-identical
+    // (see `Iso7730Model`), but the axis is swept so a future divergence would be
+    // caught rather than silently passing because Rust never exercised it.
+    let domain = pmv_domain().enumerated("model", 2);
+
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let fields = [FieldCmp::new("pmv", 0.01), FieldCmp::new("ppd", 0.11)];
 
-        run_sweep("sweep_pmv_ppd_iso", &pmv_domain(), |s: &Sample| {
+        run_sweep("sweep_pmv_ppd_iso", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
                 s.real("tdb"),
                 s.real("tr"),
@@ -100,9 +108,14 @@ fn sweep_pmv_ppd_iso() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let (model, py_model) = match s.index("model") {
+                0 => (Iso7730Model::Iso77302005, "7730-2005"),
+                _ => (Iso7730Model::Iso77302025, "7730-2025"),
+            };
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                ("model", py_model.into_pyobject(py).unwrap().into_any()),
                 (
                     "limit_inputs",
                     PyBool::new(py, limit_inputs).to_owned().into_any(),
@@ -122,14 +135,17 @@ fn sweep_pmv_ppd_iso() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                PmvPpdOptions {
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
+                PmvPpdIsoOptions {
                     wme: MetabolicRate::from_met(wme),
+                    model,
                     limit_inputs,
                     round_output,
                 },
@@ -145,12 +161,18 @@ fn sweep_pmv_ppd_iso() {
 
 #[test]
 fn sweep_pmv_ppd_ashrae() {
+    // `model` has only one legal value today ("55-2023"), but is still swept for
+    // symmetry with `sweep_pmv_ppd_iso` and so a future edition is exercised as soon as
+    // it is added. `airspeed_control` gates ASHRAE 55's §7.2.1.2 cross-variable rules
+    // (see `check_ashrae55_compliance`), previously unreachable from Rust.
+    let domain = pmv_domain().enumerated("model", 1).flag("airspeed_control");
+
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let fields = [FieldCmp::new("pmv", 0.01), FieldCmp::new("ppd", 0.11)];
 
-        run_sweep("sweep_pmv_ppd_ashrae", &pmv_domain(), |s: &Sample| {
+        run_sweep("sweep_pmv_ppd_ashrae", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
                 s.real("tdb"),
                 s.real("tr"),
@@ -162,12 +184,22 @@ fn sweep_pmv_ppd_ashrae() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let airspeed_control = s.flag("airspeed_control");
+            // Only one legal value today (see `Ashrae55Model`); the axis is drawn
+            // anyway so this sweep keeps the same shape as `sweep_pmv_ppd_iso`.
+            let _ = s.index("model");
+            let (model, py_model) = (Ashrae55Model::Ashrae552023, "55-2023");
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                ("model", py_model.into_pyobject(py).unwrap().into_any()),
                 (
                     "limit_inputs",
                     PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "airspeed_control",
+                    PyBool::new(py, airspeed_control).to_owned().into_any(),
                 ),
                 (
                     "round_output",
@@ -177,6 +209,8 @@ fn sweep_pmv_ppd_ashrae() {
             .into_py_dict(py)
             .unwrap();
 
+            // §7.2.1.2's cross-variable rules (airspeed_control=false) warn via
+            // `warnings.warn` on the Python side rather than raising; nothing to catch.
             let py_result = models
                 .getattr("pmv_ppd_ashrae")
                 .unwrap()
@@ -184,15 +218,19 @@ fn sweep_pmv_ppd_ashrae() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = pmv_ppd_ashrae(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                PmvPpdOptions {
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
+                PmvPpdAshraeOptions {
                     wme: MetabolicRate::from_met(wme),
+                    model,
                     limit_inputs,
+                    airspeed_control,
                     round_output,
                 },
             );
@@ -923,8 +961,7 @@ fn sweep_two_nodes_gagge_ji() {
         .real("body_surface_area", 1.5, 2.2)
         .real("p_atm", 80_000.0, 105_000.0)
         .enumerated("position", 3)
-        .flag("acclimatized")
-        .flag("round_output");
+        .flag("acclimatized");
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
@@ -954,7 +991,6 @@ fn sweep_two_nodes_gagge_ji() {
                 _ => (Posture::Standing, "standing, forced convection"),
             };
             let acclimatized = s.flag("acclimatized");
-            let round_output = s.flag("round_output");
 
             let p_sat = utilities
                 .getattr("p_sat_torr")
@@ -1002,18 +1038,15 @@ fn sweep_two_nodes_gagge_ji() {
                     p_atm: Pressure::from_pascals(p_atm),
                     posture,
                     acclimatized,
-                    round_output,
                 },
             );
 
-            // Python does not round, so when the Rust side does, the reference is the
-            // Python trajectory put through the same rounding. The unrounded half of
-            // the sweep is what proves the underlying values agree.
-            let (tol, round) = if round_output {
-                (0.0051, true)
-            } else {
-                (1e-9, false)
-            };
+            // Compared exactly. This sweep used to round *Python's* trajectory to two
+            // decimals before comparing, whenever Rust's round_output was set -- making
+            // the reference a value pythermalcomfort never produces, so the check could
+            // not fail for the right reason. two_nodes_gagge_ji.py contains no round or
+            // np.around call anywhere; the Rust flag was invented, and it and this
+            // accommodation are both gone.
 
             for (name, rust_series) in [("t_core", &rust.t_core), ("t_skin", &rust.t_skin)] {
                 let py_series = py_float_seq(&py_result, name)?;
@@ -1024,16 +1057,11 @@ fn sweep_two_nodes_gagge_ji() {
                         py_series.len()
                     ));
                 }
-                let cmp = FieldCmp::new(name, tol);
+                let cmp = FieldCmp::new(name, 1e-9);
                 for (minute, (rust_value, py_value)) in
                     rust_series.iter().zip(py_series.iter()).enumerate()
                 {
-                    let expected = if round {
-                        (py_value * 100.0).round() / 100.0
-                    } else {
-                        *py_value
-                    };
-                    compare_field(&cmp, *rust_value, expected)
+                    compare_field(&cmp, *rust_value, *py_value)
                         .map_err(|e| format!("minute {minute}: {e}"))?;
                 }
             }
@@ -1093,12 +1121,7 @@ fn sweep_two_nodes_gagge_sleep() {
             let v = vec![s.real("v"); n];
             let rh = ramp(s.real("rh"), s.real("rh_drift"), 0.0, 100.0);
             let clo = ramp(s.real("clo"), s.real("clo_drift"), 0.0, 3.0);
-            let thickness = ramp(
-                s.real("thickness"),
-                s.real("thickness_drift"),
-                0.0,
-                30.0,
-            );
+            let thickness = ramp(s.real("thickness"), s.real("thickness_drift"), 0.0, 30.0);
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
@@ -1184,8 +1207,14 @@ fn sweep_two_nodes_gagge_sleep() {
             // 1e-9 absolute check on short runs lives in the module's unit tests.
             let series: [(&str, Vec<f64>); 10] = [
                 ("set", rust.set.iter().map(|t| t.as_celsius()).collect()),
-                ("t_core", rust.t_core.iter().map(|t| t.as_celsius()).collect()),
-                ("t_skin", rust.t_skin.iter().map(|t| t.as_celsius()).collect()),
+                (
+                    "t_core",
+                    rust.t_core.iter().map(|t| t.as_celsius()).collect(),
+                ),
+                (
+                    "t_skin",
+                    rust.t_skin.iter().map(|t| t.as_celsius()).collect(),
+                ),
                 ("wet", rust.wet.clone()),
                 ("t_sens", rust.t_sens.clone()),
                 ("disc", rust.disc.clone()),
@@ -1231,8 +1260,11 @@ fn sweep_two_nodes_gagge_sleep() {
 
 #[test]
 fn sweep_pmv_a() {
-    // pythermalcomfort's pmv_a exposes no round_output; the flag is swept anyway to
-    // prove the Rust option cannot change the answer.
+    // pythermalcomfort's pmv_a exposes no round_output and no model — its inner PMV
+    // call always uses rounding and ISO 7730:2025. `PmvAOptions` mirrors that (see its
+    // doc comment), so unlike a previous port there is no longer a `round_output` knob
+    // here for the flag to prove inert; `round_output` is still drawn from
+    // `pmv_domain()` but simply unused.
     let domain = pmv_domain().real("a_coefficient", 0.0, 1.0);
 
     Python::with_gil(|py| {
@@ -1270,17 +1302,18 @@ fn sweep_pmv_a() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = pmv_a(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                a_coefficient,
-                PmvPpdOptions {
+                PmvAInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    a_coefficient,
+                },
+                PmvAOptions {
                     wme: MetabolicRate::from_met(wme),
                     limit_inputs,
-                    round_output: s.flag("round_output"),
                 },
             );
 
@@ -1291,6 +1324,7 @@ fn sweep_pmv_a() {
 
 #[test]
 fn sweep_pmv_e() {
+    // See `sweep_pmv_a`: `PmvEOptions` likewise has no `round_output` or `model`.
     let domain = pmv_domain().real("e_coefficient", 0.0, 1.0);
 
     Python::with_gil(|py| {
@@ -1328,17 +1362,18 @@ fn sweep_pmv_e() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = pmv_e(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                e_coefficient,
-                PmvPpdOptions {
+                PmvEInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    e_coefficient,
+                },
+                PmvEOptions {
                     wme: MetabolicRate::from_met(wme),
                     limit_inputs,
-                    round_output: s.flag("round_output"),
                 },
             );
 
@@ -1392,13 +1427,17 @@ fn sweep_pmv_athb() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = pmv_athb(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                supply_clo.then(|| ClothingInsulation::from_clo(clo)),
-                Temperature::from_celsius(t_running_mean),
+                PmvAthbInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    running_mean_outdoor_temp: Temperature::from_celsius(t_running_mean),
+                },
+                PmvAthbOptions {
+                    clothing_insulation: supply_clo.then(|| ClothingInsulation::from_clo(clo)),
+                },
             );
 
             compare_field(&field, rust, py_float(&py_result, "athb_pmv")?)
@@ -2037,8 +2076,7 @@ fn sweep_pet_steady() {
         // [0, 1] to match every other model's wme axis.
         .real("wme", 0.0, 1.0)
         .enumerated("position", 2)
-        .enumerated("sex", 2)
-        .flag("round_output");
+        .enumerated("sex", 2);
 
     Python::with_gil(|py| {
         // Force the version guard before the shim imports pythermalcomfort itself.
@@ -2097,7 +2135,6 @@ def call(args, kwargs):
                 0 => (Sex::Male, "male"),
                 _ => (Sex::Female, "female"),
             };
-            let round_output = s.flag("round_output");
 
             // Python takes atmospheric pressure in hPa here, not Pa.
             let kwargs = [
@@ -2147,13 +2184,9 @@ def call(args, kwargs):
                     wme: WorkEfficiency::new(wme)
                         .expect("the wme axis is bounded to the valid [0, 1] range"),
                     posture,
-                    round_output,
                 },
             );
 
-            // Python has no round_output and always rounds to two decimals, so the
-            // rounded half of the sweep must match exactly and the unrounded half only
-            // to within that rounding step.
             if rust.pet.is_nan() {
                 unconverged.set(unconverged.get() + 1);
             }
@@ -2164,12 +2197,15 @@ def call(args, kwargs):
             // meets the stricter bar the Rust solver reports NaN rather than returning
             // a wrong number. Python-NaN against a Rust number is still a failure.
             //
-            // Python always rounds to two decimals and Rust rounds independently, so
-            // when both round the results can straddle a boundary and differ by exactly
-            // one step. That is why the rounded half allows 0.0101 and no more; the
-            // unrounded half holds the underlying values to 0.0051, which is what
-            // actually proves they agree.
-            let tol = if round_output { 0.0101 } else { 0.0051 };
+            // Python always rounds to two decimals and Rust now does the same
+            // unconditionally, so the two can straddle a rounding boundary and differ by
+            // exactly one step: 0.0101 and no more. Rust used to expose a round_output
+            // flag, which upstream has no equivalent for (pet_steady.py:474 rounds
+            // inside its return), so the unrounded half of this sweep was comparing
+            // against a value pythermalcomfort cannot produce. Removing the flag costs
+            // the 0.0051 bound that half provided -- a fair price for comparing only
+            // states upstream can actually reach.
+            let tol = 0.0101;
             let field = FieldCmp::new(
                 "pet",
                 if std::env::var("PET_MEASURE").is_ok() {
@@ -3219,11 +3255,17 @@ fn sweep_saturation_pressures() {
 
 #[test]
 fn sweep_v_relative_and_clo_dynamic() {
+    // `ashrae_model` / `iso9920_model` each have only one legal value today (see
+    // `Ashrae55Model`, `Iso9920Model`); they are drawn anyway so the axes exist for a
+    // future edition, and matched exhaustively in the Rust call so a new variant would
+    // be a compile error here rather than a silent gap.
     let domain = Domain::new()
         .real("v", 0.0, 4.0)
         .real("met", 0.6, 5.0)
         .real("clo", 0.0, 3.0)
-        .real("i_a", 0.0, 1.5);
+        .real("i_a", 0.0, 1.5)
+        .enumerated("ashrae_model", 1)
+        .enumerated("iso9920_model", 1);
 
     Python::with_gil(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
@@ -3231,6 +3273,10 @@ fn sweep_v_relative_and_clo_dynamic() {
 
         run_sweep("sweep_v_relative_and_clo_dynamic", &domain, |s: &Sample| {
             let (v, met, clo, i_a) = (s.real("v"), s.real("met"), s.real("clo"), s.real("i_a"));
+            let _ = s.index("ashrae_model");
+            let _ = s.index("iso9920_model");
+            let ashrae_model = Ashrae55Model::Ashrae552023;
+            let iso9920_model = Iso9920Model::Iso99202007;
 
             compare_field(
                 &FieldCmp::new("v_relative", 1e-9),
@@ -3245,8 +3291,13 @@ fn sweep_v_relative_and_clo_dynamic() {
             compare_field(
                 &FieldCmp::new("clo_dynamic_ashrae", 1e-9),
                 clo_dynamic_ashrae(
-                    ClothingInsulation::from_clo(clo),
-                    MetabolicRate::from_met(met),
+                    CloDynamicAshraeInputs {
+                        clothing_insulation: ClothingInsulation::from_clo(clo),
+                        metabolic_rate: MetabolicRate::from_met(met),
+                    },
+                    CloDynamicAshraeOptions {
+                        model: ashrae_model,
+                    },
                 )
                 .as_clo(),
                 py_util(&utils, "clo_dynamic_ashrae", (clo, met))?,
@@ -3255,10 +3306,15 @@ fn sweep_v_relative_and_clo_dynamic() {
             compare_field(
                 &FieldCmp::new("clo_dynamic_iso", 1e-9),
                 clo_dynamic_iso(
-                    ClothingInsulation::from_clo(clo),
-                    MetabolicRate::from_met(met),
-                    Speed::from_meters_per_second(v),
-                    ClothingInsulation::from_clo(i_a),
+                    CloDynamicIsoInputs {
+                        clothing_insulation: ClothingInsulation::from_clo(clo),
+                        metabolic_rate: MetabolicRate::from_met(met),
+                        air_speed: Speed::from_meters_per_second(v),
+                    },
+                    CloDynamicIsoOptions {
+                        boundary_air_layer_insulation: ClothingInsulation::from_clo(i_a),
+                        model: iso9920_model,
+                    },
                 ),
                 py_util(&utils, "clo_dynamic_iso", (clo, met, v, i_a))?,
             )

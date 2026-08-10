@@ -4,13 +4,13 @@
 //! strongly-typed measurements instead of raw f64 values.
 
 use crate::models::pmv::{
-    PmvPpdOptions, PmvPpdResult, pmv_ppd_ashrae as pmv_ppd_ashrae_f64,
-    pmv_ppd_iso as pmv_ppd_iso_f64,
+    PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions, PmvPpdResult,
+    pmv_ppd_ashrae as pmv_ppd_ashrae_f64, pmv_ppd_iso as pmv_ppd_iso_f64,
 };
 use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Humidity, Speed, Temperature};
 
-/// Calculate PMV and PPD according to ISO 7730:2005 using type-safe measurements
+/// Calculate PMV and PPD according to ISO 7730 using type-safe measurements
 ///
 /// This is a type-safe wrapper around `pmv_ppd_iso` that uses the `measurements` crate
 /// for temperature, air speed, and humidity values.
@@ -55,9 +55,19 @@ pub fn pmv_ppd_iso_typed(
     rh: Humidity,
     met: MetabolicRate,
     clo: ClothingInsulation,
-    options: PmvPpdOptions,
+    options: PmvPpdIsoOptions,
 ) -> PmvPpdResult {
-    pmv_ppd_iso_f64(tdb, tr, vr, rh, met, clo, options)
+    pmv_ppd_iso_f64(
+        PmvPpdInputs {
+            dry_bulb_temp: tdb,
+            mean_radiant_temp: tr,
+            relative_air_speed: vr,
+            relative_humidity: rh,
+            metabolic_rate: met,
+            clothing_insulation: clo,
+        },
+        options,
+    )
 }
 
 /// Calculate PMV and PPD according to ASHRAE 55 using type-safe measurements
@@ -91,9 +101,19 @@ pub fn pmv_ppd_ashrae_typed(
     rh: Humidity,
     met: MetabolicRate,
     clo: ClothingInsulation,
-    options: PmvPpdOptions,
+    options: PmvPpdAshraeOptions,
 ) -> PmvPpdResult {
-    pmv_ppd_ashrae_f64(tdb, tr, vr, rh, met, clo, options)
+    pmv_ppd_ashrae_f64(
+        PmvPpdInputs {
+            dry_bulb_temp: tdb,
+            mean_radiant_temp: tr,
+            relative_air_speed: vr,
+            relative_humidity: rh,
+            metabolic_rate: met,
+            clothing_insulation: clo,
+        },
+        options,
+    )
 }
 
 #[cfg(test)]

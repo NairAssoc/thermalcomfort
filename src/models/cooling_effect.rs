@@ -109,7 +109,10 @@ impl Default for CoolingEffectOptions {
 /// );
 /// println!("Cooling effect: {:.2}°C", ce.as_celsius());
 /// ```
-pub fn cooling_effect(inputs: CoolingEffectInputs, options: CoolingEffectOptions) -> TemperatureDelta {
+pub fn cooling_effect(
+    inputs: CoolingEffectInputs,
+    options: CoolingEffectOptions,
+) -> TemperatureDelta {
     let CoolingEffectInputs {
         dry_bulb_temp,
         mean_radiant_temp,

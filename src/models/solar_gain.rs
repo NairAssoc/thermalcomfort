@@ -290,7 +290,14 @@ mod tests {
     use super::*;
 
     /// Inputs for a case, with the options left at their defaults.
-    fn inputs(alt: f64, sharp: f64, dir: f64, trans: f64, f_svv: f64, f_bes: f64) -> SolarGainInputs {
+    fn inputs(
+        alt: f64,
+        sharp: f64,
+        dir: f64,
+        trans: f64,
+        f_svv: f64,
+        f_bes: f64,
+    ) -> SolarGainInputs {
         SolarGainInputs {
             sol_altitude: Angle::from_degrees(alt),
             sharp: Angle::from_degrees(sharp),
@@ -315,7 +322,10 @@ mod tests {
         }
 
         // In-range case still computes (reference: erf=59.5, delta_mrt=14.2)
-        let result = solar_gain(inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5), Default::default());
+        let result = solar_gain(
+            inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5),
+            Default::default(),
+        );
         let erf = result.erf.as_watts_per_square_meter();
         let delta_mrt = result.delta_mrt.as_celsius();
         assert!((erf - 59.5).abs() < 0.5, "erf = {erf}");
@@ -346,7 +356,10 @@ mod tests {
     /// must expose digits that rounding to one decimal place would have removed.
     #[test]
     fn round_output_can_be_turned_off() {
-        let rounded = solar_gain(inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5), Default::default());
+        let rounded = solar_gain(
+            inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5),
+            Default::default(),
+        );
         let exact = solar_gain(
             inputs(45.0, 120.0, 800.0, 0.5, 0.5, 0.5),
             SolarGainOptions {
@@ -357,8 +370,17 @@ mod tests {
 
         let r = rounded.erf.as_watts_per_square_meter();
         let e = exact.erf.as_watts_per_square_meter();
-        assert!((r * 10.0 - (r * 10.0).round()).abs() < 1e-9, "rounded erf {r} is not at one decimal");
-        assert!((e - r).abs() > 1e-12, "unrounded erf {e} equals the rounded {r}");
-        assert!((e - r).abs() < 0.05, "unrounded erf {e} is not within rounding of {r}");
+        assert!(
+            (r * 10.0 - (r * 10.0).round()).abs() < 1e-9,
+            "rounded erf {r} is not at one decimal"
+        );
+        assert!(
+            (e - r).abs() > 1e-12,
+            "unrounded erf {e} equals the rounded {r}"
+        );
+        assert!(
+            (e - r).abs() < 0.05,
+            "unrounded erf {e} is not within rounding of {r}"
+        );
     }
 }

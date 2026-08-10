@@ -20,16 +20,11 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use nalgebra::DMatrix;
 
-use super::parameters::{BODY_PART_NAMES, NUM_BODY_PARTS};
-
-/// Layer names, in the exact order index assignment walks them for each body part.
-/// Python: `LAYER_NAMES`.
-pub const LAYER_NAMES: [&str; 7] = ["artery", "vein", "sfvein", "core", "muscle", "fat", "skin"];
+use super::parameters::NUM_BODY_PARTS;
 
 /// Matrix index (into the 85-node system) of each layer that exists for one body part.
 /// `None` means that body part has no such layer (e.g. the torso segments have no
@@ -154,7 +149,7 @@ fn layer_field(li: &LayerIndex, layer: &str) -> Option<usize> {
 /// `layer` is one of `"artery"`, `"vein"`, `"sfvein"`, `"core"`, `"muscle"`, `"fat"`,
 /// `"skin"` (case-sensitive; Python lowercases first, callers here should pass
 /// already-lowercase names). Python: `index_by_layer`.
-pub fn index_by_layer(layer: &str) -> Vec<usize> {
+pub(crate) fn index_by_layer(layer: &str) -> Vec<usize> {
     let mut out = Vec::with_capacity(NUM_BODY_PARTS);
     for li in IDICT.iter() {
         if let Some(idx) = layer_field(li, layer) {
@@ -166,7 +161,7 @@ pub fn index_by_layer(layer: &str) -> Vec<usize> {
 
 /// Get body-part positions (0..17, into [`BODY_PART_NAMES`][super::parameters::BODY_PART_NAMES])
 /// that have this layer. Python: `valid_index_by_layer`.
-pub fn valid_index_by_layer(layer: &str) -> Vec<usize> {
+pub(crate) fn valid_index_by_layer(layer: &str) -> Vec<usize> {
     let mut out = Vec::with_capacity(NUM_BODY_PARTS);
     for (i, li) in IDICT.iter().enumerate() {
         if layer_field(li, layer).is_some() {
@@ -180,7 +175,7 @@ pub fn valid_index_by_layer(layer: &str) -> Vec<usize> {
 /// (artery/vein/muscle/fat/skin of the same body part), \[W/K\].
 ///
 /// `1.067` \[Wh/(L*K)\] * blood flow \[L/h\] = \[W/K\]. Python: `local_arr`.
-pub fn local_arr(
+pub(crate) fn local_arr(
     bf_core: &[f64; NUM_BODY_PARTS],
     bf_muscle: &[f64; NUM_BODY_PARTS],
     bf_fat: &[f64; NUM_BODY_PARTS],
@@ -236,7 +231,7 @@ fn sum_range(xbf: &[f64; NUM_BODY_PARTS], lo: usize, hi_inclusive: usize) -> f64
 
 /// Get artery and vein blood flow rate \[L/h\] for each body part. Python:
 /// `vessel_blood_flow`.
-pub fn vessel_blood_flow(
+pub(crate) fn vessel_blood_flow(
     bf_core: &[f64; NUM_BODY_PARTS],
     bf_muscle: &[f64; NUM_BODY_PARTS],
     bf_fat: &[f64; NUM_BODY_PARTS],
@@ -334,7 +329,7 @@ fn add_flow(arr: &mut DMatrix<f64>, up: usize, down: usize, bloodflow: f64) {
 
 /// Create the matrix of heat exchange coefficients by blood flow between segments,
 /// \[W/K\]. Python: `whole_body`.
-pub fn whole_body(
+pub(crate) fn whole_body(
     bf_art: &[f64; NUM_BODY_PARTS],
     bf_vein: &[f64; NUM_BODY_PARTS],
     bf_ava_hand: f64,
@@ -422,25 +417,11 @@ pub fn whole_body(
     arr83
 }
 
-/// Remove a body-part name from a parameter name.
-///
-/// Returns `(remaining_text, removed_body_part)`. If no known body part name is a
-/// substring of `text`, returns `(text, None)` unchanged. Python: `remove_body_name`.
-pub fn remove_body_name(text: &str) -> (String, Option<&'static str>) {
-    for &bn in BODY_PART_NAMES.iter() {
-        if text.contains(bn) {
-            let removed_all = text.replace(bn, "");
-            let rtext = match removed_all.strip_suffix('_') {
-                Some(stripped) => String::from(stripped),
-                None => removed_all,
-            };
-            return (rtext, Some(bn));
-        }
-    }
-    (String::from(text), None)
-}
-
 #[cfg(test)]
+// Reference values are pasted verbatim from the Python oracle, and rustfmt groups their
+// fractional digits but not the integer part. Regrouping by hand to satisfy the lint would
+// mean editing numbers whose whole value is that they were not edited.
+#[allow(clippy::inconsistent_digit_grouping)]
 mod tests {
     use super::*;
 
@@ -531,7 +512,14 @@ mod tests {
         let bf_ava_hand = 555.0;
         let bf_ava_foot = 777.0;
 
-        let m = local_arr(&bf_core, &bf_muscle, &bf_fat, &bf_skin, bf_ava_hand, bf_ava_foot);
+        let m = local_arr(
+            &bf_core,
+            &bf_muscle,
+            &bf_fat,
+            &bf_skin,
+            bf_ava_hand,
+            bf_ava_foot,
+        );
         assert_eq!(m.nrows(), 85);
         assert_eq!(m.ncols(), 85);
 
@@ -564,16 +552,22 @@ mod tests {
         let bf_ava_hand = 555.0;
         let bf_ava_foot = 777.0;
 
-        let (bf_art, bf_vein) =
-            vessel_blood_flow(&bf_core, &bf_muscle, &bf_fat, &bf_skin, bf_ava_hand, bf_ava_foot);
+        let (bf_art, bf_vein) = vessel_blood_flow(
+            &bf_core,
+            &bf_muscle,
+            &bf_fat,
+            &bf_skin,
+            bf_ava_hand,
+            bf_ava_foot,
+        );
 
         let expected_art = [
-            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3627.0, 2607.0, 1583.0, 3663.0, 2631.0,
-            1595.0, 3921.0, 2877.0, 1829.0, 3957.0, 2901.0, 1841.0,
+            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3627.0, 2607.0, 1583.0, 3663.0, 2631.0, 1595.0,
+            3921.0, 2877.0, 1829.0, 3957.0, 2901.0, 1841.0,
         ];
         let expected_vein = [
-            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3072.0, 2052.0, 1028.0, 3108.0, 2076.0,
-            1040.0, 3144.0, 2100.0, 1052.0, 3180.0, 2124.0, 1064.0,
+            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3072.0, 2052.0, 1028.0, 3108.0, 2076.0, 1040.0,
+            3144.0, 2100.0, 1052.0, 3180.0, 2124.0, 1064.0,
         ];
         for i in 0..NUM_BODY_PARTS {
             assert!((bf_art[i] - expected_art[i]).abs() < 1e-9, "bf_art[{i}]");
@@ -588,12 +582,12 @@ mod tests {
     #[test]
     fn whole_body_matches_python() {
         let bf_art = [
-            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3627.0, 2607.0, 1583.0, 3663.0, 2631.0,
-            1595.0, 3921.0, 2877.0, 1829.0, 3957.0, 2901.0, 1841.0,
+            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3627.0, 2607.0, 1583.0, 3663.0, 2631.0, 1595.0,
+            3921.0, 2877.0, 1829.0, 3957.0, 2901.0, 1841.0,
         ];
         let bf_vein = [
-            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3072.0, 2052.0, 1028.0, 3108.0, 2076.0,
-            1040.0, 3144.0, 2100.0, 1052.0, 3180.0, 2124.0, 1064.0,
+            1000.0, 2004.0, 1008.0, 1012.0, 8894.0, 3072.0, 2052.0, 1028.0, 3108.0, 2076.0, 1040.0,
+            3144.0, 2100.0, 1052.0, 3180.0, 2124.0, 1064.0,
         ];
         let bf_ava_hand = 555.0;
         let bf_ava_foot = 777.0;
@@ -609,31 +603,5 @@ mod tests {
         assert!((m[(55, 19)] - 4183.706_999_999_999).abs() < 1e-6); // pelvis -> left_thigh.art
         assert!((m[(1, 7)] - 1067.0).abs() < 1e-9); // CB -> neck.art
         assert!((m[(0, 27)] - 592.185).abs() < 1e-9); // left_shoulder.sfvein -> CB (AVA hand)
-    }
-
-    /// Cross-check against the reference Python `remove_body_name`:
-    /// `remove_body_name("head_skin_temperature") == ('_skin_temperature', 'head')`,
-    /// `remove_body_name("right_foot") == ('', 'right_foot')`,
-    /// `remove_body_name("no_body_part_here") == ('no_body_part_here', None)`.
-    #[test]
-    fn remove_body_name_matches_python() {
-        assert_eq!(
-            remove_body_name("head_skin_temperature"),
-            (String::from("_skin_temperature"), Some("head"))
-        );
-        assert_eq!(
-            remove_body_name("left_hand_core"),
-            (String::from("_core"), Some("left_hand"))
-        );
-        assert_eq!(remove_body_name("right_foot"), (String::from(""), Some("right_foot")));
-        assert_eq!(
-            remove_body_name("no_body_part_here"),
-            (String::from("no_body_part_here"), None)
-        );
-        assert_eq!(remove_body_name("chest"), (String::from(""), Some("chest")));
-        assert_eq!(
-            remove_body_name("neck_artery_blood_flow"),
-            (String::from("_artery_blood_flow"), Some("neck"))
-        );
     }
 }

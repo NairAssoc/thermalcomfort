@@ -10,10 +10,17 @@
 //!
 //! # Ported
 //!
-//! Every function in `thermoregulation.py` is ported. Function names match the
-//! Python names 1:1 (see each function's doc comment for the exact Python name),
-//! and each function's parameters are kept in Python's order, so the files diff
-//! side by side.
+//! Every function in `thermoregulation.py` is ported, except `tetens` (see "Not
+//! ported" below). Function names match the Python names 1:1 (see each function's
+//! doc comment for the exact Python name), and each function's parameters are kept in
+//! Python's order, so the files diff side by side.
+//!
+//! # Not ported
+//!
+//! - **`tetens`.** Dead code in the Python source too: `thermoregulation.py` defines
+//!   `tetens(x)` (a saturated-vapor-pressure formula) but never calls it anywhere in
+//!   that module or `jos3.py`; [`evaporation`] uses [`crate::utilities::antoine`]
+//!   instead, matching Python's actual (not merely documented) behavior.
 //!
 //! # Deviations from the Python source
 //!
@@ -121,7 +128,11 @@ impl core::fmt::Display for ThermoregulationError {
 // ---------------------------------------------------------------------------
 
 /// Weighted average, matching `numpy.average(values, weights=weights)`.
-fn weighted_average(values: &[f64], weights: &[f64]) -> f64 {
+///
+/// `pub(super)`: reused by [`super::jos3`]'s `t_skin_mean`/`w_mean`-style getters, which
+/// need the exact same averaging Python's `_run` and property getters use, rather than a
+/// second hand-written copy.
+pub(super) fn weighted_average(values: &[f64], weights: &[f64]) -> f64 {
     let mut numerator = 0.0;
     let mut denominator = 0.0;
     for (v, w) in values.iter().zip(weights.iter()) {
@@ -156,7 +167,7 @@ const HAS_MUSCLE: [bool; NUM_BODY_PARTS] = {
 /// Calculate the natural convection heat transfer coefficient based on posture.
 /// Python: `natural_convection(posture, tdb, t_skin)`.
 #[must_use]
-pub fn natural_convection(
+pub(crate) fn natural_convection(
     posture: Posture,
     tdb: [f64; NUM_BODY_PARTS],
     t_skin: [f64; NUM_BODY_PARTS],
@@ -176,12 +187,12 @@ pub fn natural_convection(
         // The values are applied under cold environment.
         Posture::Lying => {
             const HC_A: [f64; NUM_BODY_PARTS] = [
-                1.105, 1.105, 1.211, 1.211, 1.211, 0.913, 2.081, 2.178, 0.913, 2.081, 2.178,
-                0.945, 0.385, 0.200, 0.945, 0.385, 0.200,
+                1.105, 1.105, 1.211, 1.211, 1.211, 0.913, 2.081, 2.178, 0.913, 2.081, 2.178, 0.945,
+                0.385, 0.200, 0.945, 0.385, 0.200,
             ];
             const HC_B: [f64; NUM_BODY_PARTS] = [
-                0.345, 0.345, 0.046, 0.046, 0.046, 0.373, 0.850, 0.297, 0.373, 0.850, 0.297,
-                0.447, 0.580, 0.966, 0.447, 0.580, 0.966,
+                0.345, 0.345, 0.046, 0.046, 0.046, 0.373, 0.850, 0.297, 0.373, 0.850, 0.297, 0.447,
+                0.580, 0.966, 0.447, 0.580, 0.966,
             ];
             let mut hc_natural = [0.0; NUM_BODY_PARTS];
             for i in 0..NUM_BODY_PARTS {
@@ -198,7 +209,7 @@ pub fn natural_convection(
 ///
 /// Python: `forced_convection(v)`.
 #[must_use]
-pub fn forced_convection(v: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn forced_convection(v: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
     const HC_A: [f64; NUM_BODY_PARTS] = [
         15.0, 15.0, 11.0, 17.0, 13.0, 17.0, 17.0, 20.0, 17.0, 17.0, 20.0, 14.0, 15.8, 15.1, 14.0,
         15.8, 15.1,
@@ -221,7 +232,7 @@ pub fn forced_convection(v: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
 ///
 /// Python: `conv_coef(posture, v, tdb, t_skin)`.
 #[must_use]
-pub fn conv_coef(
+pub(crate) fn conv_coef(
     posture: Posture,
     v: [f64; NUM_BODY_PARTS],
     tdb: [f64; NUM_BODY_PARTS],
@@ -243,7 +254,7 @@ pub fn conv_coef(
 /// Calculate radiative heat transfer coefficient (hr) \[W/(m2*K)\].
 /// Python: `rad_coef(posture)`.
 #[must_use]
-pub fn rad_coef(posture: Posture) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn rad_coef(posture: Posture) -> [f64; NUM_BODY_PARTS] {
     match posture {
         // Ichihara et al., 1997, https://doi.org/10.3130/aija.62.45_5
         Posture::Standing => [
@@ -266,7 +277,7 @@ pub fn rad_coef(posture: Posture) -> [f64; NUM_BODY_PARTS] {
 /// Fix hc values to fit two-node-model's values.
 /// Python: `fixed_hc(hc, v)`.
 #[must_use]
-pub fn fixed_hc(
+pub(crate) fn fixed_hc(
     hc: [f64; NUM_BODY_PARTS],
     v: [f64; NUM_BODY_PARTS],
 ) -> [f64; NUM_BODY_PARTS] {
@@ -283,7 +294,7 @@ pub fn fixed_hc(
 /// Fix hr values to fit two-node-model's values.
 /// Python: `fixed_hr(hr)`.
 #[must_use]
-pub fn fixed_hr(hr: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn fixed_hr(hr: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
     let mean_hr = weighted_average(&hr, &defaults::LOCAL_BSA);
     let mut fixed = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
@@ -300,7 +311,7 @@ pub fn fixed_hr(hr: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
 /// Python: `operative_temp(tdb, tr, hc, hr)`.
 // TODO this function is a duplicate in utils (matches upstream's own TODO)
 #[must_use]
-pub fn operative_temp(
+pub(crate) fn operative_temp(
     tdb: [f64; NUM_BODY_PARTS],
     tr: [f64; NUM_BODY_PARTS],
     hc: [f64; NUM_BODY_PARTS],
@@ -317,7 +328,7 @@ pub fn operative_temp(
 /// Python: `clo_area_factor(clo)`.
 // TODO this function is different from ISO 9920 (matches upstream's own TODO)
 #[must_use]
-pub fn clo_area_factor(clo: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn clo_area_factor(clo: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
     let mut fcl = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
         fcl[i] = if clo[i] < 0.5 {
@@ -336,7 +347,7 @@ pub fn clo_area_factor(clo: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
 ///
 /// Returns [`ThermoregulationError::NegativeConvectiveOrRadiativeCoefficient`] if any
 /// `hc` or `hr` value is negative.
-pub fn dry_r(
+pub(crate) fn dry_r(
     hc: [f64; NUM_BODY_PARTS],
     hr: [f64; NUM_BODY_PARTS],
     clo: [f64; NUM_BODY_PARTS],
@@ -361,7 +372,7 @@ pub fn dry_r(
 ///
 /// Returns [`ThermoregulationError::NegativeConvectiveCoefficient`] if any `hc` value
 /// is negative.
-pub fn wet_r(
+pub(crate) fn wet_r(
     hc: [f64; NUM_BODY_PARTS],
     clo: [f64; NUM_BODY_PARTS],
     i_clo: [f64; NUM_BODY_PARTS],
@@ -382,13 +393,13 @@ pub fn wet_r(
 }
 
 // ---------------------------------------------------------------------------
-// error_signals / tetens / evaporation
+// error_signals / evaporation
 // ---------------------------------------------------------------------------
 
 /// Calculate WRMS and CLDS signals of thermoregulation.
 /// Python: `error_signals(err_sk)`. Returns `(wrms, clds)`.
 #[must_use]
-pub fn error_signals(err_sk: [f64; NUM_BODY_PARTS]) -> (f64, f64) {
+pub(crate) fn error_signals(err_sk: [f64; NUM_BODY_PARTS]) -> (f64, f64) {
     // SKINR (Distribution coefficients of thermal receptor) [-]
     const RECEPTOR: [f64; NUM_BODY_PARTS] = [
         0.0549, 0.0146, 0.1492, 0.1321, 0.2122, 0.0227, 0.0117, 0.0923, 0.0227, 0.0117, 0.0923,
@@ -403,13 +414,6 @@ pub fn error_signals(err_sk: [f64; NUM_BODY_PARTS]) -> (f64, f64) {
     (warm_signal_sum, cold_signal_sum)
 }
 
-/// Calculate saturated vapor pressure using the Tetens equation \[kPa\].
-/// Python: `tetens(x)`.
-#[must_use]
-pub fn tetens(x: f64) -> f64 {
-    0.61078 * pow(10.0, 7.5 * x / (x + 237.3))
-}
-
 /// Calculate evaporative heat loss.
 /// Python: `evaporation(err_cr, err_sk, t_skin, tdb, rh, ret, height, weight,
 /// bsa_equation, age)`.
@@ -421,7 +425,7 @@ pub fn tetens(x: f64) -> f64 {
 /// - `e_sweat`: evaporative heat loss at the skin by only sweating \[W\].
 #[must_use]
 #[allow(clippy::too_many_arguments)]
-pub fn evaporation(
+pub(crate) fn evaporation(
     err_cr: [f64; NUM_BODY_PARTS],
     err_sk: [f64; NUM_BODY_PARTS],
     t_skin: [f64; NUM_BODY_PARTS],
@@ -499,7 +503,7 @@ pub fn evaporation(
 /// Calculate skin blood flow rate (bf_skin) \[L/h\].
 /// Python: `skin_blood_flow(err_cr, err_sk, height, weight, bsa_equation, age, ci)`.
 #[must_use]
-pub fn skin_blood_flow(
+pub(crate) fn skin_blood_flow(
     err_cr: [f64; NUM_BODY_PARTS],
     err_sk: [f64; NUM_BODY_PARTS],
     height: f64,
@@ -538,8 +542,8 @@ pub fn skin_blood_flow(
         // age >= 60
         (
             [
-                0.91, 0.91, 0.47, 0.47, 0.31, 0.47, 0.47, 0.47, 0.47, 0.47, 0.47, 0.31, 0.31,
-                0.31, 0.31, 0.31, 0.31,
+                0.91, 0.91, 0.47, 0.47, 0.31, 0.47, 0.47, 0.47, 0.47, 0.47, 0.47, 0.31, 0.31, 0.31,
+                0.31, 0.31, 0.31,
             ],
             [1.0; NUM_BODY_PARTS],
         )
@@ -567,7 +571,7 @@ pub fn skin_blood_flow(
 ///
 /// Returns `(bf_ava_hand, bf_ava_foot)`: AVA blood flow rate at hand and foot \[L/h\].
 #[must_use]
-pub fn ava_blood_flow(
+pub(crate) fn ava_blood_flow(
     err_cr: [f64; NUM_BODY_PARTS],
     err_sk: [f64; NUM_BODY_PARTS],
     height: f64,
@@ -607,7 +611,13 @@ pub fn ava_blood_flow(
 /// Calculate basal metabolic rate \[W\].
 /// Python: `basal_met(height, weight, age, sex, bmr_equation)`.
 #[must_use]
-pub fn basal_met(height: f64, weight: f64, age: i32, sex: Sex, bmr_equation: BmrEquation) -> f64 {
+pub(crate) fn basal_met(
+    height: f64,
+    weight: f64,
+    age: i32,
+    sex: Sex,
+    bmr_equation: BmrEquation,
+) -> f64 {
     let age = f64::from(age);
     let mut bmr = match bmr_equation {
         BmrEquation::HarrisBenedict => match sex {
@@ -642,7 +652,7 @@ pub fn basal_met(height: f64, weight: f64, age: i32, sex: Sex, bmr_equation: Bmr
 /// Returns `(mbase_cr, mbase_ms, mbase_fat, mbase_sk)`: local basal metabolic rate
 /// (Mbase) \[W\] for the core, muscle, fat, and skin layers.
 #[must_use]
-pub fn local_mbase(
+pub(crate) fn local_mbase(
     height: f64,
     weight: f64,
     age: i32,
@@ -661,12 +671,10 @@ pub fn local_mbase(
         0.00106, 0.01557, 0.00422, 0.00250, 0.01557, 0.00422, 0.00250,
     ];
     const MBF_MS: [f64; NUM_BODY_PARTS] = [
-        0.00252, 0.0, 0.0, 0.0, 0.04804, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0,
+        0.00252, 0.0, 0.0, 0.0, 0.04804, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
     const MBF_FAT: [f64; NUM_BODY_PARTS] = [
-        0.00127, 0.0, 0.0, 0.0, 0.00950, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0,
+        0.00127, 0.0, 0.0, 0.0, 0.00950, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ];
     const MBF_SK: [f64; NUM_BODY_PARTS] = [
         0.00152, 0.00033, 0.00211, 0.00187, 0.00300, 0.00059, 0.00031, 0.00059, 0.00059, 0.00031,
@@ -692,7 +700,10 @@ pub fn local_mbase(
 /// # Errors
 ///
 /// Returns [`ThermoregulationError::ParTooSmall`] if `par < 1`.
-pub fn local_q_work(bmr: f64, par: f64) -> Result<[f64; NUM_BODY_PARTS], ThermoregulationError> {
+pub(crate) fn local_q_work(
+    bmr: f64,
+    par: f64,
+) -> Result<[f64; NUM_BODY_PARTS], ThermoregulationError> {
     if par < 1.0 {
         return Err(ThermoregulationError::ParTooSmall);
     }
@@ -701,8 +712,8 @@ pub fn local_q_work(bmr: f64, par: f64) -> Result<[f64; NUM_BODY_PARTS], Thermor
 
     // Distribution coefficient of thermogenesis by work
     const WORKF: [f64; NUM_BODY_PARTS] = [
-        0.0, 0.0, 0.091, 0.08, 0.129, 0.0262, 0.0139, 0.005, 0.0262, 0.0139, 0.005, 0.2010,
-        0.0990, 0.005, 0.2010, 0.0990, 0.005,
+        0.0, 0.0, 0.091, 0.08, 0.129, 0.0262, 0.0139, 0.005, 0.0262, 0.0139, 0.005, 0.2010, 0.0990,
+        0.005, 0.2010, 0.0990, 0.005,
     ];
     let mut q_work = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
@@ -743,7 +754,7 @@ pub struct ShiveringOptions {
 /// `pre_shiv` value to pass to the next timestep's call.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
-pub fn shivering(
+pub(crate) fn shivering(
     err_cr: [f64; NUM_BODY_PARTS],
     err_sk: [f64; NUM_BODY_PARTS],
     t_core: [f64; NUM_BODY_PARTS],
@@ -837,7 +848,7 @@ pub fn shivering(
 /// Python: `nonshivering(err_sk, height, weight, bsa_equation, age, cold_acclimation,
 /// batpositive)`.
 #[must_use]
-pub fn nonshivering(
+pub(crate) fn nonshivering(
     err_sk: [f64; NUM_BODY_PARTS],
     height: f64,
     weight: f64,
@@ -926,7 +937,7 @@ pub fn nonshivering(
 /// q_thermogenesis_skin)`: total thermogenesis in core, muscle, fat, skin layers
 /// \[W\].
 #[must_use]
-pub fn sum_m(
+pub(crate) fn sum_m(
     mbase: (
         [f64; NUM_BODY_PARTS],
         [f64; NUM_BODY_PARTS],
@@ -942,8 +953,12 @@ pub fn sum_m(
     [f64; NUM_BODY_PARTS],
     [f64; NUM_BODY_PARTS],
 ) {
-    let (mut q_thermogenesis_core, mut q_thermogenesis_muscle, q_thermogenesis_fat, q_thermogenesis_skin) =
-        mbase;
+    let (
+        mut q_thermogenesis_core,
+        mut q_thermogenesis_muscle,
+        q_thermogenesis_fat,
+        q_thermogenesis_skin,
+    ) = mbase;
 
     for i in 0..NUM_BODY_PARTS {
         // If the segment has a muscle layer, muscle thermogenesis increases by the activity.
@@ -972,7 +987,7 @@ pub fn sum_m(
 /// Returns `(bf_core, bf_muscle, bf_fat)`: core, muscle and fat blood flow rate
 /// \[L/h\].
 #[must_use]
-pub fn cr_ms_fat_blood_flow(
+pub(crate) fn cr_ms_fat_blood_flow(
     q_work: [f64; NUM_BODY_PARTS],
     q_shiv: [f64; NUM_BODY_PARTS],
     height: f64,
@@ -1027,7 +1042,7 @@ pub fn cr_ms_fat_blood_flow(
 ///
 /// Returns `co`: cardiac output (the sum of the whole blood flow rate) \[L/h\].
 #[must_use]
-pub fn sum_bf(
+pub(crate) fn sum_bf(
     bf_core: [f64; NUM_BODY_PARTS],
     bf_muscle: [f64; NUM_BODY_PARTS],
     bf_fat: [f64; NUM_BODY_PARTS],
@@ -1055,7 +1070,7 @@ pub fn sum_bf(
 ///
 /// Returns `(res_sh, res_lh)`: sensible and latent heat loss by respiration \[W\].
 #[must_use]
-pub fn resp_heat_loss(tdb: f64, p_a: f64, q_thermogenesis_total: f64) -> (f64, f64) {
+pub(crate) fn resp_heat_loss(tdb: f64, p_a: f64, q_thermogenesis_total: f64) -> (f64, f64) {
     let res_sh = 0.0014 * q_thermogenesis_total * (34.0 - tdb); // Sensible heat loss
     let res_lh = 0.0173 * q_thermogenesis_total * (5.87 - p_a); // Latent heat loss
     (res_sh, res_lh)
@@ -1111,8 +1126,8 @@ mod tests {
         assert_eq!(
             natural_convection(Posture::Sitting, TDB17, TSK17),
             [
-                4.75, 4.75, 3.12, 2.48, 1.84, 3.76, 3.62, 2.06, 3.76, 3.62, 2.06, 2.98, 2.98,
-                2.62, 2.98, 2.98, 2.62
+                4.75, 4.75, 3.12, 2.48, 1.84, 3.76, 3.62, 2.06, 3.76, 3.62, 2.06, 2.98, 2.98, 2.62,
+                2.98, 2.98, 2.62
             ]
         );
         // Python: natural_convection("lying", TDB17, TSK17) == natural_convection("supine", ...)
@@ -1204,8 +1219,8 @@ mod tests {
         assert_eq!(
             rad_coef(Posture::Standing),
             [
-                4.89, 4.89, 4.32, 4.09, 4.32, 4.55, 4.43, 4.21, 4.55, 4.43, 4.21, 4.77, 5.34,
-                6.14, 4.77, 5.34, 6.14
+                4.89, 4.89, 4.32, 4.09, 4.32, 4.55, 4.43, 4.21, 4.55, 4.43, 4.21, 4.77, 5.34, 6.14,
+                4.77, 5.34, 6.14
             ]
         );
         assert_eq!(
@@ -1315,8 +1330,23 @@ mod tests {
         // Python: clo_area_factor(clo17)
         let got_fcl = clo_area_factor(clo17);
         let want_fcl = [
-            1.0, 1.02, 1.06, 1.11, 1.140_000_000_000_000_1, 1.04, 1.08, 1.01, 1.04, 1.08, 1.01,
-            1.1, 1.06, 1.02, 1.1, 1.06, 1.02,
+            1.0,
+            1.02,
+            1.06,
+            1.11,
+            1.140_000_000_000_000_1,
+            1.04,
+            1.08,
+            1.01,
+            1.04,
+            1.08,
+            1.01,
+            1.1,
+            1.06,
+            1.02,
+            1.1,
+            1.06,
+            1.02,
         ];
         assert!(approx_eq_arr(got_fcl, want_fcl, 1e-12));
 
@@ -1379,7 +1409,7 @@ mod tests {
         );
     }
 
-    // -- error_signals / tetens --
+    // -- error_signals --
 
     #[test]
     fn error_signals_matches_python() {
@@ -1387,15 +1417,6 @@ mod tests {
         let (wrms, clds) = error_signals(ERR_SK17);
         assert!(approx_eq(wrms, 0.122_23, 1e-9));
         assert!(approx_eq(clds, 0.058_68, 1e-9));
-    }
-
-    #[test]
-    fn tetens_matches_python() {
-        // Python: tetens(25.0) == 3.1674892860563966; tetens(34.0) == 5.31867822358955;
-        // tetens(0.0) == 0.61078
-        assert!(approx_eq(tetens(25.0), 3.167_489_286_056_396_6, 1e-12));
-        assert!(approx_eq(tetens(34.0), 5.318_678_223_589_55, 1e-12));
-        assert!(approx_eq(tetens(0.0), 0.610_78, 1e-12));
     }
 
     // -- evaporation --
@@ -1407,8 +1428,18 @@ mod tests {
 
         // Python: evaporation(ERR_CR17, ERR_SK17, TSK17, TDB17, rh17, ret17, 1.72, 74.43,
         // "dubois", 30)
-        let (wet, e_sk, e_max, e_sweat) =
-            evaporation(ERR_CR17, ERR_SK17, TSK17, TDB17, rh17, ret17, 1.72, 74.43, BsaFormula::DuBois, 30);
+        let (wet, e_sk, e_max, e_sweat) = evaporation(
+            ERR_CR17,
+            ERR_SK17,
+            TSK17,
+            TDB17,
+            rh17,
+            ret17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+        );
         let want_wet = [
             0.707_318_472_812_767_5,
             0.634_084_388_100_959,
@@ -1434,8 +1465,18 @@ mod tests {
         assert!(approx_eq(e_sweat[0], 5.063_190_563_054_891, 1e-6));
 
         // Python: evaporation(..., age=70) uses the age>=60 sd_sweat table.
-        let (wet70, _e_sk70, _e_max70, e_sweat70) =
-            evaporation(ERR_CR17, ERR_SK17, TSK17, TDB17, rh17, ret17, 1.72, 74.43, BsaFormula::DuBois, 70);
+        let (wet70, _e_sk70, _e_max70, e_sweat70) = evaporation(
+            ERR_CR17,
+            ERR_SK17,
+            TSK17,
+            TDB17,
+            rh17,
+            ret17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            70,
+        );
         assert!(approx_eq(wet70[0], 0.506_649_746_240_809_7, 1e-9));
         assert!(approx_eq(e_sweat70[0], 3.493_601_488_507_876, 1e-6));
 
@@ -1445,8 +1486,18 @@ mod tests {
         let tsk_eq = [25.0; NUM_BODY_PARTS];
         let tdb_eq = [25.0; NUM_BODY_PARTS];
         let rh100 = [100.0; NUM_BODY_PARTS];
-        let (wet_eq, _, _, _) =
-            evaporation(ERR_CR17, ERR_SK17, tsk_eq, tdb_eq, rh100, ret17, 1.72, 74.43, BsaFormula::DuBois, 30);
+        let (wet_eq, _, _, _) = evaporation(
+            ERR_CR17,
+            ERR_SK17,
+            tsk_eq,
+            tdb_eq,
+            rh100,
+            ret17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+        );
         assert!(approx_eq_arr(wet_eq, [1.0; NUM_BODY_PARTS], 1e-9));
     }
 
@@ -1455,7 +1506,15 @@ mod tests {
     #[test]
     fn skin_blood_flow_matches_python() {
         // Python: skin_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, "dubois", 30, 2.59)
-        let got30 = skin_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+        let got30 = skin_blood_flow(
+            ERR_CR17,
+            ERR_SK17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+            2.59,
+        );
         let want30 = [
             4.502_133_640_415_669,
             0.953_983_842_768_453_8,
@@ -1478,7 +1537,15 @@ mod tests {
         assert!(approx_eq_arr(got30, want30, 1e-9));
 
         // Python: skin_blood_flow(..., age=70) uses the age>=60 sd_dilat table.
-        let got70 = skin_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 70, 2.59);
+        let got70 = skin_blood_flow(
+            ERR_CR17,
+            ERR_SK17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            70,
+            2.59,
+        );
         assert!(approx_eq(got70[0], 2.985_108_734_280_808_5, 1e-9));
         assert!(approx_eq(got70[16], 0.888_090_520_907_029, 1e-9));
     }
@@ -1486,19 +1553,29 @@ mod tests {
     #[test]
     fn ava_blood_flow_matches_python() {
         // Python: ava_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, "dubois", 30, 2.59)
-        let (hand, foot) = ava_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+        let (hand, foot) = ava_blood_flow(
+            ERR_CR17,
+            ERR_SK17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+            2.59,
+        );
         assert!(approx_eq(hand, 1.712_582_604_924_341_8, 1e-9));
         assert!(approx_eq(foot, 1.716_834_717_294_236_2, 1e-9));
 
         // Clamped high: err_cr = err_sk = 3.0 everywhere -> sig_ava_foot saturates at 1.
         let hot = [3.0; NUM_BODY_PARTS];
-        let (hand_hi, foot_hi) = ava_blood_flow(hot, hot, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+        let (hand_hi, foot_hi) =
+            ava_blood_flow(hot, hot, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
         assert!(approx_eq(hand_hi, 1.712_582_604_924_341_8, 1e-9)); // already saturated at baseline
         assert!(approx_eq(foot_hi, 2.163_262_237_799_169, 1e-9));
 
         // Clamped low: err_cr = err_sk = -3.0 everywhere -> both signals clamp to 0.
         let cold = [-3.0; NUM_BODY_PARTS];
-        let (hand_lo, foot_lo) = ava_blood_flow(cold, cold, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+        let (hand_lo, foot_lo) =
+            ava_blood_flow(cold, cold, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
         assert!(approx_eq(hand_lo, 0.0, 1e-12));
         assert!(approx_eq(foot_lo, 0.0, 1e-12));
     }
@@ -1519,12 +1596,24 @@ mod tests {
             1e-9
         ));
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedictOriginal),
+            basal_met(
+                1.72,
+                74.43,
+                20,
+                Sex::Male,
+                BmrEquation::HarrisBenedictOriginal
+            ),
             87.142_665_024,
             1e-9
         ));
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Female, BmrEquation::HarrisBenedictOriginal),
+            basal_met(
+                1.72,
+                74.43,
+                20,
+                Sex::Female,
+                BmrEquation::HarrisBenedictOriginal
+            ),
             76.392_890_976,
             1e-9
         ));
@@ -1552,7 +1641,8 @@ mod tests {
     #[test]
     fn local_mbase_matches_python() {
         // Python: local_mbase(1.72, 74.43, 20, "male", "harris-benedict")
-        let (cr, ms, fat, sk) = local_mbase(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+        let (cr, ms, fat, sk) =
+            local_mbase(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
         assert!(approx_eq(cr[0], 17.196_841_035_460_8, 1e-9));
         assert!(approx_eq(cr[2], 25.234_523_679_931_197, 1e-9));
         assert!(approx_eq(ms[0], 0.221_656_382_841_6, 1e-9));
@@ -1595,7 +1685,10 @@ mod tests {
         assert!(approx_eq_arr(got, want, 1e-9));
 
         // Python: local_q_work(bmr, 0.5) -> ValueError("par must be 1 or more")
-        assert_eq!(local_q_work(bmr, 0.5), Err(ThermoregulationError::ParTooSmall));
+        assert_eq!(
+            local_q_work(bmr, 0.5),
+            Err(ThermoregulationError::ParTooSmall)
+        );
     }
 
     // -- shivering / nonshivering --
@@ -1780,7 +1873,8 @@ mod tests {
         // branch); clds isn't large enough here to exceed the resulting NST threshold,
         // so the result is identical to the batpositive=True case at this signal level.
         for age in [25, 35, 45, 55, 65] {
-            let got_batneg = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, age, false, false);
+            let got_batneg =
+                nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, age, false, false);
             assert!(approx_eq_arr(got_batneg, want, 1e-9));
         }
 
@@ -1855,13 +1949,35 @@ mod tests {
         let q_shiv = [0.0; NUM_BODY_PARTS];
         let (bf_core, bf_muscle, bf_fat) =
             cr_ms_fat_blood_flow(q_work, q_shiv, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
-        let bf_skin = skin_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
-        let (bf_ava_hand, bf_ava_foot) =
-            ava_blood_flow(ERR_CR17, ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+        let bf_skin = skin_blood_flow(
+            ERR_CR17,
+            ERR_SK17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+            2.59,
+        );
+        let (bf_ava_hand, bf_ava_foot) = ava_blood_flow(
+            ERR_CR17,
+            ERR_SK17,
+            1.72,
+            74.43,
+            BsaFormula::DuBois,
+            30,
+            2.59,
+        );
 
         // Python: sum_bf(bf_core, bf_muscle, bf_fat, bf_skin, bf_ava_hand, bf_ava_foot)
         // == 359.27551375637347
-        let co = sum_bf(bf_core, bf_muscle, bf_fat, bf_skin, bf_ava_hand, bf_ava_foot);
+        let co = sum_bf(
+            bf_core,
+            bf_muscle,
+            bf_fat,
+            bf_skin,
+            bf_ava_hand,
+            bf_ava_foot,
+        );
         assert!(approx_eq(co, 359.275_513_756_373_47, 1e-6));
     }
 

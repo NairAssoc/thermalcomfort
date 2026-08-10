@@ -4,13 +4,16 @@
 //! `pythermalcomfort/jos3_functions/parameters.py`
 //! (pythermalcomfort 4.4.0, ~1627 lines).
 //!
-//! Only data (default coefficients, the `ALL_OUT_PARAMS` output-parameter metadata,
-//! and the `local_clo_typical_ensembles` clothing table) is ported here. The
-//! doc-generation helpers `show_out_param_docs()` and `add_prompt_to_code()` from the
-//! Python module are NOT ported: they are string-formatting conveniences for building
-//! human-readable documentation (using `textwrap`, dict sorting, regex) rather than
-//! model data, and do not fit a `no_std` data module. See the crate's module docs for
-//! the equivalent Rust documentation.
+//! Only data (default coefficients and the `local_clo_typical_ensembles` clothing
+//! table) is ported here. The Python module's `ALL_OUT_PARAMS` dict (human-readable
+//! meaning/unit metadata for output fields) is NOT ported: the Rust port returns a
+//! typed [`crate::models::jos3::Jos3Results`] struct whose fields carry doc comments,
+//! so that metadata has no consumer. Likewise the doc-generation helpers
+//! `show_out_param_docs()` and `add_prompt_to_code()` from the Python module are NOT
+//! ported: they are string-formatting conveniences for building human-readable
+//! documentation (using `textwrap`, dict sorting, regex) rather than model data, and do
+//! not fit a `no_std` data module. See the crate's module docs for the equivalent Rust
+//! documentation.
 //!
 //! # Body segment order
 //!
@@ -66,26 +69,10 @@ pub mod defaults {
     pub const WEIGHT: f64 = 74.43;
     /// Age, \[years\]. Python: `Default.age` (annotated `int`).
     pub const AGE: i32 = 20;
-    /// Body fat rate, \[%\]. Python: `Default.body_fat` (annotated `float`).
-    pub const BODY_FAT: f64 = 15.0;
-    /// Cardiac index, \[L/min/m2\]. Python: `Default.cardiac_index`.
-    pub const CARDIAC_INDEX: f64 = 2.59;
     /// Blood flow rate, \[L/h\]. Python: `Default.blood_flow_rate` (annotated `int`).
     pub const BLOOD_FLOW_RATE: i32 = 290;
     /// Physical activity ratio, \[-\]. Python: `Default.physical_activity_ratio`.
     pub const PHYSICAL_ACTIVITY_RATIO: f64 = 1.25;
-    /// Metabolic rate, \[met\]. Python: `Default.metabolic_rate`.
-    pub const METABOLIC_RATE: f64 = 1.0;
-    /// Sex. Python: `Default.sex` (`Sex.male.value`, from `pythermalcomfort.utilities.Sex`).
-    pub const SEX: &str = "male";
-    /// Posture. Python: `Default.posture` (`Postures.standing.value`, from
-    /// `pythermalcomfort.utilities.Postures`).
-    pub const POSTURE: &str = "standing";
-    /// Basal metabolic rate equation. Python: `Default.bmr_equation`.
-    pub const BMR_EQUATION: &str = "harris-benedict";
-    /// Body surface area equation. Python: `Default.bsa_equation`
-    /// (`BodySurfaceAreaEquations.dubois.value`, from `pythermalcomfort.utilities`).
-    pub const BSA_EQUATION: &str = "dubois";
     /// Local body surface area of each of the 17 body segments, \[m2\].
     /// Python: `Default.local_bsa`.
     pub const LOCAL_BSA: [f64; NUM_BODY_PARTS] = [
@@ -120,397 +107,7 @@ pub mod defaults {
     pub const CLOTHING_VAPOR_PERMEATION_EFFICIENCY: f64 = 0.45;
     /// Lewis relation rate, \[K/kPa\]. Python: `Default.lewis_rate`.
     pub const LEWIS_RATE: f64 = 16.5;
-    /// Number of body parts, \[-\]. Python: `Default.num_body_parts`.
-    pub const NUM_BODY_PARTS_DEFAULT: usize = NUM_BODY_PARTS;
 }
-
-/// Metadata for one entry of [`ALL_OUT_PARAMS`]: the meaning, optional suffix, and
-/// unit of a JOS3 output parameter. Mirrors one value of the Python `ALL_OUT_PARAMS`
-/// dict (`{"meaning": ..., "suffix": ..., "unit": ...}`), with the dict key carried
-/// as `name`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OutParam {
-    /// The output parameter's key, e.g. `"t_skin"`.
-    pub name: &'static str,
-    /// Human-readable description of the parameter.
-    pub meaning: &'static str,
-    /// `Some("Body name")` when the parameter has one value per body segment,
-    /// `None` for whole-body parameters. Python: `"suffix"` (`None` or `"Body name"`).
-    pub suffix: Option<&'static str>,
-    /// Physical unit of the parameter, e.g. `"W"`, `"°C"`, `"-"`.
-    pub unit: &'static str,
-}
-
-/// Documentation table for every JOS3 output parameter.
-/// Mirrors the Python `ALL_OUT_PARAMS` dict (order: Python dict insertion order).
-pub const ALL_OUT_PARAMS: &[OutParam] = &[
-    OutParam {
-        name: "age",
-        meaning: "age",
-        suffix: None,
-        unit: "years",
-    },
-    OutParam {
-        name: "bf_ava_foot",
-        meaning: "AVA blood flow rate of one foot",
-        suffix: None,
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bf_ava_hand",
-        meaning: "AVA blood flow rate of one hand",
-        suffix: None,
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bf_core",
-        meaning: "core blood flow rate (each body part)",
-        suffix: Some("Body name"),
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bf_fat",
-        meaning: "fat blood flow rate (each body part)",
-        suffix: Some("Body name"),
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bf_muscle",
-        meaning: "muscle blood flow rate (each body part)",
-        suffix: Some("Body name"),
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bf_skin",
-        meaning: "skin blood flow rate (each body part)",
-        suffix: Some("Body name"),
-        unit: "L/h",
-    },
-    OutParam {
-        name: "bsa",
-        meaning: "body surface area (each body part)",
-        suffix: Some("Body name"),
-        unit: "m2",
-    },
-    OutParam {
-        name: "cardiac_output",
-        meaning: "cardiac output (the sum of the whole blood flow)",
-        suffix: None,
-        unit: "L/h",
-    },
-    OutParam {
-        name: "e_max",
-        meaning: "maximum evaporative heat loss from the skin (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "e_skin",
-        meaning: "evaporative heat loss from the skin (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "e_sweat",
-        meaning: "evaporative heat loss from the skin by only sweating (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "fat",
-        meaning: "body fat rate",
-        suffix: None,
-        unit: "%",
-    },
-    OutParam {
-        name: "height",
-        meaning: "body height",
-        suffix: None,
-        unit: "m",
-    },
-    OutParam {
-        name: "clo",
-        meaning: "clothing insulation (each body part)",
-        suffix: Some("Body name"),
-        unit: "clo",
-    },
-    OutParam {
-        name: "q_skin2env_latent",
-        meaning: "latent heat loss from the skin (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_bmr_core",
-        meaning: "core thermogenesis by basal metabolism (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_bmr_fat",
-        meaning: "fat thermogenesis by basal metabolism (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_bmr_muscle",
-        meaning: "muscle thermogenesis by basal metabolism (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_bmr_skin",
-        meaning: "skin thermogenesis by basal metabolism (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_thermogenesis_total",
-        meaning: "total thermogenesis of the whole body",
-        suffix: None,
-        unit: "W",
-    },
-    OutParam {
-        name: "q_nst",
-        meaning: "core thermogenesis by non-shivering (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "simulation_time",
-        meaning: "simulation times",
-        suffix: None,
-        unit: "sec",
-    },
-    OutParam {
-        name: "q_shiv",
-        meaning: "core or muscle thermogenesis by shivering (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_work",
-        meaning: "core or muscle thermogenesis by work (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "name",
-        meaning: "name of the model",
-        suffix: None,
-        unit: "-",
-    },
-    OutParam {
-        name: "par",
-        meaning: "physical activity ratio",
-        suffix: None,
-        unit: "-",
-    },
-    OutParam {
-        name: "q_thermogenesis_core",
-        meaning: "core total thermogenesis (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_thermogenesis_fat",
-        meaning: "fat total thermogenesis (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_thermogenesis_muscle",
-        meaning: "muscle total thermogenesis (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_thermogenesis_skin",
-        meaning: "skin total thermogenesis (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_res",
-        meaning: "heat loss by respiration",
-        suffix: None,
-        unit: "W",
-    },
-    OutParam {
-        name: "q_res_latent",
-        meaning: "latent heat loss by respiration (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "q_res_sensible",
-        meaning: "sensible heat loss by respiration (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "rh",
-        meaning: "relative humidity (each body part)",
-        suffix: Some("Body name"),
-        unit: "%",
-    },
-    OutParam {
-        name: "r_et",
-        meaning: "total clothing evaporative heat resistance (each body part)",
-        suffix: Some("Body name"),
-        unit: "(m2*kPa)/W",
-    },
-    OutParam {
-        name: "r_t",
-        meaning: "total clothing heat resistance (each body part)",
-        suffix: Some("Body name"),
-        unit: "(m2*K)/W",
-    },
-    OutParam {
-        name: "q_skin2env_sensible",
-        meaning: "sensible heat loss from the skin (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "t_skin_set",
-        meaning: "skin set point temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_core_set",
-        meaning: "core set point temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "sex",
-        meaning: "sex",
-        suffix: None,
-        unit: "-",
-    },
-    OutParam {
-        name: "q_skin2env",
-        meaning: "total heat loss from the skin (each body part)",
-        suffix: Some("Body name"),
-        unit: "W",
-    },
-    OutParam {
-        name: "tdb",
-        meaning: "dry bulb air temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_artery",
-        meaning: "arterial temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_cb",
-        meaning: "central blood temperature",
-        suffix: None,
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_core",
-        meaning: "core temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_fat",
-        meaning: "fat temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_muscle",
-        meaning: "muscle temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "to",
-        meaning: "operative temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "tr",
-        meaning: "mean radiant temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_skin",
-        meaning: "skin temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_skin_mean",
-        meaning: "mean skin temperature",
-        suffix: None,
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_superficial_vein",
-        meaning: "superficial vein temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "t_vein",
-        meaning: "vein temperature (each body part)",
-        suffix: Some("Body name"),
-        unit: "°C",
-    },
-    OutParam {
-        name: "v",
-        meaning: "air velocity (each body part)",
-        suffix: Some("Body name"),
-        unit: "m/s",
-    },
-    OutParam {
-        name: "weight",
-        meaning: "body weight",
-        suffix: None,
-        unit: "kg",
-    },
-    OutParam {
-        name: "w",
-        meaning: "skin wettedness (each body part)",
-        suffix: Some("Body name"),
-        unit: "-",
-    },
-    OutParam {
-        name: "w_mean",
-        meaning: "mean skin wettedness",
-        suffix: None,
-        unit: "-",
-    },
-    OutParam {
-        name: "weight_loss_by_evap_and_res",
-        meaning: "weight loss by the evaporation and respiration of the whole body",
-        suffix: None,
-        unit: "g/sec",
-    },
-    OutParam {
-        name: "dt",
-        meaning: "time step",
-        suffix: None,
-        unit: "sec",
-    },
-    OutParam {
-        name: "pythermalcomfort_version",
-        meaning: "version of pythermalcomfort",
-        suffix: None,
-        unit: "-",
-    },
-];
 
 /// One entry of [`LOCAL_CLO_TYPICAL_ENSEMBLES`]: the whole-body clothing insulation
 /// value plus the per-segment breakdown for a named clothing ensemble. Mirrors one
@@ -528,6 +125,12 @@ pub struct ClothingEnsemble {
 }
 
 /// Local and whole-body clothing insulation of typical clothing ensembles.
+///
+/// A lookup table of measured per-body-segment clo values for 52 named clothing
+/// ensembles, plus each ensemble's whole-body clo value. Each entry's
+/// [`ClothingEnsemble::local_body_part`] has exactly [`NUM_BODY_PARTS`] (17) values, in
+/// [`BODY_PART_NAMES`] order. This is distinct from [`crate::utilities::CLO_TYPICAL_ENSEMBLES`],
+/// which only gives the whole-body value for the same ensembles.
 ///
 /// Based on the study by Juyoun et al. (<https://escholarship.org/uc/item/18f0r375>)
 /// and by Nomoto et al. (<https://doi.org/10.1002/2475-8876.12124>).
@@ -547,8 +150,8 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "nude (mesh chair)",
         whole_body: 0.01,
         local_body_part: [
-            0.13, 0.13, 0.01, 0.01, 0.04, 0.02, 0.0, 0.01, 0.02, 0.0, 0.01, 0.01, 0.03, 0.05,
-            0.01, 0.03, 0.05,
+            0.13, 0.13, 0.01, 0.01, 0.04, 0.02, 0.0, 0.01, 0.02, 0.0, 0.01, 0.01, 0.03, 0.05, 0.01,
+            0.03, 0.05,
         ],
     },
     ClothingEnsemble {
@@ -579,8 +182,8 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, tanktop, shorts, sandals",
         whole_body: 0.22,
         local_body_part: [
-            0.0, 0.0, 0.57, 0.27, 0.92, 0.04, 0.02, 0.02, 0.04, 0.02, 0.02, 0.51, 0.01, 0.38,
-            0.51, 0.01, 0.38,
+            0.0, 0.0, 0.57, 0.27, 0.92, 0.04, 0.02, 0.02, 0.04, 0.02, 0.02, 0.51, 0.01, 0.38, 0.51,
+            0.01, 0.38,
         ],
     },
     ClothingEnsemble {
@@ -627,8 +230,8 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, long-sleeve dress, cardigan, socks, sneakers",
         whole_body: 0.67,
         local_body_part: [
-            0.0, 0.0, 2.05, 1.32, 1.39, 1.14, 0.63, 0.04, 1.14, 0.63, 0.04, 0.84, 0.05, 0.78,
-            0.84, 0.05, 0.78,
+            0.0, 0.0, 2.05, 1.32, 1.39, 1.14, 0.63, 0.04, 1.14, 0.63, 0.04, 0.84, 0.05, 0.78, 0.84,
+            0.05, 0.78,
         ],
     },
     ClothingEnsemble {
@@ -643,16 +246,16 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, long sleeve shirts, skirt, sandals",
         whole_body: 0.52,
         local_body_part: [
-            0.0, 0.0, 1.62, 0.99, 1.41, 0.31, 0.28, 0.03, 0.31, 0.28, 0.03, 0.82, 0.04, 0.41,
-            0.82, 0.04, 0.41,
+            0.0, 0.0, 1.62, 0.99, 1.41, 0.31, 0.28, 0.03, 0.31, 0.28, 0.03, 0.82, 0.04, 0.41, 0.82,
+            0.04, 0.41,
         ],
     },
     ClothingEnsemble {
         name: "bra+panty, dress shirts, skirt, stocking, formal shoes",
         whole_body: 0.62,
         local_body_part: [
-            0.0, 0.0, 1.58, 0.99, 1.31, 0.91, 0.64, 0.04, 0.91, 0.64, 0.04, 0.87, 0.05, 0.81,
-            0.87, 0.05, 0.81,
+            0.0, 0.0, 1.58, 0.99, 1.31, 0.91, 0.64, 0.04, 0.91, 0.64, 0.04, 0.87, 0.05, 0.81, 0.87,
+            0.05, 0.81,
         ],
     },
     ClothingEnsemble {
@@ -675,8 +278,8 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, long sleeve shirts, long pants, socks, sneakers",
         whole_body: 0.8,
         local_body_part: [
-            0.0, 0.0, 2.47, 1.48, 1.58, 0.98, 0.58, 0.04, 0.98, 0.58, 0.04, 0.69, 0.65, 0.89,
-            0.69, 0.65, 0.89,
+            0.0, 0.0, 2.47, 1.48, 1.58, 0.98, 0.58, 0.04, 0.98, 0.58, 0.04, 0.69, 0.65, 0.89, 0.69,
+            0.65, 0.89,
         ],
     },
     ClothingEnsemble {
@@ -699,8 +302,8 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, long sleeve shirts, jeans, socks, sneakers",
         whole_body: 0.74,
         local_body_part: [
-            0.0, 0.0, 1.58, 0.98, 1.35, 0.86, 0.71, 0.07, 0.86, 0.71, 0.07, 0.74, 0.48, 0.74,
-            0.74, 0.48, 0.74,
+            0.0, 0.0, 1.58, 0.98, 1.35, 0.86, 0.71, 0.07, 0.86, 0.71, 0.07, 0.74, 0.48, 0.74, 0.74,
+            0.48, 0.74,
         ],
     },
     ClothingEnsemble {
@@ -739,16 +342,16 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, sports shirts, sports pants, sports socks, sports shoes",
         whole_body: 0.87,
         local_body_part: [
-            0.07, 0.07, 1.87, 1.17, 1.26, 1.2, 1.07, 0.09, 1.2, 1.07, 0.09, 0.62, 0.77, 1.58,
-            0.62, 0.77, 1.58,
+            0.07, 0.07, 1.87, 1.17, 1.26, 1.2, 1.07, 0.09, 1.2, 1.07, 0.09, 0.62, 0.77, 1.58, 0.62,
+            0.77, 1.58,
         ],
     },
     ClothingEnsemble {
         name: "bra+panty, thin dress shirts, long pants, wool sweater, socks, sneakers",
         whole_body: 0.92,
         local_body_part: [
-            0.09, 0.09, 2.39, 1.64, 1.71, 1.36, 1.29, 0.21, 1.36, 1.29, 0.21, 0.7, 0.52, 0.77,
-            0.7, 0.52, 0.77,
+            0.09, 0.09, 2.39, 1.64, 1.71, 1.36, 1.29, 0.21, 1.36, 1.29, 0.21, 0.7, 0.52, 0.77, 0.7,
+            0.52, 0.77,
         ],
     },
     ClothingEnsemble {
@@ -776,8 +379,7 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         ],
     },
     ClothingEnsemble {
-        name:
-            "bra+panty, T-shirt, long sleeve shirts, long pants, ventura jacket, socks, sneakers",
+        name: "bra+panty, T-shirt, long sleeve shirts, long pants, ventura jacket, socks, sneakers",
         whole_body: 0.9,
         local_body_part: [
             0.09, 0.09, 2.66, 1.42, 1.57, 1.32, 0.99, 0.14, 1.32, 0.99, 0.14, 0.73, 0.66, 0.85,
@@ -796,24 +398,24 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, tank top, long sleeve shirts, blazer, skirt, sandals",
         whole_body: 0.86,
         local_body_part: [
-            0.0, 0.0, 3.24, 1.81, 2.06, 1.98, 1.13, 0.07, 1.98, 1.13, 0.07, 1.19, 0.04, 0.44,
-            1.19, 0.04, 0.44,
+            0.0, 0.0, 3.24, 1.81, 2.06, 1.98, 1.13, 0.07, 1.98, 1.13, 0.07, 1.19, 0.04, 0.44, 1.19,
+            0.04, 0.44,
         ],
     },
     ClothingEnsemble {
         name: "bra+panty, long sleeve shirts, wool skirt, socks, formal shoes",
         whole_body: 0.59,
         local_body_part: [
-            0.0, 0.0, 1.21, 0.74, 1.56, 0.44, 0.24, 0.17, 0.44, 0.24, 0.17, 1.52, 0.09, 0.74,
-            1.52, 0.09, 0.74,
+            0.0, 0.0, 1.21, 0.74, 1.56, 0.44, 0.24, 0.17, 0.44, 0.24, 0.17, 1.52, 0.09, 0.74, 1.52,
+            0.09, 0.74,
         ],
     },
     ClothingEnsemble {
         name: "bra+panty, turtleneck, wool skirt, socks, formal shoes",
         whole_body: 0.7,
         local_body_part: [
-            0.0, 0.0, 1.11, 0.94, 1.52, 0.73, 0.62, 0.14, 0.73, 0.62, 0.14, 1.53, 0.09, 0.85,
-            1.53, 0.09, 0.85,
+            0.0, 0.0, 1.11, 0.94, 1.52, 0.73, 0.62, 0.14, 0.73, 0.62, 0.14, 1.53, 0.09, 0.85, 1.53,
+            0.09, 0.85,
         ],
     },
     ClothingEnsemble {
@@ -865,8 +467,7 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         ],
     },
     ClothingEnsemble {
-        name:
-            "bra+panty, turtle neck, ski-jumper and hood, skin pants, sports socks, sports shoes",
+        name: "bra+panty, turtle neck, ski-jumper and hood, skin pants, sports socks, sports shoes",
         whole_body: 1.87,
         local_body_part: [
             1.63, 1.63, 5.12, 2.7, 2.57, 2.58, 2.16, 0.49, 2.58, 2.16, 0.49, 1.44, 1.76, 1.54,
@@ -877,13 +478,12 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "bra+panty, turtle neck, goose down, ski pants, sports socks, sports shoes",
         whole_body: 2.53,
         local_body_part: [
-            1.17, 1.17, 15.44, 5.5, 5.2, 6.55, 5.58, 0.35, 6.55, 5.58, 0.35, 2.12, 1.7, 1.54,
-            2.12, 1.7, 1.54,
+            1.17, 1.17, 15.44, 5.5, 5.2, 6.55, 5.58, 0.35, 6.55, 5.58, 0.35, 2.12, 1.7, 1.54, 2.12,
+            1.7, 1.54,
         ],
     },
     ClothingEnsemble {
-        name:
-            "bra+panty, turtle neck, goose down-with hood, ski pants, sports socks, sports shoes",
+        name: "bra+panty, turtle neck, goose down-with hood, ski pants, sports socks, sports shoes",
         whole_body: 2.75,
         local_body_part: [
             3.52, 3.52, 12.62, 3.99, 5.05, 6.2, 5.73, 0.53, 6.2, 5.73, 0.53, 2.11, 1.81, 1.58,
@@ -950,16 +550,16 @@ pub const LOCAL_CLO_TYPICAL_ENSEMBLES: &[ClothingEnsemble] = &[
         name: "briefs, socks, undershirt, long-sleeved shirt, jacket, long pants, belt, shoes",
         whole_body: 1.39,
         local_body_part: [
-            0.02, 0.02, 2.13, 2.28, 3.04, 1.8, 1.54, 0.15, 1.8, 1.54, 0.15, 1.33, 0.69, 0.97,
-            1.33, 0.69, 0.97,
+            0.02, 0.02, 2.13, 2.28, 3.04, 1.8, 1.54, 0.15, 1.8, 1.54, 0.15, 1.33, 0.69, 0.97, 1.33,
+            0.69, 0.97,
         ],
     },
     ClothingEnsemble {
         name: "briefs, socks, undershirt, work jacket, work pants, safety shoes",
         whole_body: 0.8,
         local_body_part: [
-            0.0, 0.0, 1.25, 1.39, 1.78, 0.84, 0.71, 0.08, 0.84, 0.71, 0.08, 0.65, 0.59, 1.12,
-            0.65, 0.59, 1.12,
+            0.0, 0.0, 1.25, 1.39, 1.78, 0.84, 0.71, 0.08, 0.84, 0.71, 0.08, 0.65, 0.59, 1.12, 0.65,
+            0.59, 1.12,
         ],
     },
 ];
@@ -1002,11 +602,6 @@ mod tests {
     }
 
     #[test]
-    fn all_out_params_len_matches_python() {
-        assert_eq!(ALL_OUT_PARAMS.len(), 61);
-    }
-
-    #[test]
     fn local_clo_typical_ensembles_len_matches_python() {
         assert_eq!(LOCAL_CLO_TYPICAL_ENSEMBLES.len(), 52);
         for ensemble in LOCAL_CLO_TYPICAL_ENSEMBLES {
@@ -1018,17 +613,6 @@ mod tests {
     fn local_bsa_sum_matches_python() {
         let sum: f64 = defaults::LOCAL_BSA.iter().sum();
         assert!((sum - 1.8680000000000005).abs() < 1e-12);
-    }
-
-    #[test]
-    fn all_out_params_first_and_last_match_python() {
-        let first = ALL_OUT_PARAMS.first().unwrap();
-        assert_eq!(first.name, "age");
-        assert_eq!(first.unit, "years");
-        assert_eq!(first.suffix, None);
-        let last = ALL_OUT_PARAMS.last().unwrap();
-        assert_eq!(last.name, "pythermalcomfort_version");
-        assert_eq!(last.unit, "-");
     }
 
     #[test]

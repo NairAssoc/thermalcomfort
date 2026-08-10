@@ -78,6 +78,7 @@ thermalcomfort = "4.4.0"
 
 ```rust
 use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::models::pmv::PmvPpdInputs;
 
 fn main() {
     let tdb = Temperature::from_celsius(25.0);
@@ -89,7 +90,17 @@ fn main() {
 
     let vr = v_relative(v, met);
 
-    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            dry_bulb_temp: tdb,
+            mean_radiant_temp: tr,
+            relative_air_speed: vr,
+            relative_humidity: rh,
+            metabolic_rate: met,
+            clothing_insulation: clo,
+        },
+        Default::default(),
+    );
 
     println!("PMV: {:.2}", result.pmv);  // ~0.17
     println!("PPD: {:.1}%", result.ppd); // ~5.6%
@@ -220,6 +231,7 @@ All measurement types support automatic unit conversion:
 
 ```rust
 use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::models::pmv::PmvPpdInputs;
 
 fn main() {
     // Use any units - automatically converts internally
@@ -231,7 +243,17 @@ fn main() {
     let clo = ClothingInsulation::from_clo(0.5);
 
     let vr = v_relative(v, met);
-    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            dry_bulb_temp: tdb,
+            mean_radiant_temp: tr,
+            relative_air_speed: vr,
+            relative_humidity: rh,
+            metabolic_rate: met,
+            clothing_insulation: clo,
+        },
+        Default::default(),
+    );
     println!("PMV: {:.2}", result.pmv);
 }
 ```

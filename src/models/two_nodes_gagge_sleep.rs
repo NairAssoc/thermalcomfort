@@ -306,8 +306,8 @@ fn sleep_set(
         let cold_c = (t_core_prescribed - t_core).max(0.0);
         let warm_b = (t_body - temp_body_neutral).max(0.0);
 
-        skin_blood_flow = (skin_blood_flow_neutral + options.c_dil * warm_c)
-            / (1.0 + options.c_str * cold_s);
+        skin_blood_flow =
+            (skin_blood_flow_neutral + options.c_dil * warm_c) / (1.0 + options.c_str * cold_s);
         // Upstream writes `min(max(sbf, 0.5), 90)`; `clamp` is the same function, and
         // agrees with Python on NaN too (both propagate it).
         skin_blood_flow = skin_blood_flow.clamp(0.5, 90.0);
@@ -530,8 +530,7 @@ pub fn two_nodes_gagge_sleep(
         // the polynomial coefficients were fitted against exactly this.
         let x = (i as f64 - 1.0) / 60.0;
 
-        let met = -0.000000000000575 * pow(x, 5.0)
-            + 0.000000000785521 * pow(x, 4.0)
+        let met = -0.000000000000575 * pow(x, 5.0) + 0.000000000785521 * pow(x, 4.0)
             - 0.00000039173563 * pow(x, 3.0)
             + 0.000087620232151 * pow(x, 2.0)
             - 0.008801558913211 * x

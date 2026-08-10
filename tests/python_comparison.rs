@@ -9,20 +9,21 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::AdaptiveOptions;
-use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::pmv::{
+    PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions, PmvPpdInputs,
+    PmvPpdIsoOptions,
+};
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
-    f_svv,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions, f_svv,
 };
 use thermalcomfort::models::{
-    CoolingEffectInputs, DurationLimitedExposure, IreqOptions, Iso7933Model,
-    PhsOptions, PhsPosture, WbgtInputs, WbgtOptions, WorkIntensity, adaptive_ashrae, adaptive_en,
-    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
-    heat_index_schoen, humidex, ireq, net, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
-    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
-    SolarGainInputs, SolarGainOptions, solar_gain, thi, transpose_sharp_altitude,
-    two_nodes_gagge, two_nodes_gagge_ji,
-    SleepInputs, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    CoolingEffectInputs, DurationLimitedExposure, IreqOptions, Iso7933Model, PhsOptions,
+    PhsPosture, SleepInputs, SolarGainInputs, SolarGainOptions, WbgtInputs, WbgtOptions,
+    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
+    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
+    pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
+    solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
+    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
@@ -31,7 +32,8 @@ use thermalcomfort::psychrometrics::{
     psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Posture, antoine,
+    BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, CloDynamicAshraeInputs,
+    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions, Posture, antoine,
     body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
     clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
     clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
@@ -222,12 +224,14 @@ fn test_pmv_ppd_iso_standard_conditions() {
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
@@ -283,7 +287,7 @@ fn test_pmv_ppd_iso_extreme_conditions() {
             (32.0, 32.0, 0.1, 50.0, 1.6, 0.6),
         ];
 
-        let options = PmvPpdOptions {
+        let options = PmvPpdIsoOptions {
             limit_inputs: false,
             ..Default::default()
         };
@@ -307,12 +311,14 @@ fn test_pmv_ppd_iso_extreme_conditions() {
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 options,
             );
 
@@ -380,12 +386,14 @@ fn test_pmv_ppd_ashrae() {
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_ashrae(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
@@ -844,8 +852,11 @@ fn test_compare_clo_dynamic_ashrae() {
                 .unwrap();
 
             let rust_clo = clo_dynamic_ashrae(
-                ClothingInsulation::from_clo(clo),
-                MetabolicRate::from_met(met),
+                CloDynamicAshraeInputs {
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                },
+                CloDynamicAshraeOptions::default(),
             );
             assert_abs_diff_eq!(rust_clo.as_clo(), py_clo, epsilon = 1e-6);
         }
@@ -1086,10 +1097,12 @@ fn test_compare_clo_dynamic_iso() {
                 .unwrap();
 
             let rust_clo_dyn = thermalcomfort::utilities::clo_dynamic_iso(
-                ClothingInsulation::from_clo(clo),
-                MetabolicRate::from_met(met),
-                Speed::from_meters_per_second(v),
-                ClothingInsulation::from_clo(0.7),
+                CloDynamicIsoInputs {
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    air_speed: Speed::from_meters_per_second(v),
+                },
+                CloDynamicIsoOptions::default(),
             );
 
             assert_abs_diff_eq!(rust_clo_dyn, py_clo_dyn, epsilon = 1e-5);
@@ -1331,12 +1344,14 @@ fn test_pmv_ppd_iso_outside_limits() {
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
@@ -1379,12 +1394,14 @@ fn test_pmv_sequential_scenarios() {
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let rust_result = pmv_ppd_iso(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PmvPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
@@ -1556,14 +1573,16 @@ fn test_compare_pmv_a() {
             let py_pmv: f64 = py_result.getattr("a_pmv").unwrap().extract().unwrap();
 
             let rust_result = pmv_a(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                a_coeff,
-                Default::default(),
+                PmvAInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    a_coefficient: a_coeff,
+                },
+                PmvAOptions::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.02);
@@ -1593,14 +1612,16 @@ fn test_compare_pmv_e() {
             let py_pmv: f64 = py_result.getattr("e_pmv").unwrap().extract().unwrap();
 
             let rust_result = pmv_e(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                e_coeff,
-                Default::default(),
+                PmvEInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    e_coefficient: e_coeff,
+                },
+                PmvEOptions::default(),
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.02);
@@ -1629,13 +1650,17 @@ fn test_compare_pmv_athb() {
             let py_pmv: f64 = py_result.getattr("athb_pmv").unwrap().extract().unwrap();
 
             let rust_result = pmv_athb(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                Some(ClothingInsulation::from_clo(clo)),
-                Temperature::from_celsius(t_rm),
+                PmvAthbInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    running_mean_outdoor_temp: Temperature::from_celsius(t_rm),
+                },
+                PmvAthbOptions {
+                    clothing_insulation: Some(ClothingInsulation::from_clo(clo)),
+                },
             );
 
             assert_abs_diff_eq!(rust_result, py_pmv, epsilon = 0.05);
@@ -2737,12 +2762,14 @@ fn test_readme_example_basic_pmv_ppd() {
 
         // Rust calculation with measurement types
         let result = pmv_ppd_iso(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tr),
-            vr,
-            Humidity::from_percent(rh),
-            MetabolicRate::from_met(met),
-            ClothingInsulation::from_clo(clo),
+            PmvPpdInputs {
+                dry_bulb_temp: Temperature::from_celsius(tdb),
+                mean_radiant_temp: Temperature::from_celsius(tr),
+                relative_air_speed: vr,
+                relative_humidity: Humidity::from_percent(rh),
+                metabolic_rate: MetabolicRate::from_met(met),
+                clothing_insulation: ClothingInsulation::from_clo(clo),
+            },
             Default::default(),
         );
 
@@ -2814,10 +2841,11 @@ fn test_readme_example_custom_pmv_options() {
             .expect("Failed to import pythermalcomfort.models");
 
         // Example from README: Custom PMV/PPD Options
-        let options = PmvPpdOptions {
+        let options = PmvPpdIsoOptions {
             wme: MetabolicRate::from_met(0.0), // external work [met]
-            limit_inputs: false,               // don't limit to standard ranges
-            round_output: true,                // round output values
+            model: Default::default(),
+            limit_inputs: false, // don't limit to standard ranges
+            round_output: true,  // round output values
         };
 
         // Python calculation with same options
@@ -2831,12 +2859,14 @@ fn test_readme_example_custom_pmv_options() {
 
         // Rust calculation with measurement types
         let result = pmv_ppd_iso(
-            Temperature::from_celsius(30.0),
-            Temperature::from_celsius(30.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
+            PmvPpdInputs {
+                dry_bulb_temp: Temperature::from_celsius(30.0),
+                mean_radiant_temp: Temperature::from_celsius(30.0),
+                relative_air_speed: Speed::from_meters_per_second(0.1),
+                relative_humidity: Humidity::from_percent(50.0),
+                metabolic_rate: MetabolicRate::from_met(1.2),
+                clothing_insulation: ClothingInsulation::from_clo(0.5),
+            },
             options,
         );
 
@@ -3080,6 +3110,18 @@ fn test_clo_intrinsic_insulation_ensemble_comparison() {
     });
 }
 
+/// One sleep-model case: a label plus the six per-minute schedules
+/// (`tdb`, `tr`, `v`, `rh`, `clo`, `thickness_quilt`), all the same length.
+type SleepCase = (
+    &'static str,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+);
+
 #[test]
 fn test_two_nodes_gagge_sleep_comparison() {
     Python::with_gil(|py| {
@@ -3090,7 +3132,7 @@ fn test_two_nodes_gagge_sleep_comparison() {
         // driving variable over the night — the shape the previous single-value Rust
         // signature could not express at all, and the reason the old test compared one
         // steady-state point with a 2 °C tolerance.
-        let cases: Vec<(&str, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> = vec![
+        let cases: Vec<SleepCase> = vec![
             (
                 "steady, thin quilt",
                 vec![25.0; 30],

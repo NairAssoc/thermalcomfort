@@ -17,6 +17,7 @@
 //!
 //! ```
 //! use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+//! use thermalcomfort::models::pmv::PmvPpdInputs;
 //!
 //! let tdb = Temperature::from_celsius(25.0);
 //! let tr = Temperature::from_celsius(25.0);
@@ -30,12 +31,14 @@
 //!
 //! // Calculate PMV and PPD
 //! let result = pmv_ppd_iso(
-//!     tdb,
-//!     tr,
-//!     vr,
-//!     rh,
-//!     met,
-//!     clo,
+//!     PmvPpdInputs {
+//!         dry_bulb_temp: tdb,
+//!         mean_radiant_temp: tr,
+//!         relative_air_speed: vr,
+//!         relative_humidity: rh,
+//!         metabolic_rate: met,
+//!         clothing_insulation: clo,
+//!     },
 //!     Default::default()
 //! );
 //! ```
@@ -542,10 +545,12 @@ mod newtype_tests {
         // pythermalcomfort validates height, weight, age and body fat — not these two.
         // Rejecting a value upstream accepts would be a parity break, so they take any
         // finite value, including implausible ones.
-        assert!((CardiacIndex::from_liters_per_minute_per_square_meter(0.0)
-            .as_liters_per_minute_per_square_meter())
-        .abs()
-            < 1e-12);
+        assert!(
+            (CardiacIndex::from_liters_per_minute_per_square_meter(0.0)
+                .as_liters_per_minute_per_square_meter())
+            .abs()
+                < 1e-12
+        );
         assert!((ActivityRatio::from_ratio(-1.0).as_ratio() + 1.0).abs() < 1e-12);
     }
 

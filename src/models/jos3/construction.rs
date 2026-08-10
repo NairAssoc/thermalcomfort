@@ -9,12 +9,15 @@
 //! # Ported
 //!
 //! - [`validate_body_parameters`] — Python: `validate_body_parameters`.
-//! - [`to_array_body_parts_scalar`], [`to_array_body_parts_from_slice`],
-//!   [`to_array_body_parts_by_name`] — Python: `to_array_body_parts`. Python dispatches
-//!   dynamically on the input's runtime type (`int | float`, `dict`, `list | np.ndarray`).
-//!   Rust's type system makes that dispatch static, so the single Python function
-//!   becomes three explicitly-typed functions; the fourth Python case (`inp` already a
-//!   `[f64; 17]`) needs no function at all, since that is already the target type.
+//! - [`to_array_body_parts_scalar`], [`to_array_body_parts_by_name`] — Python:
+//!   `to_array_body_parts`. Python dispatches dynamically on the input's runtime type
+//!   (`int | float`, `dict`, `list | np.ndarray`). Rust's type system makes that
+//!   dispatch static, so the single Python function becomes explicitly-typed functions
+//!   per case; the `list | np.ndarray` case needs no function of its own here, since
+//!   [`super::jos3::PerBodyPart::BySegment`] already carries an owned `[f64; 17]` —
+//!   a fixed-size array statically has the length Python's runtime check enforces, so
+//!   there is nothing left to validate (see that variant's doc comment for the full
+//!   reasoning).
 //! - [`bsa_rate`] — Python: `bsa_rate`. Takes a [`BsaFormula`] directly rather than a
 //!   `bsa_equation: &str`, so (unlike Python, which resolves the string against
 //!   `BodySurfaceAreaEquations` inside `body_surface_area`) there is no "unrecognized
@@ -105,7 +108,7 @@ impl core::fmt::Display for BodyParameterError {
 ///
 /// Returns [`BodyParameterError`] for whichever parameter is out of range first,
 /// checked in the order height, weight, age, body fat (matching Python's check order).
-pub fn validate_body_parameters(
+pub(crate) fn validate_body_parameters(
     height: f64,
     weight: f64,
     age: i32,
@@ -133,27 +136,19 @@ pub fn validate_body_parameters(
 /// A per-body-part input couldn't be turned into a `[f64; 17]`.
 /// Python: `to_array_body_parts` raises `ValueError` for these cases. (Python's
 /// "unsupported input type" case has no Rust equivalent: the type system already
-/// prevents passing anything but a scalar, a slice, or a name/value list.)
+/// prevents passing anything but a scalar, a fixed-size array, or a name/value list;
+/// nor is there a "wrong length" case, for the same reason — see
+/// [`super::jos3::PerBodyPart::BySegment`].)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPartsInputError {
-    /// [`to_array_body_parts_from_slice`] was given a slice whose length isn't
-    /// [`NUM_BODY_PARTS`]. Python: `ValueError("The input list or ndarray is not of
-    /// length 17")`.
-    WrongLength(usize),
     /// [`to_array_body_parts_by_name`] was missing a required body-part name.
-    /// Python: dict subscript `inp[key]` raises `KeyError` for a missing key (a
-    /// different exception type than the other cases, but the same "must supply every
-    /// body part" invariant).
+    /// Python: dict subscript `inp[key]` raises `KeyError` for a missing key.
     MissingKey(&'static str),
 }
 
 impl core::fmt::Display for BodyPartsInputError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BodyPartsInputError::WrongLength(len) => write!(
-                f,
-                "The input list or ndarray is not of length {NUM_BODY_PARTS} (got {len})"
-            ),
             BodyPartsInputError::MissingKey(name) => {
                 write!(f, "missing value for body part \"{name}\"")
             }
@@ -164,25 +159,8 @@ impl core::fmt::Display for BodyPartsInputError {
 /// Broadcast a single value to all 17 body segments.
 /// Python: `to_array_body_parts(inp)` when `inp` is `int | float`.
 #[must_use]
-pub fn to_array_body_parts_scalar(value: f64) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn to_array_body_parts_scalar(value: f64) -> [f64; NUM_BODY_PARTS] {
     [value; NUM_BODY_PARTS]
-}
-
-/// Validate and copy a slice into a `[f64; 17]` (segment order: [`BODY_PART_NAMES`]).
-/// Python: `to_array_body_parts(inp)` when `inp` is `list | np.ndarray`.
-///
-/// # Errors
-///
-/// Returns [`BodyPartsInputError::WrongLength`] unless `inp.len() == NUM_BODY_PARTS`.
-pub fn to_array_body_parts_from_slice(
-    inp: &[f64],
-) -> Result<[f64; NUM_BODY_PARTS], BodyPartsInputError> {
-    if inp.len() != NUM_BODY_PARTS {
-        return Err(BodyPartsInputError::WrongLength(inp.len()));
-    }
-    let mut out = [0.0; NUM_BODY_PARTS];
-    out.copy_from_slice(inp);
-    Ok(out)
 }
 
 /// Look up each of the 17 body-segment names (in `pairs`, order-independent) and
@@ -193,7 +171,7 @@ pub fn to_array_body_parts_from_slice(
 ///
 /// Returns [`BodyPartsInputError::MissingKey`] if `pairs` doesn't contain every name in
 /// [`BODY_PART_NAMES`].
-pub fn to_array_body_parts_by_name(
+pub(crate) fn to_array_body_parts_by_name(
     pairs: &[(&str, f64)],
 ) -> Result<[f64; NUM_BODY_PARTS], BodyPartsInputError> {
     let mut out = [0.0; NUM_BODY_PARTS];
@@ -215,7 +193,7 @@ pub fn to_array_body_parts_by_name(
 /// Calculate the ratio of body surface area (BSA) to the standard body (1.87 m^2).
 /// Python: `bsa_rate(height, weight, bsa_equation)`.
 #[must_use]
-pub fn bsa_rate(height: f64, weight: f64, bsa_equation: BsaFormula) -> f64 {
+pub(crate) fn bsa_rate(height: f64, weight: f64, bsa_equation: BsaFormula) -> f64 {
     let bsa_all = body_surface_area(
         Mass::from_kilograms(weight),
         Length::from_meters(height),
@@ -228,7 +206,11 @@ pub fn bsa_rate(height: f64, weight: f64, bsa_equation: BsaFormula) -> f64 {
 /// Calculate local body surface area (BSA) in square meters for each of the 17 body
 /// segments. Python: `local_bsa(height, weight, bsa_equation)`.
 #[must_use]
-pub fn local_bsa(height: f64, weight: f64, bsa_equation: BsaFormula) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn local_bsa(
+    height: f64,
+    weight: f64,
+    bsa_equation: BsaFormula,
+) -> [f64; NUM_BODY_PARTS] {
     let bsa_ratio = bsa_rate(height, weight, bsa_equation);
     let mut out = defaults::LOCAL_BSA;
     for v in &mut out {
@@ -240,14 +222,20 @@ pub fn local_bsa(height: f64, weight: f64, bsa_equation: BsaFormula) -> [f64; NU
 /// Calculate the ratio of the body weight to the standard body.
 /// Python: `weight_rate(weight)`.
 #[must_use]
-pub fn weight_rate(weight: f64) -> f64 {
+pub(crate) fn weight_rate(weight: f64) -> f64 {
     weight / defaults::WEIGHT
 }
 
 /// Calculate the ratio of basal blood flow (BFB) to the standard body (290 L/h).
 /// Python: `bfb_rate(height, weight, bsa_equation, age, ci)`.
 #[must_use]
-pub fn bfb_rate(height: f64, weight: f64, bsa_equation: BsaFormula, age: i32, ci: f64) -> f64 {
+pub(crate) fn bfb_rate(
+    height: f64,
+    weight: f64,
+    bsa_equation: BsaFormula,
+    age: i32,
+    ci: f64,
+) -> f64 {
     // Convert unit from L/min/m^2 to L/h/m^2.
     let mut ci = ci * 60.0;
 
@@ -289,7 +277,12 @@ const fn mat_index(r: usize, c: usize) -> usize {
 /// Returns a `NUM_NODES`-by-`NUM_NODES` (85x85) matrix, flattened row-major
 /// (`result[r * 85 + c]`), symmetric by construction.
 #[must_use]
-pub fn conductance(height: f64, weight: f64, bsa_equation: BsaFormula, fat: f64) -> Vec<f64> {
+pub(crate) fn conductance(
+    height: f64,
+    weight: f64,
+    bsa_equation: BsaFormula,
+    fat: f64,
+) -> Vec<f64> {
     // core to skin [W/K], selected by body-fat-rate bracket.
     let mut cdt_cr_sk: [f64; NUM_BODY_PARTS] = if fat < 12.5 {
         [
@@ -423,7 +416,13 @@ pub fn conductance(height: f64, weight: f64, bsa_equation: BsaFormula, fat: f64)
 ///
 /// Returns a `NUM_NODES`-length (85) vector.
 #[must_use]
-pub fn capacity(height: f64, weight: f64, bsa_equation: BsaFormula, age: i32, ci: f64) -> Vec<f64> {
+pub(crate) fn capacity(
+    height: f64,
+    weight: f64,
+    bsa_equation: BsaFormula,
+    age: i32,
+    ci: f64,
+) -> Vec<f64> {
     // Define capacities [Wh/K].
     let mut cap_art = [
         0.096, 0.025, 0.12, 0.111, 0.265, 0.0186, 0.0091, 0.0044, 0.0186, 0.0091, 0.0044, 0.0813,
@@ -449,8 +448,8 @@ pub fn capacity(height: f64, weight: f64, bsa_equation: BsaFormula, age: i32, ci
         0.203, 0.0, 0.0, 0.0, 1.947, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ]; // fat
     let mut cap_sk = [
-        0.1885, 0.058, 0.441, 0.406, 0.556, 0.126, 0.084, 0.088, 0.126, 0.084, 0.088, 0.334,
-        0.169, 0.107, 0.334, 0.169, 0.107,
+        0.1885, 0.058, 0.441, 0.406, 0.556, 0.126, 0.084, 0.088, 0.126, 0.084, 0.088, 0.334, 0.169,
+        0.107, 0.334, 0.169, 0.107,
     ]; // skin
 
     // Adjust capacities based on body parameters.
@@ -517,8 +516,13 @@ pub fn capacity(height: f64, weight: f64, bsa_equation: BsaFormula, age: i32, ci
 }
 
 #[cfg(test)]
+// Reference values are pasted verbatim from the Python oracle, and rustfmt groups their
+// fractional digits but not the integer part. Regrouping by hand to satisfy the lint would
+// mean editing numbers whose whole value is that they were not edited.
+#[allow(clippy::inconsistent_digit_grouping)]
 mod tests {
     use super::*;
+    use crate::{BodyFat, CardiacIndex};
 
     fn approx_eq(a: f64, b: f64, tol: f64) -> bool {
         (a - b).abs() < tol
@@ -572,31 +576,13 @@ mod tests {
     }
 
     #[test]
-    fn to_array_body_parts_from_slice_round_trips() {
-        let inp = [1.0_f64; NUM_BODY_PARTS];
-        assert_eq!(to_array_body_parts_from_slice(&inp), Ok(inp));
-    }
-
-    #[test]
-    fn to_array_body_parts_from_slice_rejects_wrong_length() {
-        // Python: to_array_body_parts([1.0]*5)
-        //   -> ValueError("The input list or ndarray is not of length 17")
-        let inp = [1.0_f64; 5];
-        assert_eq!(
-            to_array_body_parts_from_slice(&inp),
-            Err(BodyPartsInputError::WrongLength(5))
-        );
-    }
-
-    #[test]
     fn to_array_body_parts_by_name_matches_body_part_order() {
         let pairs: Vec<(&str, f64)> = BODY_PART_NAMES
             .iter()
             .enumerate()
             .map(|(i, name)| (*name, i as f64))
             .collect();
-        let expected: [f64; NUM_BODY_PARTS] =
-            core::array::from_fn(|i| i as f64);
+        let expected: [f64; NUM_BODY_PARTS] = core::array::from_fn(|i| i as f64);
         assert_eq!(to_array_body_parts_by_name(&pairs), Ok(expected));
     }
 
@@ -683,7 +669,11 @@ mod tests {
             1e-9
         ));
         assert!(approx_eq(cdt[mat_index(1, 3)], 0.0, 1e-12));
-        assert!(approx_eq(cdt[mat_index(9, 10)], 0.863_509_072_127_418, 1e-9));
+        assert!(approx_eq(
+            cdt[mat_index(9, 10)],
+            0.863_509_072_127_418,
+            1e-9
+        ));
         assert!(approx_eq(
             cdt[mat_index(25, 26)],
             0.573_531_456_542_633_5,
@@ -694,7 +684,11 @@ mod tests {
             0.625_864_866_916_169_8,
             1e-9
         ));
-        assert!(approx_eq(cdt[mat_index(27, 29)], 61.662_641_794_206_6, 1e-8));
+        assert!(approx_eq(
+            cdt[mat_index(27, 29)],
+            61.662_641_794_206_6,
+            1e-8
+        ));
         assert!(approx_eq(
             cdt[mat_index(28, 29)],
             1.546_505_677_977_156_9,
@@ -767,6 +761,12 @@ mod tests {
 
     #[test]
     fn defaults_cross_check() {
+        // `Default.cardiac_index`/`Default.body_fat` are ported as
+        // `crate::CardiacIndex::DEFAULT`/`crate::BodyFat::default()`, not as
+        // `defaults::` constants (this module's `defaults` no longer duplicates them).
+        let cardiac_index = CardiacIndex::DEFAULT.as_liters_per_minute_per_square_meter();
+        let body_fat = BodyFat::default().as_percent();
+
         let bsar = bsa_rate(defaults::HEIGHT, defaults::WEIGHT, BsaFormula::DuBois);
         assert!(approx_eq(bsar, 1.000_519_436_029_022_4, 1e-9));
 
@@ -778,7 +778,7 @@ mod tests {
             defaults::WEIGHT,
             BsaFormula::DuBois,
             defaults::AGE,
-            defaults::CARDIAC_INDEX,
+            cardiac_index,
         );
         assert!(approx_eq(bfbr, 1.001_510_295_277_392_9, 1e-9));
 
@@ -786,7 +786,7 @@ mod tests {
             defaults::HEIGHT,
             defaults::WEIGHT,
             BsaFormula::DuBois,
-            defaults::BODY_FAT,
+            body_fat,
         );
         let cdt_sum: f64 = cdt.iter().sum();
         assert!(approx_eq(cdt_sum, 1461.975_804_528_639_4, 1e-6));
@@ -796,7 +796,7 @@ mod tests {
             defaults::WEIGHT,
             BsaFormula::DuBois,
             defaults::AGE,
-            defaults::CARDIAC_INDEX,
+            cardiac_index,
         );
         let cap_sum: f64 = cap.iter().sum();
         assert!(approx_eq(cap_sum, 247_459.600_898_983_6, 1e-3));

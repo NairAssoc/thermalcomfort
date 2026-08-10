@@ -519,7 +519,6 @@ fn gagge_two_nodes_optimized(
     result
 }
 
-
 /// Options for the two-node Gagge JI model (for older individuals)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesJiOptions {
@@ -536,8 +535,6 @@ pub struct GaggeTwoNodesJiOptions {
     /// Acclimatisation raises the maximum regulatory evaporation by 25% and the
     /// maximum skin wettedness from 0.85 to 1.0.
     pub acclimatized: bool,
-    /// Round output values
-    pub round_output: bool,
 }
 
 impl Default for GaggeTwoNodesJiOptions {
@@ -548,7 +545,6 @@ impl Default for GaggeTwoNodesJiOptions {
             p_atm: Pressure::from_pascals(101325.0),
             posture: Posture::Sitting,
             acclimatized: true,
-            round_output: true,
         }
     }
 }
@@ -707,7 +703,6 @@ pub fn two_nodes_gagge_ji(
         options.p_atm.as_pascals(),
         options.posture,
         options.acclimatized,
-        options.round_output,
     )
 }
 
@@ -725,7 +720,6 @@ fn gagge_two_nodes_ji_core(
     p_atm: f64,
     posture: Posture,
     acclimatized: bool,
-    round_output: bool,
 ) -> GaggeTwoNodesJiResult {
     // Ji model shivering coefficients (from pythermalcomfort)
     const C_SHE: f64 = 1.0;
@@ -937,20 +931,10 @@ fn gagge_two_nodes_ji_core(
             C_SHE * (COF_SCS * t_cr_sh * t_sk_cons + COF_SC * t_cr_sh + COF_SS * t_sk_cons);
         m = met * met_factor + met_shivering;
 
-        // Store values (rounding if requested)
-        let t_core_val = if round_output {
-            round_to(t_core, 2)
-        } else {
-            t_core
-        };
-        let t_skin_val = if round_output {
-            round_to(t_skin, 2)
-        } else {
-            t_skin
-        };
-
-        let _ = t_core_history.push(t_core_val);
-        let _ = t_skin_history.push(t_skin_val);
+        // Stored unrounded. two_nodes_gagge_ji.py contains no round/np.around call at
+        // all, so any rounding here is a divergence from upstream rather than an option.
+        let _ = t_core_history.push(t_core);
+        let _ = t_skin_history.push(t_skin);
     }
 
     GaggeTwoNodesJiResult {
@@ -1016,5 +1000,4 @@ mod tests {
         assert!(result.m_rsw > 0.0); // Should be sweating
         assert!(result.t_sens > 0.0); // Should feel hot
     }
-
 }

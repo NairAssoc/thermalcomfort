@@ -2,7 +2,7 @@
 //!
 //! This module contains specialized models for specific comfort assessment scenarios.
 
-use crate::models::pmv::{PmvPpdOptions, pmv_ppd_ashrae};
+use crate::models::pmv::{PmvPpdAshraeOptions, PmvPpdInputs, pmv_ppd_ashrae};
 use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
 use measurements::{Humidity, Length, Speed, Temperature};
 
@@ -100,13 +100,15 @@ pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64
     // Matches pythermalcomfort behaviour: PMV is computed without input limits so the
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        PmvPpdOptions {
+        PmvPpdInputs {
+            dry_bulb_temp,
+            mean_radiant_temp,
+            relative_air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+        },
+        PmvPpdAshraeOptions {
             limit_inputs: false,
             ..Default::default()
         },
@@ -260,13 +262,15 @@ pub fn vertical_tmp_grad_ppd(
     // Matches pythermalcomfort behaviour: PMV is computed without input limits so the
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        PmvPpdOptions {
+        PmvPpdInputs {
+            dry_bulb_temp,
+            mean_radiant_temp,
+            relative_air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+        },
+        PmvPpdAshraeOptions {
             limit_inputs: false,
             ..Default::default()
         },
@@ -389,7 +393,14 @@ mod tests {
     use super::*;
 
     /// `AnkleDraftInputs` for a case, with options left at their defaults.
-    fn ankle_inputs(tdb: f64, tr: f64, vr: f64, met: f64, clo: f64, v_ankle: f64) -> AnkleDraftInputs {
+    fn ankle_inputs(
+        tdb: f64,
+        tr: f64,
+        vr: f64,
+        met: f64,
+        clo: f64,
+        v_ankle: f64,
+    ) -> AnkleDraftInputs {
         AnkleDraftInputs {
             dry_bulb_temp: Temperature::from_celsius(tdb),
             mean_radiant_temp: Temperature::from_celsius(tr),
@@ -423,7 +434,10 @@ mod tests {
 
     #[test]
     fn test_ankle_draft() {
-        let (ppd, acceptable) = ankle_draft(ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.3), Default::default());
+        let (ppd, acceptable) = ankle_draft(
+            ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.3),
+            Default::default(),
+        );
         assert!((0.0..=100.0).contains(&ppd));
         // High ankle draft velocity should cause dissatisfaction
         assert!(!acceptable || ppd <= 20.0);
@@ -468,7 +482,10 @@ mod tests {
         }
 
         // Spot-check that a fully in-range input is not flagged when limits are on.
-        let (ppd, _) = ankle_draft(ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.15), Default::default());
+        let (ppd, _) = ankle_draft(
+            ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.15),
+            Default::default(),
+        );
         assert!(
             !ppd.is_nan(),
             "in-range inputs should not be filtered by limit_inputs=true"
@@ -477,8 +494,10 @@ mod tests {
 
     #[test]
     fn test_vertical_tmp_grad_ppd() {
-        let (ppd, _acceptable) =
-            vertical_tmp_grad_ppd(vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0), Default::default());
+        let (ppd, _acceptable) = vertical_tmp_grad_ppd(
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0),
+            Default::default(),
+        );
         // PPD can be negative for comfortable conditions (formula artifact)
         // but should be within reasonable range
         assert!((-50.0..=100.0).contains(&ppd));
@@ -526,8 +545,10 @@ mod tests {
         }
 
         // Spot-check that fully in-range inputs survive the limit check.
-        let (ppd, _) =
-            vertical_tmp_grad_ppd(vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0), Default::default());
+        let (ppd, _) = vertical_tmp_grad_ppd(
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0),
+            Default::default(),
+        );
         assert!(
             !ppd.is_nan(),
             "in-range inputs should not be filtered by limit_inputs=true"
@@ -538,7 +559,10 @@ mod tests {
     /// must expose digits that rounding to one decimal place would have removed.
     #[test]
     fn vertical_tmp_grad_ppd_round_output_can_be_turned_off() {
-        let rounded = vertical_tmp_grad_ppd(vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 3.7), Default::default());
+        let rounded = vertical_tmp_grad_ppd(
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 3.7),
+            Default::default(),
+        );
         let exact = vertical_tmp_grad_ppd(
             vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 3.7),
             VerticalTmpGradPpdOptions {
@@ -553,8 +577,14 @@ mod tests {
             (r * 10.0 - (r * 10.0).round()).abs() < 1e-9,
             "rounded ppd {r} is not at one decimal"
         );
-        assert!((e - r).abs() > 1e-12, "unrounded ppd {e} equals the rounded {r}");
-        assert!((e - r).abs() < 0.05, "unrounded ppd {e} is not within rounding of {r}");
+        assert!(
+            (e - r).abs() > 1e-12,
+            "unrounded ppd {e} equals the rounded {r}"
+        );
+        assert!(
+            (e - r).abs() < 0.05,
+            "unrounded ppd {e} is not within rounding of {r}"
+        );
     }
 
     #[test]
