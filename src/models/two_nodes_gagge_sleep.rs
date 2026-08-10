@@ -308,7 +308,9 @@ fn sleep_set(
 
         skin_blood_flow = (skin_blood_flow_neutral + options.c_dil * warm_c)
             / (1.0 + options.c_str * cold_s);
-        skin_blood_flow = skin_blood_flow.max(0.5).min(90.0);
+        // Upstream writes `min(max(sbf, 0.5), 90)`; `clamp` is the same function, and
+        // agrees with Python on NaN too (both propagate it).
+        skin_blood_flow = skin_blood_flow.clamp(0.5, 90.0);
         let mut reg_sw = options.c_sw * warm_b * exp(warm_sk / 10.7);
         reg_sw = reg_sw.min(500.0);
         e_rsw = 0.68 * reg_sw;

@@ -10,6 +10,7 @@
 
 mod support;
 
+use pyo3::exceptions::PyOverflowError;
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyModule, PyTuple};
@@ -20,7 +21,8 @@ use thermalcomfort::models::pmv::PmvPpdOptions;
 use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
     AdaptiveOptions, CoolingEffectOptions, DurationLimitedExposure, GaggeTwoNodesOptions,
-    IreqOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions, PhsPosture,
+    GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions,
+    PhsPosture, SleepInputs, two_nodes_gagge_sleep,
     RidgeRegressionOptions, SetOptions, Sports, SportsValues, UtciOptions, WbgtOptions,
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
@@ -998,6 +1000,193 @@ fn sweep_two_nodes_gagge_ji() {
                         *py_value
                     };
                     compare_field(&cmp, *rust_value, expected)
+                        .map_err(|e| format!("minute {minute}: {e}"))?;
+                }
+            }
+            Ok(())
+        });
+    });
+}
+
+#[test]
+fn sweep_two_nodes_gagge_sleep() {
+    // The sleep model's inputs are per-minute schedules, so the sweep samples a base value
+    // and a drift for each variable and builds a *varying* night out of them. A flat
+    // schedule would barely exercise the state carried between minutes, and that carry-over
+    // is precisely where this port's one real defect lived: an error there leaves minute 0
+    // exactly right and corrupts every minute after it.
+    let domain = Domain::new()
+        .real("tdb", 10.0, 35.0)
+        .real("tr", 10.0, 35.0)
+        .real("v", 0.0, 1.5)
+        .real("rh", 5.0, 95.0)
+        .real("clo", 0.0, 2.0)
+        .real("thickness", 0.0, 15.0)
+        .real("tdb_drift", -0.15, 0.15)
+        .real("tr_drift", -0.15, 0.15)
+        .real("rh_drift", -0.4, 0.4)
+        .real("clo_drift", -0.01, 0.01)
+        .real("thickness_drift", -0.12, 0.12)
+        .real("wme", 0.0, 0.5)
+        .real("p_atm", 80_000.0, 105_000.0)
+        .enumerated("duration", 4);
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("failed to import pythermalcomfort.models");
+
+        run_sweep("sweep_two_nodes_gagge_sleep", &domain, |s: &Sample| {
+            // Upstream returns scalars rather than arrays for a one-minute night, so the
+            // shortest schedule swept is two minutes.
+            let n = match s.index("duration") {
+                0 => 2usize,
+                1 => 15,
+                2 => 60,
+                _ => 120,
+            };
+            let (wme, p_atm) = (s.real("wme"), s.real("p_atm"));
+
+            // Clamped to the ranges pythermalcomfort's validator accepts, so a drift never
+            // walks an input out of bounds and turns a parity check into an exception.
+            let ramp = |base: f64, drift: f64, lo: f64, hi: f64| -> Vec<f64> {
+                (0..n)
+                    .map(|i| (base + drift * i as f64).clamp(lo, hi))
+                    .collect()
+            };
+
+            let tdb = ramp(s.real("tdb"), s.real("tdb_drift"), 5.0, 45.0);
+            let tr = ramp(s.real("tr"), s.real("tr_drift"), 5.0, 45.0);
+            let v = vec![s.real("v"); n];
+            let rh = ramp(s.real("rh"), s.real("rh_drift"), 0.0, 100.0);
+            let clo = ramp(s.real("clo"), s.real("clo_drift"), 0.0, 3.0);
+            let thickness = ramp(
+                s.real("thickness"),
+                s.real("thickness_drift"),
+                0.0,
+                30.0,
+            );
+
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let call = models.getattr("two_nodes_gagge_sleep").unwrap().call(
+                (
+                    tdb.clone(),
+                    tr.clone(),
+                    v.clone(),
+                    rh.clone(),
+                    clo.clone(),
+                    thickness.clone(),
+                ),
+                Some(&kwargs),
+            );
+            let py_result = match call {
+                Ok(result) => result,
+                // In a hot, humid, heavily quilted corner the model's own exponentials
+                // overflow and CPython raises. There is no reference value to compare
+                // against, so the sample is skipped rather than counted as a divergence.
+                // Worth knowing: Rust does not raise here, it produces an infinity — a
+                // genuine behavioural difference, but one confined to inputs where
+                // upstream declines to answer at all.
+                Err(e) if e.is_instance_of::<PyOverflowError>(py) => return Ok(()),
+                Err(e) => return Err(format!("python raised: {e}")),
+            };
+
+            let rust_tdb: Vec<Temperature> =
+                tdb.iter().copied().map(Temperature::from_celsius).collect();
+            let rust_tr: Vec<Temperature> =
+                tr.iter().copied().map(Temperature::from_celsius).collect();
+            let rust_v: Vec<Speed> = v
+                .iter()
+                .copied()
+                .map(Speed::from_meters_per_second)
+                .collect();
+            let rust_rh: Vec<Humidity> = rh.iter().copied().map(Humidity::from_percent).collect();
+            let rust_clo: Vec<ClothingInsulation> = clo
+                .iter()
+                .copied()
+                .map(ClothingInsulation::from_clo)
+                .collect();
+            let rust_quilt: Vec<Length> = thickness
+                .iter()
+                .copied()
+                .map(Length::from_centimeters)
+                .collect();
+
+            let rust = two_nodes_gagge_sleep(
+                SleepInputs {
+                    tdb: &rust_tdb,
+                    tr: &rust_tr,
+                    v: &rust_v,
+                    rh: &rust_rh,
+                    clo: &rust_clo,
+                    thickness_quilt: &rust_quilt,
+                },
+                GaggeTwoNodesSleepOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    p_atm: Pressure::from_pascals(p_atm),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| format!("rust rejected the schedule: {e}"))?;
+
+            // Upstream does not round this model, so an absolute 1e-9 is the primary
+            // bound and it holds for the great majority of samples. The relative bound
+            // covers two things an absolute one measures badly over a 120-minute run:
+            //
+            //   - each minute's state feeds the next, so `math.exp` and `libm::exp`
+            //     differing by an ulp compounds in proportion to the result, exactly as
+            //     it does in the PHS sweep's 480-minute integration;
+            //   - in a low-airspeed, thick-quilt corner upstream's own SET secant solve
+            //     runs away to around 5e7 °C, where 1e-9 absolute is a tolerance on the
+            //     ulp rather than on the physics.
+            //
+            // 1e-9 relative is nine significant figures and cannot absorb a transcription
+            // error; the worst observed here is 2.7e-12, on `disc` at minute 41. The exact
+            // 1e-9 absolute check on short runs lives in the module's unit tests.
+            let series: [(&str, Vec<f64>); 10] = [
+                ("set", rust.set.iter().map(|t| t.as_celsius()).collect()),
+                ("t_core", rust.t_core.iter().map(|t| t.as_celsius()).collect()),
+                ("t_skin", rust.t_skin.iter().map(|t| t.as_celsius()).collect()),
+                ("wet", rust.wet.clone()),
+                ("t_sens", rust.t_sens.clone()),
+                ("disc", rust.disc.clone()),
+                (
+                    "e_skin",
+                    rust.e_skin
+                        .iter()
+                        .map(|q| q.as_watts_per_square_meter())
+                        .collect(),
+                ),
+                (
+                    "met_shivering",
+                    rust.met_shivering
+                        .iter()
+                        .map(|q| q.as_watts_per_square_meter())
+                        .collect(),
+                ),
+                ("alfa", rust.alfa.clone()),
+                ("skin_blood_flow", rust.skin_blood_flow.clone()),
+            ];
+
+            for (name, rust_series) in series {
+                let py_series = py_float_seq(&py_result, name)?;
+                if py_series.len() != rust_series.len() {
+                    return Err(format!(
+                        "{name}: Rust returned {} minutes, Python {}",
+                        rust_series.len(),
+                        py_series.len()
+                    ));
+                }
+                let cmp = FieldCmp::new(name, 1e-9).rel(1e-9);
+                for (minute, (rust_value, py_value)) in
+                    rust_series.iter().zip(py_series.iter()).enumerate()
+                {
+                    compare_field(&cmp, *rust_value, *py_value)
                         .map_err(|e| format!("minute {minute}: {e}"))?;
                 }
             }
