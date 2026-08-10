@@ -43,24 +43,33 @@ a significant fraction of the crate. **Worth confirming it is wanted before star
 "not ported" is a defensible permanent answer for a model this size, and is now recorded
 honestly in the README rather than papered over.
 
-**Decision 1 — `no_std` or `std`-gated?** The 85×85 inverse is the crux. The crate is
-`no_std` by default and only pulls `nalgebra` under the `std` feature, for PET's 3×3 LU.
-Options: gate JOS3 behind `std` entirely (simplest, but the crate's selling point is
-`no_std`); hand-roll a dense LU with partial pivoting for `no_std` (85×85 is not hard, but
-it is new numerical code that needs its own tests); or restructure to avoid the explicit
-inverse — note Python inverts and multiplies, where solving directly is both faster and
-better conditioned, so a Rust port need not reproduce the inversion.
+**Decision 1 — linear algebra — SETTLED 2026-08-10.** nalgebra is now an unconditional
+dependency built against `alloc` + `libm`, so `DMatrix::lu().solve()` is available in the
+default `no_std` build and JOS3's 85×85 solve costs nothing extra. Verified on
+`wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`. The old framing — "gate
+JOS3 behind `std`" — was based on a false premise: nalgebra has supported `no_std` since
+0.15, and the crate's `std` feature never bought compatibility.
 
-**Decision 2 — what shape is the Rust API?** Python is a stateful object whose properties
-are mutated between `simulate()` calls (set `tdb`, simulate 60 min, change it, simulate
-again). This is the same class of question as the sleep model's return shape. Options: a
-struct with `&mut self` methods mirroring Python; a builder plus an explicit step/advance
-API; or a pure function taking a schedule of conditions and returning a trajectory.
+Note the matrix is **4.3% dense** (309 nonzeros of 7225, bordered block-diagonal: 17
+per-segment blocks plus a central-blood node). A sparse solve is therefore possible later,
+but is deliberately *not* the first pass: Python computes an explicit inverse and
+multiplies, which is less accurate than a direct solve, so a sparse implementation would
+legitimately differ in the last digits and make early parity failures ambiguous. Port
+dense first, prove parity, then optimise with the sweep as the safety net. Performance is
+not a motivation — an 85×85 dense LU is ~200k flops against a per-minute timestep.
 
-**Recommendation:** settle Decision 1 first — if it lands on `std`-gated, `nalgebra`
-already provides the solve and Decision 2 becomes the only real work. Use the
-`superpowers:brainstorming` skill on Decision 2 before writing code; it is a genuine
-design question, not a transcription.
+**Decision 2 — what shape is the Rust API? STILL OPEN.** Python is a stateful object whose
+properties are mutated between `simulate()` calls (set `tdb`, simulate 60 min, change it,
+simulate again). Options: a struct with `&mut self` methods mirroring Python; a builder
+plus an explicit step/advance API; or a pure function taking a schedule of conditions and
+returning a trajectory. This is the same class of question as the sleep model's return
+shape. Use the `superpowers:brainstorming` skill on it before writing code — it is a
+genuine design question, not a transcription.
+
+**Decision 3 — feature-gate JOS3? STILL OPEN.** ~6,100 lines and ~120 KB peak working RAM
+(85×85 f64 matrix plus nalgebra's LU copy) is a lot to impose on someone who only wants
+PMV. A default-off `jos3` feature would make that opt-in. Against: another build
+configuration to test.
 
 **Once decided**, the porting routine is the established one: transcribe
 statement-for-statement, then add `sweep_jos3` to `tests/differential_sweep.rs` comparing

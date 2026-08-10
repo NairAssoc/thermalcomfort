@@ -1,4 +1,4 @@
-.PHONY: lint test verify fmt clippy parity-coverage setup-parity parity-version clean-parity sweep help
+.PHONY: lint test verify fmt clippy parity-coverage setup-parity parity-version clean-parity sweep no-std-check help
 
 # The crate version IS the pythermalcomfort version this port targets. Deriving the pin
 # from Cargo.toml means CI and local runs can never drift from what is being ported,
@@ -45,6 +45,7 @@ help:
 	@echo "  make lint           - Run fmt + clippy + parity coverage check"
 	@echo "  make test           - Run the full suite in both no_std and std configurations"
 	@echo "  make sweep          - Deep randomised differential sweep (SWEEP_N=$(SWEEP_N))"
+	@echo "  make no-std-check   - Build for $(NO_STD_TARGET) to prove no_std still holds"
 	@echo "  make verify         - Run lint + the full suite including Python parity tests"
 	@echo "  make parity-coverage- Check parity tests exist AND every upstream name is ported"
 	@echo "  make parity-version - Print the pythermalcomfort version this port targets"
@@ -90,19 +91,34 @@ parity-coverage:
 lint: fmt clippy parity-coverage
 	@echo "✓ All linting checks passed!"
 
-# Run the whole suite in BOTH supported configurations. The crate ships no_std by
-# default with an optional std accuracy path, so a green run in one proves nothing
-# about the other. This includes unit, integration and doc tests.
+# The crate has one configuration. It used to have two - a no_std default and a std
+# accuracy path - and both had to run because a green result in one proved nothing about
+# the other. The std feature is now a no-op, so a single run covers everything. The
+# wasm32 build is still checked separately: `cargo test` links the std test harness, so
+# it cannot prove no_std compiles.
 test:
 	@if [ -z "$(PARITY_SITE_PACKAGES)" ]; then \
 		echo "No parity venv at $(PARITY_VENV); using ambient python."; \
 		echo "Run 'make setup-parity' if the version guard fails."; \
 	fi
-	@echo "Running full suite (no_std default) against pythermalcomfort $(PTC_VERSION)..."
+	@echo "Running full suite against pythermalcomfort $(PTC_VERSION)..."
 	@$(PARITY_ENV) cargo test --release
-	@echo "Running full suite (std feature) against pythermalcomfort $(PTC_VERSION)..."
-	@$(PARITY_ENV) cargo test --release --features std
-	@echo "✓ Both configurations passed!"
+	@echo "✓ Suite passed!"
+
+# `cargo test` links the std test harness, so a green suite says nothing about whether the
+# crate still compiles without std. This builds for a genuine no_std target, which is the
+# only thing that does. CI installs the target; locally it is skipped with a notice rather
+# than failing, because a missing rustup target is a setup gap, not a code defect.
+NO_STD_TARGET ?= wasm32-unknown-unknown
+no-std-check:
+	@if rustup target list --installed 2>/dev/null | grep -q '^$(NO_STD_TARGET)$$'; then \
+		echo "Building for $(NO_STD_TARGET) to prove no_std still holds..."; \
+		cargo build --quiet --target $(NO_STD_TARGET); \
+		echo "✓ no_std target builds!"; \
+	else \
+		echo "SKIPPED: $(NO_STD_TARGET) not installed, so no_std was NOT verified."; \
+		echo "  Install it with: rustup target add $(NO_STD_TARGET)"; \
+	fi
 
 # Deep randomised differential sweep. `make test` already runs a short one as part of
 # the suite; this is the long-form version for a release check or a bug hunt. Failures
@@ -110,9 +126,9 @@ test:
 SWEEP_N ?= 20000
 sweep:
 	@echo "Running differential sweep with SWEEP_N=$(SWEEP_N)..."
-	@$(PARITY_ENV) SWEEP_N=$(SWEEP_N) cargo test --release --features std \
+	@$(PARITY_ENV) SWEEP_N=$(SWEEP_N) cargo test --release \
 		--test differential_sweep -- --nocapture
 
 # Verify target: linting plus the complete test suite
-verify: lint test
+verify: lint test no-std-check
 	@echo "✓ All checks passed!"

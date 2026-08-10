@@ -14,8 +14,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 - **Near-complete coverage**: every pythermalcomfort v4.4.0 model except `JOS3`, with two documented gaps (see [Coverage](#coverage))
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
-- **`no_std` compatible**: Works in embedded and WASM environments (default)
-- **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
+- **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: 302 tests (110 unit + 74 Python comparison + 65 doctests +
   46 differential sweeps + 7 harness self-tests). Every public function with a
   pythermalcomfort counterpart has a cross-library parity test, and all but one are also
@@ -52,16 +51,17 @@ parameters remain untyped because no suitable type exists yet: solar angles (`so
 `transpose_sharp_altitude` — `measurements::Angle` is not re-exported), irradiance in W/m²
 (`esi`, `solar_gain`), and the blood-flow and sweating caps in `use_fans_heatwaves`.
 
-### Optional `std` Feature
+### The `std` feature (deprecated no-op)
 
-For applications requiring perfect Python accuracy matching in extreme PET conditions, enable the `std` feature:
+There is no longer anything to enable. The crate has one configuration, and it is
+`no_std`. `std` is retained as an empty feature so existing dependants that wrote
+`features = ["std"]` keep building; it will go at the next upstream major.
 
-```toml
-[dependencies]
-thermalcomfort = { version = "4.4.0", features = ["std"] }
-```
-
-This uses nalgebra for numerically stable linear algebra (LU decomposition), matching Python's scipy.optimize.fsolve. The trade-off is breaking `no_std` compatibility and a slightly larger binary (~100KB). Only needed when extreme cold+wind PET accuracy is critical (< 5°C, > 2 m/s).
+Historically `std` swapped PET onto a nalgebra solver "for perfect accuracy in extreme
+cold+wind". Two things ended that: the accuracy gap was closed by fixes to the solver
+itself, so both implementations produced identical results; and nalgebra never needed
+`std` in the first place — it has supported `no_std` since 0.15, and is now built against
+`alloc` + `libm` like any other dependency here.
 
 ## Installation
 
@@ -266,17 +266,20 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce identical results to pythermalcomfort v4.4.0. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
+All models produce identical results to pythermalcomfort v4.4.0, in the one build
+configuration the crate has. There is no accuracy trade-off to choose between.
 
-| Condition | Python | Rust (`no_std`) | Rust (`std`) |
-|-----------|--------|-----------------|--------------|
-| Normal (25°C, 0.1 m/s, 50% RH) | 24.17°C | 24.17°C | 24.17°C |
-| Hot (35°C, 1.0 m/s, 60% RH) | 36.26°C | 36.26°C | 36.26°C |
-| Cold+wind (5°C, 2.0 m/s, 50% RH) | -0.46°C | 2.06°C | -0.46°C |
+Verification is a randomised differential sweep (see [Testing](#testing)) that drives
+every model through pseudo-random input vectors covering its optional parameters, not
+just its physical inputs, and compares every output field against Python. Divergences
+found this way are fixed in the port; tolerances are only widened where the difference is
+demonstrably float-representation noise, and the two places that needed a documented
+exclusion say so in the test.
 
-The `no_std` PET solver uses a custom Newton-Raphson method with a full 3x3 Jacobian, which is less numerically stable than Python's scipy HYBRD algorithm in extreme conditions. Enabling the `std` feature switches to a MINPACK-based HYBRD solver for perfect accuracy in all conditions.
-
-All other models (PMV/PPD, UTCI, PHS, SET, Gagge variants, sports heat stress risk, etc.) produce identical results in both `no_std` and `std` builds.
+Earlier releases shipped a second, hand-written PET solver for `no_std` and documented it
+as less accurate in extreme cold+wind. Both the second solver and the caveat are gone: the
+underlying solver bugs were fixed, after which the two implementations agreed everywhere
+measured, so the duplicate was deleted rather than kept as a choice.
 
 ## Coverage
 
@@ -301,7 +304,7 @@ version is that version — they are kept in lockstep deliberately.
 # One-time: create a venv holding pythermalcomfort==<crate version>
 make setup-parity
 
-# Run the whole suite in BOTH the no_std and std configurations
+# Run the whole suite, then confirm the crate still builds for a no_std target
 make test
 
 # Lint (fmt + clippy + parity coverage) followed by the full suite
@@ -339,7 +342,7 @@ compares every output field against Python.
 
 ```bash
 make sweep                      # deep run, SWEEP_N=20000
-SWEEP_N=500 cargo test --features std --test differential_sweep
+SWEEP_N=500 cargo test --test differential_sweep
 ```
 
 The sweep exists because "every function is called by a parity test" is not the same as
@@ -349,7 +352,7 @@ parameters at their defaults, and real bugs lived in that residue.
 Failures print the seed and a shrunk input vector. Reproduce with:
 
 ```bash
-SWEEP_SEED=<seed> SWEEP_N=<n> cargo test --features std --test differential_sweep -- --nocapture
+SWEEP_SEED=<seed> SWEEP_N=<n> cargo test --test differential_sweep -- --nocapture
 ```
 
 Widening a tolerance to make a sweep pass is almost always wrong: the sweep exists to find

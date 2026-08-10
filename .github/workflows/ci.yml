@@ -28,6 +28,12 @@ jobs:
       - name: Install components
         run: rustup component add rustfmt clippy
 
+      # `cargo test` links the std test harness, so only a real no_std target build can
+      # prove the crate still compiles without std. `make no-std-check` skips with a
+      # notice when the target is absent, so CI must install it or the check is silent.
+      - name: Install a no_std target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
