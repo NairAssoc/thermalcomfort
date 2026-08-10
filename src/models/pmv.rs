@@ -343,17 +343,20 @@ pub fn pmv_ppd_ashrae(
     // (tdb-ce, tr-ce, 0.1 m/s) environment, matching pythermalcomfort.
     let (tdb_adj, tr_adj, vr_adj) = if air_speed > 0.1 {
         let ce = crate::models::cooling_effect::cooling_effect(
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            crate::models::cooling_effect::CoolingEffectInputs {
+                dry_bulb_temp,
+                mean_radiant_temp,
+                relative_air_speed,
+                relative_humidity,
+                metabolic_rate,
+                clothing_insulation,
+            },
             crate::models::cooling_effect::CoolingEffectOptions {
                 wme: options.wme,
                 ..Default::default()
             },
-        );
+        )
+        .as_celsius();
         if ce > 0.0 {
             (dry_bulb_celsius - ce, radiant_celsius - ce, 0.1)
         } else {

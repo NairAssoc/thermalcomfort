@@ -29,7 +29,7 @@ pub use crate::utilities::clo_tout;
 pub use adaptive::{
     AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions, adaptive_ashrae, adaptive_en,
 };
-pub use cooling_effect::{CoolingEffectOptions, cooling_effect};
+pub use cooling_effect::{CoolingEffectInputs, CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
 pub use ireq::{DurationLimitedExposure, IreqOptions, IreqResult, ireq};
 pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
@@ -40,7 +40,10 @@ pub use ridge_regression::{
 };
 pub use set_tmp::{SetOptions, set_tmp};
 pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
-pub use specialty::{ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd};
+pub use specialty::{
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+    ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
+};
 pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsValues, sports_heat_stress_risk,
 };
@@ -58,7 +61,7 @@ pub use two_nodes_gagge_sleep::{
 };
 pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
 pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
-pub use wbgt::{WbgtOptions, wbgt};
+pub use wbgt::{WbgtInputs, WbgtOptions, wbgt};
 pub use work_capacity::{
     WorkIntensity, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,

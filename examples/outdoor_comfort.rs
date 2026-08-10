@@ -3,7 +3,7 @@
 //! Demonstrates UTCI (Universal Thermal Climate Index) and WBGT (Wet Bulb Globe Temperature)
 //! for assessing outdoor thermal conditions and heat stress.
 
-use thermalcomfort::models::{utci, wbgt};
+use thermalcomfort::models::{WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
 use thermalcomfort::{Humidity, Speed, Temperature};
 
@@ -43,7 +43,19 @@ fn main() {
     let twb1 = wet_bulb_temperature(tdb1, rh1);
     let tg1 = Temperature::from_celsius(35.0); // globe temperature (elevated by solar radiation)
 
-    let wbgt_result1 = wbgt(twb1, tg1, Some(tdb1), Default::default());
+    let wbgt_result1 = wbgt(
+        WbgtInputs {
+            wet_bulb_temp: twb1,
+            globe_temp: tg1,
+        },
+        WbgtOptions {
+            dry_bulb_temp: Some(tdb1),
+            // Both examples are outdoors in sun, which is what dry_bulb_temp is for:
+            // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
+            with_solar_load: true,
+            ..Default::default()
+        },
+    );
 
     println!("\nWBGT Heat Stress Assessment:");
     println!("  WBGT: {:.1}°C", wbgt_result1);
@@ -86,7 +98,19 @@ fn main() {
     let twb2 = wet_bulb_temperature(tdb2, rh2);
     let tg2 = Temperature::from_celsius(42.0);
 
-    let wbgt_result2 = wbgt(twb2, tg2, Some(tdb2), Default::default());
+    let wbgt_result2 = wbgt(
+        WbgtInputs {
+            wet_bulb_temp: twb2,
+            globe_temp: tg2,
+        },
+        WbgtOptions {
+            dry_bulb_temp: Some(tdb2),
+            // Both examples are outdoors in sun, which is what dry_bulb_temp is for:
+            // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
+            with_solar_load: true,
+            ..Default::default()
+        },
+    );
 
     println!("\nWBGT Heat Stress Assessment:");
     println!("  WBGT: {:.1}°C", wbgt_result2);

@@ -10,12 +10,16 @@ use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::AdaptiveOptions;
 use thermalcomfort::models::pmv::PmvPpdOptions;
-use thermalcomfort::models::specialty::f_svv;
+use thermalcomfort::models::specialty::{
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+    f_svv,
+};
 use thermalcomfort::models::{
-    DurationLimitedExposure, IreqOptions, Iso7933Model, PhsOptions, PhsPosture, WorkIntensity,
-    adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
-    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
-    pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
+    CoolingEffectInputs, DurationLimitedExposure, IreqOptions, Iso7933Model,
+    PhsOptions, PhsPosture, WbgtInputs, WbgtOptions, WorkIntensity, adaptive_ashrae, adaptive_en,
+    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
+    heat_index_schoen, humidex, ireq, net, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
     SolarGainInputs, SolarGainOptions, solar_gain, thi, transpose_sharp_altitude,
     two_nodes_gagge, two_nodes_gagge_ji,
     SleepInputs, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
@@ -1696,16 +1700,18 @@ fn test_compare_cooling_effect() {
             let py_ce: f64 = py_result.getattr("ce").unwrap().extract().unwrap();
 
             let rust_result = cooling_effect(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                CoolingEffectInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result, py_ce, epsilon = 0.15);
+            assert_abs_diff_eq!(rust_result.as_celsius(), py_ce, epsilon = 0.15);
         }
     });
 }
@@ -2052,10 +2058,14 @@ fn test_compare_wbgt() {
             let py_wbgt: f64 = py_result.getattr("wbgt").unwrap().extract().unwrap();
 
             let rust_result = wbgt(
-                Temperature::from_celsius(twb),
-                Temperature::from_celsius(tg),
-                Some(Temperature::from_celsius(tdb)),
-                Default::default(),
+                WbgtInputs {
+                    wet_bulb_temp: Temperature::from_celsius(twb),
+                    globe_temp: Temperature::from_celsius(tg),
+                },
+                WbgtOptions {
+                    dry_bulb_temp: Some(Temperature::from_celsius(tdb)),
+                    ..Default::default()
+                },
             );
 
             assert_abs_diff_eq!(rust_result, py_wbgt, epsilon = 0.1);
@@ -2529,14 +2539,16 @@ fn test_compare_ankle_draft() {
             let py_ppd: f64 = py_result.getattr("ppd_ad").unwrap().extract().unwrap();
 
             let (rust_ppd, _) = ankle_draft(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                Speed::from_meters_per_second(v_ankle),
-                true,
+                AnkleDraftInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    ankle_air_speed: Speed::from_meters_per_second(v_ankle),
+                },
+                AnkleDraftOptions { limit_inputs: true },
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -2565,14 +2577,19 @@ fn test_compare_vertical_tmp_grad_ppd() {
             let py_ppd: f64 = py_result.getattr("ppd_vg").unwrap().extract().unwrap();
 
             let (rust_ppd, _) = vertical_tmp_grad_ppd(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                TemperatureDelta::from_celsius(grad),
-                true,
+                VerticalTmpGradPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    vertical_temp_gradient: TemperatureDelta::from_celsius(grad),
+                },
+                VerticalTmpGradPpdOptions {
+                    round_output: true,
+                    limit_inputs: true,
+                },
             );
 
             assert_abs_diff_eq!(rust_ppd, py_ppd, epsilon = 0.5);
@@ -2889,16 +2906,18 @@ fn test_readme_example_cooling_effect() {
 
         // Rust calculation with measurement types
         let ce = cooling_effect(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tr),
-            Speed::from_meters_per_second(vr),
-            Humidity::from_percent(rh),
-            MetabolicRate::from_met(met),
-            ClothingInsulation::from_clo(clo),
+            CoolingEffectInputs {
+                dry_bulb_temp: Temperature::from_celsius(tdb),
+                mean_radiant_temp: Temperature::from_celsius(tr),
+                relative_air_speed: Speed::from_meters_per_second(vr),
+                relative_humidity: Humidity::from_percent(rh),
+                metabolic_rate: MetabolicRate::from_met(met),
+                clothing_insulation: ClothingInsulation::from_clo(clo),
+            },
             Default::default(),
         );
 
-        assert_abs_diff_eq!(ce, py_ce, epsilon = 0.15);
+        assert_abs_diff_eq!(ce.as_celsius(), py_ce, epsilon = 0.15);
     });
 }
 

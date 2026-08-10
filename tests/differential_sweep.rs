@@ -18,13 +18,16 @@ use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, run_sweep};
 use thermalcomfort::models::pmv::PmvPpdOptions;
+use thermalcomfort::models::specialty::{
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+};
 use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
 use thermalcomfort::models::{
-    AdaptiveOptions, CoolingEffectOptions, DurationLimitedExposure, GaggeTwoNodesOptions,
-    GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions, PetPosture, PhsOptions,
-    PhsPosture, SleepInputs, two_nodes_gagge_sleep,
+    AdaptiveOptions, CoolingEffectInputs, CoolingEffectOptions, DurationLimitedExposure,
+    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions,
+    PetPosture, PhsOptions, PhsPosture, SleepInputs, two_nodes_gagge_sleep,
     RidgeRegressionOptions, SetOptions, SolarGainInputs, SolarGainOptions, Sports, SportsValues,
-    UtciOptions, WbgtOptions,
+    UtciOptions, WbgtInputs, WbgtOptions,
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
     net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
@@ -39,7 +42,7 @@ use thermalcomfort::psychrometrics::{
     psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BsaFormula, Posture, antoine, body_surface_area, clo_area_factor,
+    BsaFormula, Posture, Units, antoine, body_surface_area, clo_area_factor,
     clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment,
     clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
     clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
@@ -507,12 +510,16 @@ fn sweep_cooling_effect() {
         .real("rh", 5.0, 95.0)
         .real("met", 1.0, 4.0)
         .real("clo", 0.0, 1.5)
-        .real("wme", 0.0, 1.0);
+        .real("wme", 0.0, 1.0)
+        .enumerated("units", 2);
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let field = FieldCmp::new("ce", 0.011);
+        let field_si = FieldCmp::new("ce", 0.011);
+        // Upstream's IP branch rescales the Celsius value by 3.28/1.8 (~1.822), so an
+        // equivalent-precision absolute tolerance scales by the same factor.
+        let field_ip = FieldCmp::new("ce", 0.011 * 3.28 / 1.8);
 
         run_sweep("sweep_cooling_effect", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
@@ -524,30 +531,56 @@ fn sweep_cooling_effect() {
                 s.real("clo"),
                 s.real("wme"),
             );
+            let (units, py_units) = match s.index("units") {
+                0 => (Units::SI, "SI"),
+                _ => (Units::IP, "IP"),
+            };
 
-            let kwargs = [("wme", wme.into_pyobject(py).unwrap().into_any())]
-                .into_py_dict(py)
-                .unwrap();
+            let kwargs = [
+                ("wme", wme.into_pyobject(py).unwrap().into_any()),
+                ("units", py_units.into_pyobject(py).unwrap().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+            // Python's `units="IP"` reinterprets its raw tdb/tr/vr floats as
+            // Fahrenheit/fps and converts them to SI before doing anything else, so
+            // feeding it the same Celsius/m/s numbers Rust uses would silently change
+            // the physical inputs. Convert to IP here (upstream's own
+            // `units_converter` formulas) so both sides compute from the same
+            // underlying environment; only cooling_effect's *output* rescale is under
+            // test.
+            let (py_tdb, py_tr, py_vr) = if units == Units::IP {
+                (tdb * 9.0 / 5.0 + 32.0, tr * 9.0 / 5.0 + 32.0, vr * 3.281)
+            } else {
+                (tdb, tr, vr)
+            };
             let py_result = models
                 .getattr("cooling_effect")
                 .unwrap()
-                .call((tdb, tr, vr, rh, met, clo), Some(&kwargs))
+                .call((py_tdb, py_tr, py_vr, rh, met, clo), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = cooling_effect(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                CoolingEffectInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 CoolingEffectOptions {
                     wme: MetabolicRate::from_met(wme),
-                    ..Default::default()
+                    units,
                 },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "ce")?)
+            let (field, rust_value) = match units {
+                Units::SI => (&field_si, rust.as_celsius()),
+                Units::IP => (&field_ip, rust.as_fahrenheit()),
+            };
+
+            compare_field(field, rust_value, py_float(&py_result, "ce")?)
         });
     });
 }
@@ -1960,10 +1993,12 @@ fn sweep_wbgt() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = wbgt(
-                Temperature::from_celsius(twb),
-                Temperature::from_celsius(tg),
-                with_solar_load.then(|| Temperature::from_celsius(tdb)),
+                WbgtInputs {
+                    wet_bulb_temp: Temperature::from_celsius(twb),
+                    globe_temp: Temperature::from_celsius(tg),
+                },
                 WbgtOptions {
+                    dry_bulb_temp: with_solar_load.then(|| Temperature::from_celsius(tdb)),
                     with_solar_load,
                     round_output,
                 },
@@ -2539,14 +2574,16 @@ fn sweep_ankle_draft() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let (ppd_ad, acceptability) = ankle_draft(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                Speed::from_meters_per_second(v_ankle),
-                limit_inputs,
+                AnkleDraftInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    ankle_air_speed: Speed::from_meters_per_second(v_ankle),
+                },
+                AnkleDraftOptions { limit_inputs },
             );
 
             compare_field(&field, ppd_ad, py_float(&py_result, "ppd_ad")?)?;
@@ -2605,21 +2642,27 @@ fn sweep_vertical_tmp_grad_ppd() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let (ppd_vg, acceptability) = vertical_tmp_grad_ppd(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                TemperatureDelta::from_celsius(grad),
-                limit_inputs,
+                VerticalTmpGradPpdInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    relative_air_speed: Speed::from_meters_per_second(vr),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    vertical_temp_gradient: TemperatureDelta::from_celsius(grad),
+                },
+                VerticalTmpGradPpdOptions {
+                    round_output,
+                    limit_inputs,
+                },
             );
 
-            // The Rust port has no round_output knob here, so the reference is Python's
-            // rounded value; the unrounded half only has to agree within that step.
-            let tol = if round_output { 1e-9 } else { 0.051 };
+            // round_output is now honoured (it used to be hardcoded to true here, so
+            // the unrounded half of this sweep had to be compared at 0.051 -- wide
+            // enough to hide any error smaller than the rounding it was compensating
+            // for). Both halves are compared to full precision now.
             compare_field(
-                &FieldCmp::new("ppd_vg", tol),
+                &FieldCmp::new("ppd_vg", 1e-9),
                 ppd_vg,
                 py_float(&py_result, "ppd_vg")?,
             )?;
