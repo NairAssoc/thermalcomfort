@@ -285,14 +285,20 @@ measured, so the duplicate was deleted rather than kept as a choice.
 
 Every public function is checked against pythermalcomfort by `make parity-coverage`, and
 every one except `two_nodes_gagge_sleep` is additionally driven through the randomised
-differential sweep. Two gaps are known and deliberate:
+differential sweep. One gap is known:
 
 | Gap | Status |
 |-----|--------|
-| `two_nodes_gagge_sleep` | Present but **not a faithful port**: it delegates to the standard Gagge model at a fixed 0.7 met, so `quilt_thickness` has no effect on the result. The function's doc comment describes the divergence in full. |
-| `JOS3` | **Not ported.** pythermalcomfort's 17-segment whole-body thermoregulation model has no Rust counterpart. |
+| `JOS3` | **Port in progress.** pythermalcomfort's 17-segment whole-body thermoregulation model; see `docs/worklist/parity/`. |
 
-Both are tracked in `docs/superpowers/plans/outstanding-parity-work.md`.
+`two_nodes_gagge_sleep` is now a faithful port of the Yan et al. (2022) model: it simulates
+the night minute by minute and takes a per-minute schedule for each driving variable, as
+upstream does. It previously delegated to the standard Gagge model at a fixed 0.7 met, so
+`quilt_thickness` had no effect at all. All ten output trajectories are compared against
+pythermalcomfort to 1e-9 in `tests/python_comparison.rs`.
+
+Outstanding work is tracked in `docs/worklist/parity/` and
+`docs/superpowers/plans/outstanding-parity-work.md`.
 
 ## Testing
 

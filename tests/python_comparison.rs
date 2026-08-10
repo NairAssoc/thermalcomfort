@@ -17,7 +17,7 @@ use thermalcomfort::models::{
     heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
     pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
     solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    SleepInputs, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
     wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
     work_capacity_niosh,
 };
@@ -3041,57 +3041,159 @@ fn test_two_nodes_gagge_sleep_comparison() {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Test cases for sleep conditions
-        // Note: Our Rust implementation is simplified (single timestep)
-        // while Python does full time-series. We test with single values.
-        let test_cases = vec![
-            (25.0, 25.0, 0.1, 50.0, 0.5, 0.1),  // Typical sleep environment
-            (22.0, 22.0, 0.1, 40.0, 1.0, 0.15), // Cooler with more bedding
-            (28.0, 28.0, 0.2, 60.0, 0.3, 0.05), // Warmer with light bedding
+        // Whole-night schedules, one value per minute. The third case varies every
+        // driving variable over the night — the shape the previous single-value Rust
+        // signature could not express at all, and the reason the old test compared one
+        // steady-state point with a 2 °C tolerance.
+        let cases: Vec<(&str, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> = vec![
+            (
+                "steady, thin quilt",
+                vec![25.0; 30],
+                vec![25.0; 30],
+                vec![0.1; 30],
+                vec![50.0; 30],
+                vec![0.5; 30],
+                vec![1.0; 30],
+            ),
+            (
+                "steady, thick quilt",
+                vec![22.0; 30],
+                vec![22.0; 30],
+                vec![0.1; 30],
+                vec![40.0; 30],
+                vec![1.0; 30],
+                vec![9.0; 30],
+            ),
+            (
+                "varying overnight",
+                (0..45).map(|i| 20.0 + 0.2 * i as f64).collect(),
+                (0..45).map(|i| 21.0 + 0.15 * i as f64).collect(),
+                (0..45).map(|i| 0.1 + 0.004 * i as f64).collect(),
+                (0..45).map(|i| 40.0 + 0.5 * i as f64).collect(),
+                (0..45).map(|i| 0.3 + 0.01 * i as f64).collect(),
+                (0..45).map(|i| 1.0 + 0.15 * i as f64).collect(),
+            ),
         ];
 
-        for (tdb, tr, v, rh, clo, thickness) in test_cases {
-            println!(
-                "\nTesting sleep: tdb={}, tr={}, v={}, rh={}, clo={}, thickness={}",
-                tdb, tr, v, rh, clo, thickness
-            );
+        for (name, tdb, tr, v, rh, clo, thickness) in cases {
+            println!("\nTesting sleep schedule: {name} ({} minutes)", tdb.len());
 
-            // Call Python function (single timestep)
             let py_result = pythermal
                 .getattr("two_nodes_gagge_sleep")
                 .unwrap()
-                .call1((tdb, tr, v, rh, clo, thickness))
+                .call1((
+                    tdb.clone(),
+                    tr.clone(),
+                    v.clone(),
+                    rh.clone(),
+                    clo.clone(),
+                    thickness.clone(),
+                ))
                 .unwrap();
 
-            let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
-            let py_t_core: f64 = py_result.getattr("t_core").unwrap().extract().unwrap();
-            let py_t_skin: f64 = py_result.getattr("t_skin").unwrap().extract().unwrap();
+            let py_field = |name: &str| -> Vec<f64> {
+                py_result
+                    .getattr(name)
+                    .unwrap()
+                    .call_method0("tolist")
+                    .unwrap()
+                    .extract()
+                    .unwrap()
+            };
 
-            // Call Rust function
+            let rust_tdb: Vec<Temperature> =
+                tdb.iter().copied().map(Temperature::from_celsius).collect();
+            let rust_tr: Vec<Temperature> =
+                tr.iter().copied().map(Temperature::from_celsius).collect();
+            let rust_v: Vec<Speed> = v
+                .iter()
+                .copied()
+                .map(Speed::from_meters_per_second)
+                .collect();
+            let rust_rh: Vec<Humidity> = rh.iter().copied().map(Humidity::from_percent).collect();
+            let rust_clo: Vec<ClothingInsulation> = clo
+                .iter()
+                .copied()
+                .map(ClothingInsulation::from_clo)
+                .collect();
+            let rust_quilt: Vec<Length> = thickness
+                .iter()
+                .copied()
+                .map(Length::from_centimeters)
+                .collect();
+
             let rust_result = two_nodes_gagge_sleep(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                ClothingInsulation::from_clo(clo),
-                Length::from_centimeters(thickness),
+                SleepInputs {
+                    tdb: &rust_tdb,
+                    tr: &rust_tr,
+                    v: &rust_v,
+                    rh: &rust_rh,
+                    clo: &rust_clo,
+                    thickness_quilt: &rust_quilt,
+                },
                 Default::default(),
-            );
+            )
+            .expect("all six schedules are the same length");
 
-            println!(
-                "  Python - SET: {:.2}, T_core: {:.2}, T_skin: {:.2}",
-                py_set, py_t_core, py_t_skin
-            );
-            println!(
-                "  Rust   - SET: {:.2}, T_core: {:.2}, T_skin: {:.2}",
-                rust_result.set, rust_result.t_core, rust_result.t_skin
-            );
+            // Every field upstream returns, over the whole trajectory — not just the
+            // final minute, and not just the three fields the old test looked at.
+            let comparisons: Vec<(&str, Vec<f64>, Vec<f64>)> = vec![
+                (
+                    "set",
+                    rust_result.set.iter().map(|t| t.as_celsius()).collect(),
+                    py_field("set"),
+                ),
+                (
+                    "t_core",
+                    rust_result.t_core.iter().map(|t| t.as_celsius()).collect(),
+                    py_field("t_core"),
+                ),
+                (
+                    "t_skin",
+                    rust_result.t_skin.iter().map(|t| t.as_celsius()).collect(),
+                    py_field("t_skin"),
+                ),
+                ("wet", rust_result.wet.clone(), py_field("wet")),
+                ("t_sens", rust_result.t_sens.clone(), py_field("t_sens")),
+                ("disc", rust_result.disc.clone(), py_field("disc")),
+                (
+                    "e_skin",
+                    rust_result
+                        .e_skin
+                        .iter()
+                        .map(|q| q.as_watts_per_square_meter())
+                        .collect(),
+                    py_field("e_skin"),
+                ),
+                (
+                    "met_shivering",
+                    rust_result
+                        .met_shivering
+                        .iter()
+                        .map(|q| q.as_watts_per_square_meter())
+                        .collect(),
+                    py_field("met_shivering"),
+                ),
+                ("alfa", rust_result.alfa.clone(), py_field("alfa")),
+                (
+                    "skin_blood_flow",
+                    rust_result.skin_blood_flow.clone(),
+                    py_field("skin_blood_flow"),
+                ),
+            ];
 
-            // Note: Larger epsilon because our implementation is simplified
-            // Full time-series would require more complex implementation
-            assert_abs_diff_eq!(rust_result.set, py_set, epsilon = 2.0);
-            assert_abs_diff_eq!(rust_result.t_core, py_t_core, epsilon = 1.5);
-            assert_abs_diff_eq!(rust_result.t_skin, py_t_skin, epsilon = 1.5);
+            for (field, rust_vals, py_vals) in comparisons {
+                assert_eq!(
+                    rust_vals.len(),
+                    py_vals.len(),
+                    "{name}/{field}: trajectory length"
+                );
+                for (i, (r, p)) in rust_vals.iter().zip(&py_vals).enumerate() {
+                    assert_abs_diff_eq!(r, p, epsilon = 1e-9);
+                    let _ = i;
+                }
+            }
+            println!("  all 10 fields match over {} minutes", tdb.len());
         }
     });
 }

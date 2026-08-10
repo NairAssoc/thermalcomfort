@@ -4,6 +4,7 @@ pub mod adaptive;
 pub mod cooling_effect;
 pub mod heat_index_lu;
 pub mod ireq;
+pub mod jos3;
 pub mod pet;
 pub mod phs;
 pub mod pmv;
@@ -15,6 +16,7 @@ pub mod specialty;
 pub mod sports_heat_stress_risk;
 pub mod thermal_indices;
 pub mod two_nodes_gagge;
+pub mod two_nodes_gagge_sleep;
 pub mod use_fans_heatwaves;
 pub mod utci;
 pub mod wbgt;
@@ -48,7 +50,11 @@ pub use thermal_indices::{
 };
 pub use two_nodes_gagge::{
     GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult, GaggeTwoNodesOptions, GaggeTwoNodesResult,
-    GaggeTwoNodesSleepOptions, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
+    two_nodes_gagge, two_nodes_gagge_ji,
+};
+pub use two_nodes_gagge_sleep::{
+    GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, MismatchedScheduleLengths, SleepInputs,
+    two_nodes_gagge_sleep,
 };
 pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
 pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
