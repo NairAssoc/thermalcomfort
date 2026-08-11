@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
-use support::sweep::{import_reference, run_sweep};
+use support::sweep::{import_reference, report_skipped, run_sweep};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
@@ -1332,13 +1332,18 @@ fn sweep_two_nodes_gagge_ji() {
             Ok(())
         });
 
-        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
-        eprintln!(
-            "sweep_two_nodes_gagge_ji: skipped {} sample(s) whose pythermalcomfort \
-             reference had already moved further under a 1-ULP input change than Rust \
-             and Python differ (minute-by-minute integration with a positive Lyapunov \
-             exponent)",
-            ill_conditioned.get()
+        // Measured 1 of 3000 (0.03%) and 0 of 500. 0.5% is the floor this file uses for
+        // a rate this small: anything lower would be under one sample at the default
+        // `SWEEP_N=500`, so it would encode the sampler's granularity rather than what
+        // the sweep is allowed to drop. Still far below a rate that would mean the port
+        // had started diverging on ordinary inputs.
+        report_skipped(
+            "sweep_two_nodes_gagge_ji",
+            ill_conditioned.get(),
+            0.005,
+            "the reference had already moved further under a 1-ULP input change than Rust \
+             and Python differ; minute-by-minute integration with a positive Lyapunov \
+             exponent",
         );
     });
 }
@@ -1369,6 +1374,8 @@ fn sweep_two_nodes_gagge_sleep() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
+
+        let overflowed = std::cell::Cell::new(0usize);
 
         run_sweep("sweep_two_nodes_gagge_sleep", &domain, |s: &Sample| {
             // Upstream returns scalars rather than arrays for a one-minute night, so the
@@ -1422,7 +1429,15 @@ fn sweep_two_nodes_gagge_sleep() {
                 // Worth knowing: Rust does not raise here, it produces an infinity — a
                 // genuine behavioural difference, but one confined to inputs where
                 // upstream declines to answer at all.
-                Err(e) if e.is_instance_of::<PyOverflowError>(py) => return Ok(()),
+                //
+                // Thread-safe as written: the exception belongs to this call, not to any
+                // interpreter-global channel, so no other sweep thread can push a sample
+                // into this branch. It is counted so the share stays visible and bounded,
+                // the same as every other exclusion in this file.
+                Err(e) if e.is_instance_of::<PyOverflowError>(py) => {
+                    overflowed.set(overflowed.get() + 1);
+                    return Ok(());
+                }
                 Err(e) => return Err(format!("python raised: {e}")),
             };
 
@@ -1528,6 +1543,19 @@ fn sweep_two_nodes_gagge_sleep() {
             }
             Ok(())
         });
+
+        // Measured 0 of 500 and 0 of 3000: the overflow corner exists (it is what the
+        // branch above is for) but the sampler does not currently land in it. The ceiling
+        // is deliberately tight, so a change that starts pushing schedules into the corner
+        // where upstream refuses to answer shows up as a failure rather than as quietly
+        // reduced coverage.
+        report_skipped(
+            "sweep_two_nodes_gagge_sleep",
+            overflowed.get(),
+            0.005,
+            "upstream's own exponentials overflowed and CPython raised, so there is no \
+             reference value for the sample",
+        );
     });
 }
 
@@ -2000,6 +2028,7 @@ fn sweep_jos3() {
             .expect("failed to import pythermalcomfort.models");
 
         let ill_conditioned = std::cell::Cell::new(0usize);
+        let unsolvable = std::cell::Cell::new(0usize);
 
         run_sweep("sweep_jos3", &domain, |s: &Sample| {
             let height = s.real("height");
@@ -2073,7 +2102,14 @@ fn sweep_jos3() {
                 // value to compare against, so the sample is skipped rather than
                 // counted as a divergence, the same way `sweep_two_nodes_gagge_sleep`
                 // skips upstream's OverflowError.
-                Err(e) if e.is_instance_of::<PyValueError>(py) => return Ok(()),
+                //
+                // Thread-safe as written: the exception belongs to this call, not to any
+                // interpreter-global channel. Counted, so the share stays visible and
+                // bounded like every other exclusion in this file.
+                Err(e) if e.is_instance_of::<PyValueError>(py) => {
+                    unsolvable.set(unsolvable.get() + 1);
+                    return Ok(());
+                }
                 Err(e) => return Err(format!("python raised: {e}")),
             };
 
@@ -2139,11 +2175,25 @@ fn sweep_jos3() {
             }
         });
 
-        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
-        eprintln!(
-            "sweep_jos3: skipped {} sample(s) whose pythermalcomfort reference is not \
-             stable under a 1-ULP change to tdb (skin-wettedness saturation chatter)",
-            ill_conditioned.get()
+        // Measured 1 of 3000 (0.03%) and 0 of 500; 0.5% is this file's floor for a rate
+        // that small, as in `sweep_two_nodes_gagge_ji`.
+        report_skipped(
+            "sweep_jos3",
+            ill_conditioned.get(),
+            0.005,
+            "the reference is not stable under a 1-ULP change to tdb; skin-wettedness \
+             saturation chatter",
+        );
+        // Measured 0 of 500 and 0 of 3000: upstream's thermoregulation loop solves
+        // everywhere in this domain today. Tight on purpose, so a change that starts
+        // steering samples into the corner where Python declines to answer is a failure
+        // rather than silent lost coverage.
+        report_skipped(
+            "sweep_jos3/unsolvable",
+            unsolvable.get(),
+            0.005,
+            "upstream's thermoregulation loop raised ValueError, so there is no reference \
+             value for the sample",
         );
     });
 }
@@ -3040,23 +3090,82 @@ fn sweep_pet_steady() {
         // scipy's fsolve does not always converge on PET's 3-node system; when it gives
         // up it still returns its last iterate, and pythermalcomfort passes that
         // straight through. Those samples have no trustworthy reference value, so the
-        // shim reports whether a RuntimeWarning fired and the sweep skips them rather
-        // than comparing against a number scipy itself disowns.
+        // shim reports whether the solve converged and the sweep skips them rather than
+        // comparing against a number scipy itself disowns.
+        //
+        // It asks scipy for that answer directly, via the `ier` status `fsolve` returns
+        // under `full_output=True`, rather than watching for the `RuntimeWarning` scipy
+        // emits instead of that status. Reading the warning was wrong twice over:
+        //
+        //  - `warnings.catch_warnings` mutates *process-global* interpreter state (the
+        //    filter list and `showwarning`) and is documented as not thread-safe. The
+        //    sweeps in this file run on parallel test threads sharing one interpreter,
+        //    so a `RuntimeWarning` raised on another thread landed in this `caught` list
+        //    and PET discarded a sample it should have compared. Measured at
+        //    `SWEEP_N=500`: 2 skips running alone, 47-52 and varying run to run in the
+        //    full suite.
+        //  - Concurrent `catch_warnings` exits can also restore the filters mid-block,
+        //    so a *genuine* non-convergence could go unrecorded. Filtering the caught
+        //    warnings by category, message or origin would not have closed that half.
+        //
+        // `ier == 1` is scipy's own definition of "a solution was found"; the wrapper
+        // otherwise mirrors `fsolve`'s dispatch exactly (`_minpack_py.py`), including
+        // raising `TypeError` on the statuses that are input errors rather than
+        // non-convergence. Verified over 4000 samples of this domain: `ier != 1` and
+        // "a RuntimeWarning fired" agree on every one, so this is the same signal read
+        // from a per-call return value instead of a global side channel.
         let shim = PyModule::from_code(
             py,
             c_str!(
                 r#"
-import warnings
+import sys
+import threading
+
+from scipy import optimize as _scipy_optimize
 from pythermalcomfort.models import pet_steady
 
-def call(args, kwargs):
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        result = pet_steady(*args, **kwargs)
-        converged = not any(
-            issubclass(w.category, RuntimeWarning) for w in caught
+# `pet_steady` resolves `optimize` from its defining module's globals on every call, so
+# swapping that one name is enough to intercept both of its solves. Note the module has
+# to come from `sys.modules`: `pythermalcomfort.models.pet_steady` as an attribute is the
+# re-exported *function*, and setting `optimize` on that would be silently ignored.
+_module = sys.modules[pet_steady.__module__]
+
+# Thread-local, so that a second thread calling `pet_steady` while the patch is installed
+# records into its own slot instead of ours. The patch itself is installed once, here, and
+# never removed -- unlike a `catch_warnings` block there is no global state being swapped
+# in and out around each call.
+_state = threading.local()
+
+
+class _RecordingOptimize:
+    """Stand-in for `scipy.optimize` inside `pythermalcomfort.models.pet_steady`."""
+
+    def __getattr__(self, name):
+        return getattr(_scipy_optimize, name)
+
+    def fsolve(self, func, x0, args=(), **kwargs):
+        x, _info, ier, message = _scipy_optimize.fsolve(
+            func, x0, args=args, full_output=True, **kwargs
         )
-    return float(result.pet), converged
+        if ier == 1:
+            return x
+        if ier in (2, 3, 4, 5):
+            # Exactly the statuses fsolve turns into a RuntimeWarning: it gave up and is
+            # handing back its last iterate.
+            _state.converged = False
+            return x
+        # Statuses fsolve reports as a TypeError -- improper input, not non-convergence.
+        # Those are bugs in the call, not samples to skip, so they stay loud.
+        raise TypeError(message)
+
+
+_module.optimize = _RecordingOptimize()
+
+
+def call(args, kwargs):
+    _state.converged = True
+    result = pet_steady(*args, **kwargs)
+    return float(result.pet), _state.converged
 "#
             ),
             c_str!("pet_shim.py"),
@@ -3180,7 +3289,6 @@ def call(args, kwargs):
                 && !rust.pet.is_nan()
                 && (rust.pet - py_pet).abs() > 0.0051
             {
-                unconverged.set(unconverged.get());
                 eprintln!(
                     "DELTA {:.4} clo={:.3} tdb={:.1} rh={:.1} met={:.2} v={:.2}",
                     (rust.pet - py_pet).abs(),
@@ -3194,13 +3302,23 @@ def call(args, kwargs):
             compare_field(&field, rust.pet, py_pet)
         });
 
-        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
-        eprintln!(
-            "sweep_pet_steady: skipped {} sample(s) where scipy's fsolve did not \
-             converge; {} sample(s) where the Rust 3-node solver could not reach its \
-             own tolerance and returned NaN",
+        // Measured with the `ier` convergence check above, which -- unlike the global
+        // warning state it replaced -- gives the same answer whatever else is running:
+        // 12 of 3000 (0.40%) and 3 of 3000 (0.10%), and 2 and 1 of 500, identical across
+        // repeated full-suite runs. The ceilings are roughly 4x and 5x those, which at
+        // the default `SWEEP_N=500` is 7 and 2 samples.
+        report_skipped(
+            "sweep_pet_steady",
             skipped.get(),
-            unconverged.get()
+            0.015,
+            "scipy's fsolve did not converge, so upstream has no answer to compare against",
+        );
+        report_skipped(
+            "sweep_pet_steady/unconverged",
+            unconverged.get(),
+            0.005,
+            "the Rust 3-node solver could not reach its own 1e-5 residual and returned NaN \
+             rather than a wrong number",
         );
     });
 }

@@ -14,6 +14,33 @@ pub fn sweep_n() -> usize {
         .unwrap_or(500)
 }
 
+/// Report how many samples a sweep excluded, and fail if the share exceeds `ceiling`.
+///
+/// A sweep that skips samples has to say so, or it looks like it covered ground it
+/// dropped. Printing alone does not achieve that: `cargo test` captures the output of a
+/// *passing* test and discards it, so an `eprintln!` here is read only by someone who
+/// already passed `--nocapture` and went looking. The assertion is what makes the claim
+/// enforceable -- if a change starts pushing samples into the excluded bucket, the sweep
+/// fails instead of quietly narrowing.
+///
+/// `ceiling` is a fraction of the samples drawn, so it means the same thing at
+/// `SWEEP_N=500` and `SWEEP_N=3000`.
+pub fn report_skipped(label: &str, skipped: usize, ceiling: f64, why: &str) {
+    let n = sweep_n();
+    let share = skipped as f64 / n as f64;
+    eprintln!("{label}: skipped {skipped} of {n} sample(s) -- {why}");
+    assert!(
+        share <= ceiling,
+        "\n{label} excluded {skipped} of {n} samples ({:.2}%), over the {:.2}% this sweep \
+         is allowed to drop.\nThe exclusion is for samples where the pythermalcomfort \
+         reference is not a function of its inputs at the compared resolution ({why}).\n\
+         A jump here means either the port started diverging on ordinary inputs, or the \
+         gate has become too permissive -- investigate rather than raising this number.\n",
+        share * 100.0,
+        ceiling * 100.0,
+    );
+}
+
 /// Base seed. Override with `SWEEP_SEED=…` to reproduce a specific run.
 pub fn seed() -> u64 {
     std::env::var("SWEEP_SEED")
