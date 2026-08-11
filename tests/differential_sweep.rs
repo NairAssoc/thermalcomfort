@@ -31,23 +31,23 @@ use thermalcomfort::models::two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
 };
 use thermalcomfort::models::{
-    AdaptiveOptions, AtInputs, AtOptions, CoolingEffectInputs, CoolingEffectOptions,
-    DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs, EsiOptions, GaggeTwoNodesOptions,
-    GaggeTwoNodesSleepOptions, HeatIndexLuInputs, HeatIndexLuOptions, HeatIndexRothfuszInputs,
-    HeatIndexRothfuszOptions, HeatIndexSchoenInputs, HeatIndexSchoenOptions, HumidexInputs,
-    HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model, NetInputs, NetOptions,
-    PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionInputs,
-    RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs, SolarGainInputs, SolarGainOptions,
-    Sports, SportsHeatStressRiskInputs, SportsValues, ThiInputs, ThiOptions,
-    UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
-    WbgtOptions, WciInputs, WciOptions, WindChillTemperatureInputs, WindChillTemperatureOptions,
-    WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at,
-    cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen,
-    humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
-    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk, thi,
-    two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt,
-    wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    AdaptiveInputs, AdaptiveOptions, AtInputs, AtOptions, CoolingEffectInputs,
+    CoolingEffectOptions, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs, EsiOptions,
+    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, HeatIndexLuInputs, HeatIndexLuOptions,
+    HeatIndexRothfuszInputs, HeatIndexRothfuszOptions, HeatIndexSchoenInputs,
+    HeatIndexSchoenOptions, HumidexInputs, HumidexModel, HumidexOptions, IreqInputs, IreqOptions,
+    Iso7933Model, NetInputs, NetOptions, PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions,
+    PhsPosture, RidgeRegressionInputs, RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs,
+    SolarGainInputs, SolarGainOptions, Sports, SportsHeatStressRiskInputs, SportsValues, ThiInputs,
+    ThiOptions, UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions,
+    WbgtInputs, WbgtOptions, WciInputs, WciOptions, WindChillTemperatureInputs,
+    WindChillTemperatureOptions, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae,
+    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
+    heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb,
+    pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain,
+    sports_heat_stress_risk, thi, two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci,
+    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
+    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
@@ -3261,10 +3261,12 @@ fn sweep_adaptive_ashrae() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = adaptive_ashrae(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(trm),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(trm),
+                    v: Speed::from_meters_per_second(v),
+                },
                 AdaptiveOptions {
                     limit_inputs,
                     round_output,
@@ -3369,10 +3371,12 @@ fn sweep_adaptive_en() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = adaptive_en(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(trm),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(trm),
+                    v: Speed::from_meters_per_second(v),
+                },
                 AdaptiveOptions {
                     limit_inputs,
                     round_output,

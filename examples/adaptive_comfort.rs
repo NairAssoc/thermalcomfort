@@ -3,7 +3,7 @@
 //! Demonstrates the use of adaptive comfort models (ASHRAE 55 and EN 16798-1)
 //! for naturally ventilated buildings.
 
-use thermalcomfort::models::{adaptive_ashrae, adaptive_en};
+use thermalcomfort::models::{AdaptiveInputs, adaptive_ashrae, adaptive_en};
 use thermalcomfort::utilities::{
     RunningMeanOutdoorTemperatureOptions, running_mean_outdoor_temperature,
 };
@@ -45,7 +45,15 @@ fn main() {
 
     // ASHRAE 55 Adaptive Model
     println!("--- ASHRAE 55 Adaptive Model ---");
-    let ashrae_result = adaptive_ashrae(tdb, tr, t_running_mean, v, Default::default());
+    let ashrae_result = adaptive_ashrae(
+        AdaptiveInputs {
+            tdb,
+            tr,
+            t_running_mean,
+            v,
+        },
+        Default::default(),
+    );
 
     println!("  Comfort temperature:    {:.1}°C", ashrae_result.tmp_cmf);
     println!(
@@ -71,7 +79,15 @@ fn main() {
 
     // EN 16798-1 Adaptive Model
     println!("\n--- EN 16798-1 Adaptive Model ---");
-    let en_result = adaptive_en(tdb, tr, t_running_mean, v, Default::default());
+    let en_result = adaptive_en(
+        AdaptiveInputs {
+            tdb,
+            tr,
+            t_running_mean,
+            v,
+        },
+        Default::default(),
+    );
 
     println!("  Comfort temperature:    {:.1}°C", en_result.tmp_cmf);
     println!(

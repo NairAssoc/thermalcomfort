@@ -53,6 +53,21 @@ pub struct AdaptiveEnResult {
     pub acceptability_cat_iii: bool,
 }
 
+/// The comfort inputs shared by [`adaptive_ashrae`] and [`adaptive_en`].
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdaptiveInputs {
+    /// Dry bulb air temperature (recommended range: 10-40°C)
+    pub tdb: Temperature,
+    /// Mean radiant temperature (recommended range: 10-40°C)
+    pub tr: Temperature,
+    /// Running mean outdoor temperature (recommended range: 10-33.5°C)
+    pub t_running_mean: Temperature,
+    /// Air speed (recommended range: 0-2 m/s)
+    pub v: Speed,
+}
+
 /// Options for adaptive comfort calculations
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AdaptiveOptions {
@@ -138,10 +153,7 @@ fn adaptive_cooling_effect(v_ms: f64, to_celsius: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: 10-40°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (recommended range: 10-40°C)
-/// * `running_mean_outdoor_temp` - Running mean outdoor temperature (recommended range: 10-33.5°C)
-/// * `air_speed` - Air speed (recommended range: 0-2 m/s)
+/// * `inputs` - Required environmental inputs
 /// * `options` - Adaptive comfort options
 ///
 /// # Returns
@@ -158,38 +170,36 @@ fn adaptive_cooling_effect(v_ms: f64, to_celsius: f64) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::adaptive::{adaptive_ashrae, AdaptiveOptions};
+/// use thermalcomfort::models::adaptive::{adaptive_ashrae, AdaptiveInputs, AdaptiveOptions};
 /// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = adaptive_ashrae(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(20.0),
-///     Speed::from_meters_per_second(0.1),
+///     AdaptiveInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         t_running_mean: Temperature::from_celsius(20.0),
+///         v: Speed::from_meters_per_second(0.1),
+///     },
 ///     Default::default()
 /// );
 /// assert!(result.acceptability_80);
 /// println!("Comfort temp: {:.1}°C", result.tmp_cmf.as_celsius());
 /// ```
-pub fn adaptive_ashrae(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    running_mean_outdoor_temp: Temperature,
-    air_speed: Speed,
-    options: AdaptiveOptions,
-) -> AdaptiveAshraeResult {
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
-    let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
-    let speed_mps = air_speed.as_meters_per_second();
+pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> AdaptiveAshraeResult {
+    let AdaptiveInputs {
+        tdb,
+        tr,
+        t_running_mean,
+        v,
+    } = inputs;
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
+    let running_mean_celsius = t_running_mean.as_celsius();
+    let speed_mps = v.as_meters_per_second();
 
     // Calculate operative temperature (use_ashrae=true for adaptive models)
     let to = operative_temperature(
-        OperativeTemperatureInputs {
-            tdb: dry_bulb_temp,
-            tr: mean_radiant_temp,
-            v: air_speed,
-        },
+        OperativeTemperatureInputs { tdb, tr, v },
         OperativeTemperatureOptions { use_ashrae: true },
     );
 
@@ -259,10 +269,7 @@ pub fn adaptive_ashrae(
 ///
 /// # Arguments
 ///
-/// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: 10-30°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (recommended range: 10-40°C)
-/// * `running_mean_outdoor_temp` - Running mean outdoor temperature (recommended range: 10-30°C)
-/// * `air_speed` - Air speed (recommended range: 0-2 m/s)
+/// * `inputs` - Required environmental inputs
 /// * `options` - Adaptive comfort options
 ///
 /// # Returns
@@ -279,36 +286,34 @@ pub fn adaptive_ashrae(
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::adaptive::{adaptive_en, AdaptiveOptions};
+/// use thermalcomfort::models::adaptive::{adaptive_en, AdaptiveInputs, AdaptiveOptions};
 /// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = adaptive_en(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(20.0),
-///     Speed::from_meters_per_second(0.1),
+///     AdaptiveInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         t_running_mean: Temperature::from_celsius(20.0),
+///         v: Speed::from_meters_per_second(0.1),
+///     },
 ///     Default::default()
 /// );
 /// assert!(result.acceptability_cat_ii);
 /// println!("Comfort temp: {:.1}°C", result.tmp_cmf.as_celsius());
 /// ```
-pub fn adaptive_en(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    running_mean_outdoor_temp: Temperature,
-    air_speed: Speed,
-    options: AdaptiveOptions,
-) -> AdaptiveEnResult {
-    let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
-    let speed_mps = air_speed.as_meters_per_second();
+pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> AdaptiveEnResult {
+    let AdaptiveInputs {
+        tdb,
+        tr,
+        t_running_mean,
+        v,
+    } = inputs;
+    let running_mean_celsius = t_running_mean.as_celsius();
+    let speed_mps = v.as_meters_per_second();
 
     // EN 16798 uses the ISO operative temperature formulation, unlike adaptive_ashrae
     let to = operative_temperature(
-        OperativeTemperatureInputs {
-            tdb: dry_bulb_temp,
-            tr: mean_radiant_temp,
-            v: air_speed,
-        },
+        OperativeTemperatureInputs { tdb, tr, v },
         OperativeTemperatureOptions { use_ashrae: false },
     );
 
@@ -386,15 +391,18 @@ pub fn adaptive_en(
 mod tests {
     use super::*;
 
+    fn inputs(tdb: f64, tr: f64, t_running_mean: f64, v: f64) -> AdaptiveInputs {
+        AdaptiveInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            t_running_mean: Temperature::from_celsius(t_running_mean),
+            v: Speed::from_meters_per_second(v),
+        }
+    }
+
     #[test]
     fn test_adaptive_ashrae_comfortable() {
-        let result = adaptive_ashrae(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(20.0),
-            Speed::from_meters_per_second(0.1),
-            Default::default(),
-        );
+        let result = adaptive_ashrae(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
         assert!((result.tmp_cmf.as_celsius() - 24.0).abs() < 0.1);
         assert!(result.acceptability_80);
         assert!(result.acceptability_90);
@@ -403,13 +411,7 @@ mod tests {
     #[test]
     fn test_adaptive_ashrae_limits() {
         // Test invalid running mean (too low)
-        let result = adaptive_ashrae(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(5.0),
-            Speed::from_meters_per_second(0.1),
-            Default::default(),
-        );
+        let result = adaptive_ashrae(inputs(25.0, 25.0, 5.0, 0.1), Default::default());
         assert!(result.tmp_cmf.as_celsius().is_nan());
         assert!(!result.acceptability_80);
 
@@ -418,52 +420,28 @@ mod tests {
             limit_inputs: false,
             ..Default::default()
         };
-        let result = adaptive_ashrae(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(5.0),
-            Speed::from_meters_per_second(0.1),
-            options,
-        );
+        let result = adaptive_ashrae(inputs(25.0, 25.0, 5.0, 0.1), options);
         assert!(!result.tmp_cmf.as_celsius().is_nan());
     }
 
     #[test]
     fn test_adaptive_ashrae_cooling_effect() {
         // High air speed with high temperature
-        let result = adaptive_ashrae(
-            Temperature::from_celsius(28.0),
-            Temperature::from_celsius(28.0),
-            Temperature::from_celsius(20.0),
-            Speed::from_meters_per_second(1.0),
-            Default::default(),
-        );
+        let result = adaptive_ashrae(inputs(28.0, 28.0, 20.0, 1.0), Default::default());
         // Upper limit should be extended by cooling effect
         assert!(result.tmp_cmf_80_up.as_celsius() > result.tmp_cmf.as_celsius() + 3.5);
     }
 
     #[test]
     fn test_adaptive_en_comfortable() {
-        let result = adaptive_en(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(20.0),
-            Speed::from_meters_per_second(0.1),
-            Default::default(),
-        );
+        let result = adaptive_en(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
         assert!((result.tmp_cmf.as_celsius() - 25.4).abs() < 0.1);
         assert!(result.acceptability_cat_ii);
     }
 
     #[test]
     fn test_adaptive_en_categories() {
-        let result = adaptive_en(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(20.0),
-            Speed::from_meters_per_second(0.1),
-            Default::default(),
-        );
+        let result = adaptive_en(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
 
         // Check category bounds are properly ordered
         assert!(result.tmp_cmf_cat_i_low.as_celsius() > result.tmp_cmf_cat_ii_low.as_celsius());
@@ -475,13 +453,7 @@ mod tests {
     #[test]
     fn test_adaptive_en_limits() {
         // Test invalid running mean
-        let result = adaptive_en(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(5.0),
-            Speed::from_meters_per_second(0.1),
-            Default::default(),
-        );
+        let result = adaptive_en(inputs(25.0, 25.0, 5.0, 0.1), Default::default());
         assert!(result.tmp_cmf.as_celsius().is_nan());
         assert!(!result.acceptability_cat_ii);
     }
@@ -490,18 +462,10 @@ mod tests {
     fn test_adaptive_ashrae_round_output() {
         // trm=27 yields t_cmf = 0.31*27 + 17.8 = 26.17, which rounds to 26.2.
         // The 0.03 gap lets us detect whether rounding was applied.
-        let inputs = (
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(27.0),
-            Speed::from_meters_per_second(0.1),
-        );
+        let case = inputs(25.0, 25.0, 27.0, 0.1);
 
         let rounded = adaptive_ashrae(
-            inputs.0,
-            inputs.1,
-            inputs.2,
-            inputs.3,
+            case,
             AdaptiveOptions {
                 round_output: true,
                 ..Default::default()
@@ -513,10 +477,7 @@ mod tests {
         assert!((rounded.tmp_cmf_80_up.as_celsius() - 29.7).abs() < 1e-9);
 
         let unrounded = adaptive_ashrae(
-            inputs.0,
-            inputs.1,
-            inputs.2,
-            inputs.3,
+            case,
             AdaptiveOptions {
                 round_output: false,
                 ..Default::default()
@@ -533,18 +494,10 @@ mod tests {
     #[test]
     fn test_adaptive_en_round_output() {
         // trm=22 yields t_cmf = 0.33*22 + 18.8 = 26.06, which rounds to 26.1.
-        let inputs = (
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(22.0),
-            Speed::from_meters_per_second(0.1),
-        );
+        let case = inputs(25.0, 25.0, 22.0, 0.1);
 
         let rounded = adaptive_en(
-            inputs.0,
-            inputs.1,
-            inputs.2,
-            inputs.3,
+            case,
             AdaptiveOptions {
                 round_output: true,
                 ..Default::default()
@@ -553,10 +506,7 @@ mod tests {
         assert!((rounded.tmp_cmf.as_celsius() - 26.1).abs() < 1e-9);
 
         let unrounded = adaptive_en(
-            inputs.0,
-            inputs.1,
-            inputs.2,
-            inputs.3,
+            case,
             AdaptiveOptions {
                 round_output: false,
                 ..Default::default()
@@ -573,21 +523,16 @@ mod tests {
         // trm=27°C -> t_cmf rounds to 26.2°C in SI *before* the bounds are derived,
         // then that already-rounded value (and the derived bounds) convert to °F as
         // the last step, with no further rounding — so IP results carry extra decimals.
+        let case = inputs(25.0, 25.0, 27.0, 0.1);
         let si = adaptive_ashrae(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(27.0),
-            Speed::from_meters_per_second(0.1),
+            case,
             AdaptiveOptions {
                 units: Units::SI,
                 ..Default::default()
             },
         );
         let ip = adaptive_ashrae(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(27.0),
-            Speed::from_meters_per_second(0.1),
+            case,
             AdaptiveOptions {
                 units: Units::IP,
                 ..Default::default()
@@ -608,10 +553,7 @@ mod tests {
         // independently in the output unit, so the IP result should land on a clean
         // 1-decimal °F boundary (unlike adaptive_ashrae's IP output above).
         let ip = adaptive_en(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(22.0),
-            Speed::from_meters_per_second(0.1),
+            inputs(25.0, 25.0, 22.0, 0.1),
             AdaptiveOptions {
                 units: Units::IP,
                 ..Default::default()

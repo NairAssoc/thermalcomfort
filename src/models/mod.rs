@@ -27,7 +27,8 @@ pub use crate::utilities::clo_tout;
 
 // Re-export commonly used models
 pub use adaptive::{
-    AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions, adaptive_ashrae, adaptive_en,
+    AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveInputs, AdaptiveOptions, adaptive_ashrae,
+    adaptive_en,
 };
 pub use cooling_effect::{CoolingEffectInputs, CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::{HeatIndexLuInputs, HeatIndexLuOptions, heat_index_lu};

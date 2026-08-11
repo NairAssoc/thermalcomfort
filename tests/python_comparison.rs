@@ -10,7 +10,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
-use thermalcomfort::models::adaptive::AdaptiveOptions;
+use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions, PmvPpdInputs,
@@ -1927,10 +1927,12 @@ fn test_compare_adaptive_ashrae() {
                 .unwrap();
 
             let rust_result = adaptive_ashrae(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(t_running_mean),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(t_running_mean),
+                    v: Speed::from_meters_per_second(v),
+                },
                 Default::default(),
             );
 
@@ -2039,10 +2041,12 @@ fn test_compare_adaptive_en() {
                 .unwrap();
 
             let rust_result = adaptive_en(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(t_running_mean),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(t_running_mean),
+                    v: Speed::from_meters_per_second(v),
+                },
                 Default::default(),
             );
 
@@ -2145,10 +2149,12 @@ fn test_compare_adaptive_round_output_false() {
                 .unwrap();
 
             let rust_result = adaptive_ashrae(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(trm),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(trm),
+                    v: Speed::from_meters_per_second(v),
+                },
                 opts,
             );
 
@@ -2204,10 +2210,12 @@ fn test_compare_adaptive_round_output_false() {
                 .unwrap();
 
             let rust_result = adaptive_en(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Temperature::from_celsius(trm),
-                Speed::from_meters_per_second(v),
+                AdaptiveInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    t_running_mean: Temperature::from_celsius(trm),
+                    v: Speed::from_meters_per_second(v),
+                },
                 opts,
             );
 
@@ -2279,7 +2287,15 @@ fn test_compare_adaptive_ip_units() {
                 .unwrap();
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
 
-            let rust_result = adaptive_ashrae(tdb_c, tr_c, trm_c, v, ip_opts);
+            let rust_result = adaptive_ashrae(
+                AdaptiveInputs {
+                    tdb: tdb_c,
+                    tr: tr_c,
+                    t_running_mean: trm_c,
+                    v,
+                },
+                ip_opts,
+            );
             assert_abs_diff_eq!(
                 rust_result.tmp_cmf.as_fahrenheit(),
                 py_tmp_cmf,
@@ -2294,7 +2310,15 @@ fn test_compare_adaptive_ip_units() {
                 .unwrap();
             let py_tmp_cmf: f64 = py_result.getattr("tmp_cmf").unwrap().extract().unwrap();
 
-            let rust_result = adaptive_en(tdb_c, tr_c, trm_c, v, ip_opts);
+            let rust_result = adaptive_en(
+                AdaptiveInputs {
+                    tdb: tdb_c,
+                    tr: tr_c,
+                    t_running_mean: trm_c,
+                    v,
+                },
+                ip_opts,
+            );
             assert_abs_diff_eq!(
                 rust_result.tmp_cmf.as_fahrenheit(),
                 py_tmp_cmf,
