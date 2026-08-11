@@ -5,6 +5,32 @@ use crate::utilities::{np_maximum, p_sat};
 use libm::{atan, exp, fabs as abs, log, pow, sqrt};
 use measurements::{Humidity, Length, Pressure, Speed, Temperature};
 
+/// The comfort inputs to [`psy_ta_rh`]: pythermalcomfort requires both (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PsyTaRhInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Relative humidity
+    pub rh: Humidity,
+}
+
+/// Optional parameters for [`psy_ta_rh`], with pythermalcomfort's defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PsyTaRhOptions {
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
+}
+
+impl Default for PsyTaRhOptions {
+    fn default() -> Self {
+        Self {
+            p_atm: Pressure::from_pascals(101325.0),
+        }
+    }
+}
+
 /// Psychrometric values result
 #[derive(Debug, Clone, Copy)]
 pub struct PsychrometricValues {
@@ -24,12 +50,6 @@ pub struct PsychrometricValues {
 
 /// Calculate psychrometric values from dry bulb temperature and relative humidity
 ///
-/// # Arguments
-///
-/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-/// * `rh` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `p_atm` - Atmospheric pressure (use `Pressure::from_pascals()` or similar), default 101325 Pa
-///
 /// # Returns
 ///
 /// `PsychrometricValues` containing all psychrometric properties
@@ -37,18 +57,24 @@ pub struct PsychrometricValues {
 /// # Example
 ///
 /// ```
-/// use thermalcomfort::psychrometrics::psy_ta_rh;
+/// use thermalcomfort::psychrometrics::{psy_ta_rh, PsyTaRhInputs, PsyTaRhOptions};
 /// use thermalcomfort::{Temperature, Humidity, Pressure};
 ///
 /// let result = psy_ta_rh(
-///     Temperature::from_celsius(25.0),
-///     Humidity::from_percent(50.0),
-///     Pressure::from_pascals(101325.0)
+///     PsyTaRhInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         rh: Humidity::from_percent(50.0),
+///     },
+///     PsyTaRhOptions {
+///         p_atm: Pressure::from_pascals(101325.0),
+///     },
 /// );
 /// // result.t_wb ≈ 17.7°C
 /// // result.t_dp ≈ 13.9°C
 /// ```
-pub fn psy_ta_rh(tdb: Temperature, rh: Humidity, p_atm: Pressure) -> PsychrometricValues {
+pub fn psy_ta_rh(inputs: PsyTaRhInputs, options: PsyTaRhOptions) -> PsychrometricValues {
+    let PsyTaRhInputs { tdb, rh } = inputs;
+    let p_atm = options.p_atm;
     let p_saturation = p_sat(tdb);
     let p_sat_pa = p_saturation.as_pascals();
     let p_atm_pa = p_atm.as_pascals();
@@ -170,19 +196,49 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
     Temperature::from_celsius(t_dp_celsius)
 }
 
+/// The comfort inputs to [`mean_radiant_temperature`]: pythermalcomfort requires all
+/// three (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeanRadiantTemperatureInputs {
+    /// Globe temperature
+    pub tg: Temperature,
+    /// Air temperature
+    pub tdb: Temperature,
+    /// Air speed
+    pub v: Speed,
+}
+
+/// Optional parameters for [`mean_radiant_temperature`], with pythermalcomfort's
+/// defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeanRadiantTemperatureOptions {
+    /// Globe diameter, default 0.15 m
+    pub d: Length,
+    /// Globe emissivity, default 0.95
+    pub emissivity: f64,
+    /// If true, use ISO 7726:1998 formula; if false, use Mixed Convection.
+    ///
+    /// Matches pythermalcomfort's `standard` string ("Mixed Convection" / "ISO");
+    /// defaults to `false` (Mixed Convection).
+    pub use_iso: bool,
+}
+
+impl Default for MeanRadiantTemperatureOptions {
+    fn default() -> Self {
+        Self {
+            d: Length::from_meters(0.15),
+            emissivity: 0.95,
+            use_iso: false,
+        }
+    }
+}
+
 /// Calculate mean radiant temperature from globe temperature
 ///
 /// Converts globe temperature reading to mean radiant temperature using either
 /// Mixed Convection or ISO 7726:1998 standard
-///
-/// # Arguments
-///
-/// * `tg` - Globe temperature (use `Temperature::from_celsius()` or similar)
-/// * `tdb` - Air temperature (use `Temperature::from_celsius()` or similar)
-/// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `d` - Globe diameter, default 0.15 m
-/// * `emissivity` - Globe emissivity, default 0.95
-/// * `use_iso` - If true, use ISO formula; if false, use Mixed Convection
 ///
 /// # Returns
 ///
@@ -193,22 +249,19 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
 /// The Mixed Convection formulation by Teitelbaum et al. (2022) is only
 /// validated for globe diameters between 0.04 and 0.15 m
 pub fn mean_radiant_temperature(
-    tg: Temperature,
-    tdb: Temperature,
-    v: Speed,
-    d: Length,
-    emissivity: f64,
-    use_iso: bool,
+    inputs: MeanRadiantTemperatureInputs,
+    options: MeanRadiantTemperatureOptions,
 ) -> Temperature {
+    let MeanRadiantTemperatureInputs { tg, tdb, v } = inputs;
     let tg_celsius = tg.as_celsius();
     let tdb_celsius = tdb.as_celsius();
     let v_ms = v.as_meters_per_second();
-    let d_m = d.as_meters();
+    let d_m = options.d.as_meters();
 
-    let tr_celsius = if use_iso {
-        mean_radiant_temperature_iso(tg_celsius, tdb_celsius, v_ms, d_m, emissivity)
+    let tr_celsius = if options.use_iso {
+        mean_radiant_temperature_iso(tg_celsius, tdb_celsius, v_ms, d_m, options.emissivity)
     } else {
-        mean_radiant_temperature_mixed(tg_celsius, tdb_celsius, v_ms, d_m, emissivity)
+        mean_radiant_temperature_mixed(tg_celsius, tdb_celsius, v_ms, d_m, options.emissivity)
     };
     Temperature::from_celsius(tr_celsius)
 }
@@ -275,29 +328,48 @@ fn mean_radiant_temperature_mixed(tg: f64, tdb: f64, v: f64, d: f64, emissivity:
     ) - C_TO_K
 }
 
+/// The comfort inputs to [`operative_temperature`]: pythermalcomfort requires all
+/// three (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OperativeTemperatureInputs {
+    /// Air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Air speed
+    pub v: Speed,
+}
+
+/// Optional parameters for [`operative_temperature`], with pythermalcomfort's
+/// defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct OperativeTemperatureOptions {
+    /// If true, use the ASHRAE method; if false, the ISO method.
+    ///
+    /// Mirrors pythermalcomfort's `standard` string ("ISO" / "ASHRAE"), whose default is
+    /// "ISO" — which is `false` here, and so happens to coincide with `bool`'s own
+    /// default. Derived rather than written out for that reason; if upstream ever
+    /// defaults to ASHRAE, this needs a manual impl again.
+    pub use_ashrae: bool,
+}
+
 /// Calculate operative temperature
-///
-/// # Arguments
-///
-/// * `tdb` - Air temperature (use `Temperature::from_celsius()` or similar)
-/// * `tr` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
-/// * `v` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `use_ashrae` - If true, use ASHRAE method; if false, use ISO method
 ///
 /// # Returns
 ///
 /// Operative temperature
 pub fn operative_temperature(
-    tdb: Temperature,
-    tr: Temperature,
-    v: Speed,
-    use_ashrae: bool,
+    inputs: OperativeTemperatureInputs,
+    options: OperativeTemperatureOptions,
 ) -> Temperature {
+    let OperativeTemperatureInputs { tdb, tr, v } = inputs;
     let tdb_celsius = tdb.as_celsius();
     let tr_celsius = tr.as_celsius();
     let v_ms = v.as_meters_per_second();
 
-    let to_celsius = if use_ashrae {
+    let to_celsius = if options.use_ashrae {
         // ASHRAE 55 method with speed-dependent weighting factor
         // Thresholds and weights:
         // v < 0.2 m/s: a = 0.5 (equal weighting of air and radiant temp)
@@ -359,9 +431,11 @@ mod tests {
     #[test]
     fn test_psy_ta_rh() {
         let result = psy_ta_rh(
-            Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0),
-            Pressure::from_pascals(101325.0),
+            PsyTaRhInputs {
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
+            },
+            Default::default(),
         );
 
         assert!(result.p_sat.as_pascals() > 0.0);
@@ -373,22 +447,74 @@ mod tests {
     }
 
     #[test]
+    fn test_psy_ta_rh_p_atm_default() {
+        // Python defaults p_atm to 101325 Pa; confirm the Rust default matches.
+        let default_p_atm = psy_ta_rh(
+            PsyTaRhInputs {
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
+            },
+            Default::default(),
+        );
+        let explicit_p_atm = psy_ta_rh(
+            PsyTaRhInputs {
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
+            },
+            PsyTaRhOptions {
+                p_atm: Pressure::from_pascals(101325.0),
+            },
+        );
+        assert_eq!(default_p_atm.hr, explicit_p_atm.hr);
+    }
+
+    #[test]
+    fn test_mean_radiant_temperature_defaults() {
+        // Python defaults d=0.15, emissivity=0.95, standard="Mixed Convection".
+        let result = mean_radiant_temperature(
+            MeanRadiantTemperatureInputs {
+                tg: Temperature::from_celsius(30.0),
+                tdb: Temperature::from_celsius(25.0),
+                v: Speed::from_meters_per_second(0.3),
+            },
+            Default::default(),
+        );
+        let explicit = mean_radiant_temperature(
+            MeanRadiantTemperatureInputs {
+                tg: Temperature::from_celsius(30.0),
+                tdb: Temperature::from_celsius(25.0),
+                v: Speed::from_meters_per_second(0.3),
+            },
+            MeanRadiantTemperatureOptions {
+                d: Length::from_meters(0.15),
+                emissivity: 0.95,
+                use_iso: false,
+            },
+        );
+        assert_eq!(result.as_celsius(), explicit.as_celsius());
+    }
+
+    #[test]
     fn test_operative_temperature() {
-        // ISO method
+        // ISO method (default)
         let t_op = operative_temperature(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            false,
+            OperativeTemperatureInputs {
+                tdb: Temperature::from_celsius(25.0),
+                tr: Temperature::from_celsius(25.0),
+                v: Speed::from_meters_per_second(0.1),
+            },
+            Default::default(),
         );
         assert!((t_op.as_celsius() - 25.0).abs() < 0.01);
 
         // ASHRAE method
         let t_op2 = operative_temperature(
-            Temperature::from_celsius(22.0),
-            Temperature::from_celsius(26.0),
-            Speed::from_meters_per_second(0.1),
-            true,
+            OperativeTemperatureInputs {
+                tdb: Temperature::from_celsius(22.0),
+                tr: Temperature::from_celsius(26.0),
+                v: Speed::from_meters_per_second(0.1),
+            },
+            OperativeTemperatureOptions { use_ashrae: true },
         );
         assert!(t_op2.as_celsius() > 22.0 && t_op2.as_celsius() < 26.0);
     }

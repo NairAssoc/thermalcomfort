@@ -18,6 +18,14 @@ pub enum WorkIntensity {
     Heavy,
 }
 
+/// Options for [`work_capacity_dunne`] and [`work_capacity_hothaps`], with
+/// pythermalcomfort's default (`work_intensity: str = WorkIntensity.HEAVY.value`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WorkCapacityIntensityOptions {
+    /// Intensity of work being performed
+    pub work_intensity: WorkIntensity,
+}
+
 /// Estimate work capacity based on ISO standards
 ///
 /// Estimates work capacity as described by Bröde et al. (2018).
@@ -107,7 +115,7 @@ pub fn work_capacity_niosh(wbgt: Temperature, metabolic_power: Power) -> f64 {
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `work_intensity` - Intensity of work being performed
+/// * `options` - Model options
 ///
 /// # Returns
 ///
@@ -116,17 +124,20 @@ pub fn work_capacity_niosh(wbgt: Temperature, metabolic_power: Power) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::work_capacity::{work_capacity_dunne, WorkIntensity};
+/// use thermalcomfort::models::work_capacity::{work_capacity_dunne, WorkCapacityIntensityOptions, WorkIntensity};
 /// use thermalcomfort::Temperature;
 ///
-/// let capacity = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
+/// let capacity = work_capacity_dunne(
+///     Temperature::from_celsius(30.0),
+///     WorkCapacityIntensityOptions { work_intensity: WorkIntensity::Heavy },
+/// );
 /// assert!(capacity >= 0.0 && capacity <= 100.0);
 /// ```
 ///
 /// # References
 ///
 /// - Dunne JP, Stouffer RJ, John JG (2013) Nature Climate Change 3(6):563-6
-pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> f64 {
+pub fn work_capacity_dunne(wbgt: Temperature, options: WorkCapacityIntensityOptions) -> f64 {
     let wbgt_celsius = wbgt.as_celsius();
     // Base capacity calculation
     // NaN must propagate. f64::max/min *ignore* NaN, where numpy's maximum/clip
@@ -140,7 +151,7 @@ pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> 
     capacity = capacity.clamp(0.0, 100.0);
 
     // Apply intensity-specific multiplier
-    let factor = match work_intensity {
+    let factor = match options.work_intensity {
         WorkIntensity::Heavy => 1.0,
         WorkIntensity::Moderate => 2.0,
         WorkIntensity::Light => 4.0,
@@ -158,7 +169,7 @@ pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> 
 /// # Arguments
 ///
 /// * `wbgt` - Wet Bulb Globe Temperature (use `Temperature::from_celsius()` or similar)
-/// * `work_intensity` - Intensity of work being performed
+/// * `options` - Model options
 ///
 /// # Returns
 ///
@@ -167,10 +178,13 @@ pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> 
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::work_capacity::{work_capacity_hothaps, WorkIntensity};
+/// use thermalcomfort::models::work_capacity::{work_capacity_hothaps, WorkCapacityIntensityOptions, WorkIntensity};
 /// use thermalcomfort::Temperature;
 ///
-/// let capacity = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
+/// let capacity = work_capacity_hothaps(
+///     Temperature::from_celsius(30.0),
+///     WorkCapacityIntensityOptions { work_intensity: WorkIntensity::Heavy },
+/// );
 /// assert!(capacity >= 10.0 && capacity <= 100.0);
 /// ```
 ///
@@ -178,9 +192,9 @@ pub fn work_capacity_dunne(wbgt: Temperature, work_intensity: WorkIntensity) -> 
 ///
 /// - Kjellstrom T et al. (2018)
 /// - Bröde P, Fiala D, Lemke B, Kjellstrom T (2018) Int J Biometeorol 62(3):331-45
-pub fn work_capacity_hothaps(wbgt: Temperature, work_intensity: WorkIntensity) -> f64 {
+pub fn work_capacity_hothaps(wbgt: Temperature, options: WorkCapacityIntensityOptions) -> f64 {
     let wbgt_celsius = wbgt.as_celsius();
-    let (divisor, exponent) = match work_intensity {
+    let (divisor, exponent) = match options.work_intensity {
         WorkIntensity::Heavy => (30.94, 16.64),
         WorkIntensity::Moderate => (32.93, 17.81),
         WorkIntensity::Light => (34.64, 22.72),
@@ -220,30 +234,79 @@ mod tests {
         assert!(capacity_high_met < capacity);
     }
 
+    fn intensity(work_intensity: WorkIntensity) -> WorkCapacityIntensityOptions {
+        WorkCapacityIntensityOptions { work_intensity }
+    }
+
     #[test]
     fn test_work_capacity_dunne() {
         // Test different intensities
-        let heavy = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
-        let moderate =
-            work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Moderate);
-        let light = work_capacity_dunne(Temperature::from_celsius(30.0), WorkIntensity::Light);
+        let heavy = work_capacity_dunne(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Heavy),
+        );
+        let moderate = work_capacity_dunne(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Moderate),
+        );
+        let light = work_capacity_dunne(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Light),
+        );
 
         assert!((0.0..=100.0).contains(&heavy));
         assert!(light >= moderate && moderate >= heavy);
 
         // Below 25°C should give 100% capacity
-        let cool = work_capacity_dunne(Temperature::from_celsius(20.0), WorkIntensity::Heavy);
+        let cool = work_capacity_dunne(
+            Temperature::from_celsius(20.0),
+            intensity(WorkIntensity::Heavy),
+        );
         assert!((cool - 100.0).abs() < 0.1);
+    }
+
+    /// [`WorkIntensity`] moved into an options struct with pythermalcomfort's
+    /// `"heavy"` default (`work_capacity_dunne.py:15`); `Default::default()` must still
+    /// reproduce that default rather than silently changing behaviour for callers who
+    /// relied on it.
+    #[test]
+    fn test_work_capacity_dunne_default_is_heavy() {
+        let capacity = work_capacity_dunne(Temperature::from_celsius(30.0), Default::default());
+        let heavy = work_capacity_dunne(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Heavy),
+        );
+        assert_eq!(capacity, heavy);
     }
 
     #[test]
     fn test_work_capacity_hothaps() {
-        let capacity = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
+        let capacity = work_capacity_hothaps(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Heavy),
+        );
         assert!((10.0..=100.0).contains(&capacity));
 
         // Light work should have higher capacity
-        let light = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Light);
-        let heavy = work_capacity_hothaps(Temperature::from_celsius(30.0), WorkIntensity::Heavy);
+        let light = work_capacity_hothaps(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Light),
+        );
+        let heavy = work_capacity_hothaps(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Heavy),
+        );
         assert!(light > heavy);
+    }
+
+    /// Same default-preservation check as Dunne's, for the Hothaps options struct.
+    #[test]
+    fn test_work_capacity_hothaps_default_is_heavy() {
+        let capacity = work_capacity_hothaps(Temperature::from_celsius(30.0), Default::default());
+        let heavy = work_capacity_hothaps(
+            Temperature::from_celsius(30.0),
+            intensity(WorkIntensity::Heavy),
+        );
+        assert_eq!(capacity, heavy);
     }
 }

@@ -5,15 +5,35 @@
 use crate::models::thermal_indices::HeatIndexResult;
 use measurements::{Humidity, Temperature};
 
+/// The comfort inputs to [`heat_index_lu`]: pythermalcomfort requires both (no
+/// default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeatIndexLuInputs {
+    /// Dry bulb air temperature
+    pub dry_bulb_temp: Temperature,
+    /// Relative humidity (use `Humidity::from_percent()` for RH%)
+    pub relative_humidity: Humidity,
+}
+
+/// Optional parameters for [`heat_index_lu`], with pythermalcomfort's defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeatIndexLuOptions {
+    /// Whether to round output to 1 decimal place
+    pub round_output: bool,
+}
+
+impl Default for HeatIndexLuOptions {
+    fn default() -> Self {
+        Self { round_output: true }
+    }
+}
+
 /// Calculate Heat Index using Lu and Romps (2022) model
 ///
 /// A physics-based model that accounts for thermodynamic and thermoregulatory
 /// mechanisms to estimate apparent temperature under heat stress conditions.
-///
-/// # Arguments
-///
-/// * `dry_bulb_temp` - Dry bulb air temperature
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
 ///
 /// # Returns
 ///
@@ -24,10 +44,16 @@ use measurements::{Humidity, Temperature};
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::heat_index_lu::heat_index_lu;
+/// use thermalcomfort::models::heat_index_lu::{heat_index_lu, HeatIndexLuInputs, HeatIndexLuOptions};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
-/// let result = heat_index_lu(Temperature::from_celsius(25.0), Humidity::from_percent(50.0));
+/// let result = heat_index_lu(
+///     HeatIndexLuInputs {
+///         dry_bulb_temp: Temperature::from_celsius(25.0),
+///         relative_humidity: Humidity::from_percent(50.0),
+///     },
+///     Default::default(),
+/// );
 /// assert!((result.hi - 25.0).abs() < 1.0);
 /// assert!(result.stress_category.is_none());
 /// ```
@@ -35,16 +61,24 @@ use measurements::{Humidity, Temperature};
 /// # References
 ///
 /// - Lu and Romps (2022)
-pub fn heat_index_lu(dry_bulb_temp: Temperature, relative_humidity: Humidity) -> HeatIndexResult {
+pub fn heat_index_lu(inputs: HeatIndexLuInputs, options: HeatIndexLuOptions) -> HeatIndexResult {
+    let HeatIndexLuInputs {
+        dry_bulb_temp,
+        relative_humidity,
+    } = inputs;
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let tdb_k = dry_bulb_celsius + 273.15;
     let rh_frac = relative_humidity.as_percent() / 100.0;
 
     let hi_k = lu_heat_index_core(tdb_k, rh_frac);
-    let hi = hi_k - 273.15;
+    let mut hi = hi_k - 273.15;
+
+    if options.round_output {
+        hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
+    }
 
     HeatIndexResult {
-        hi: crate::utilities::round_half_even(hi * 10.0) / 10.0,
+        hi,
         stress_category: None,
     }
 }
@@ -358,8 +392,11 @@ mod tests {
     #[test]
     fn test_heat_index_lu() {
         let result = heat_index_lu(
-            Temperature::from_celsius(25.0),
-            Humidity::from_percent(50.0),
+            HeatIndexLuInputs {
+                dry_bulb_temp: Temperature::from_celsius(25.0),
+                relative_humidity: Humidity::from_percent(50.0),
+            },
+            Default::default(),
         );
         // Should be close to 25.9°C
         assert!(result.hi > 24.0 && result.hi < 27.0);
@@ -369,11 +406,37 @@ mod tests {
     #[test]
     fn test_heat_index_lu_high_temp() {
         let result = heat_index_lu(
-            Temperature::from_celsius(35.0),
-            Humidity::from_percent(70.0),
+            HeatIndexLuInputs {
+                dry_bulb_temp: Temperature::from_celsius(35.0),
+                relative_humidity: Humidity::from_percent(70.0),
+            },
+            Default::default(),
         );
         // Should be significantly higher than air temperature
         assert!(result.hi > 35.0);
         assert!(result.stress_category.is_none());
+    }
+
+    #[test]
+    fn test_heat_index_lu_round_output_false() {
+        let rounded = heat_index_lu(
+            HeatIndexLuInputs {
+                dry_bulb_temp: Temperature::from_celsius(25.0),
+                relative_humidity: Humidity::from_percent(50.0),
+            },
+            Default::default(),
+        );
+        let unrounded = heat_index_lu(
+            HeatIndexLuInputs {
+                dry_bulb_temp: Temperature::from_celsius(25.0),
+                relative_humidity: Humidity::from_percent(50.0),
+            },
+            HeatIndexLuOptions {
+                round_output: false,
+            },
+        );
+        // Both should agree to within the rounding step; unrounded need not land on a
+        // 1-decimal boundary.
+        assert!((rounded.hi - unrounded.hi).abs() < 0.05);
     }
 }

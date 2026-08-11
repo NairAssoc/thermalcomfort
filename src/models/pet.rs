@@ -123,6 +123,25 @@ pub enum Posture {
     Standing,
 }
 
+/// The comfort inputs to [`pet_steady`].
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Air speed
+    pub v: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation
+    pub clo: ClothingInsulation,
+}
+
 /// Options for PET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetOptions {
@@ -146,6 +165,25 @@ pub struct PetOptions {
     pub wme: WorkEfficiency,
     /// Posture
     pub posture: Posture,
+    /// Use the forced-convection convective coefficient.
+    ///
+    /// Python's `position` accepts a third value, `"standing, forced convection"`
+    /// (`pet_steady.py:329-330`), which uses `hc = 8.6 * v**0.513` instead of either
+    /// posture's still-air formula. It is not a third [`Posture`] variant -- other code
+    /// pattern-matches that enum exhaustively -- so it is exposed as this flag instead,
+    /// combined with `posture` in [`pet_steady`]'s convective-coefficient calculation.
+    ///
+    /// Only takes effect when `posture` is [`Posture::Standing`]: Python has no
+    /// "sitting, forced convection" position, so that combination is defined here to
+    /// fall back to the plain-sitting formula, matching the only sensible reading of an
+    /// unreachable upstream state.
+    ///
+    /// The flag has a second, easy-to-miss effect upstream: `f_eff` (the effective
+    /// radiation area fraction) is `0.696` only when `position == "standing"` *exactly*;
+    /// `"standing, forced convection"` fails that string comparison and falls through to
+    /// the `0.725` sitting value. That quirk is reproduced verbatim rather than
+    /// "corrected", per the port's job of matching behaviour, not redesigning it.
+    pub forced_convection: bool,
 }
 
 impl Default for PetOptions {
@@ -158,6 +196,7 @@ impl Default for PetOptions {
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
+            forced_convection: false,
         }
     }
 }
@@ -170,12 +209,7 @@ impl Default for PetOptions {
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature
-/// * `tr` - Mean radiant temperature
-/// * `v` - Air velocity [m/s]
-/// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate
-/// * `clo` - Clothing insulation
+/// * `inputs` - Required environmental and personal inputs
 /// * `options` - Model options
 ///
 /// # Returns
@@ -194,15 +228,17 @@ impl Default for PetOptions {
 ///
 /// ```
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-/// use thermalcomfort::models::pet::{pet_steady, PetOptions};
+/// use thermalcomfort::models::pet::{pet_steady, PetInputs, PetOptions};
 ///
 /// let result = pet_steady(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(27.0),
-///     Speed::from_meters_per_second(1.0),
-///     Humidity::from_percent(50.0),
-///     MetabolicRate::from_met(1.0),
-///     ClothingInsulation::from_clo(0.5),
+///     PetInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(27.0),
+///         v: Speed::from_meters_per_second(1.0),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.0),
+///         clo: ClothingInsulation::from_clo(0.5),
+///     },
 ///     Default::default()
 /// );
 /// println!("PET: {:.1}°C", result.pet);
@@ -213,15 +249,15 @@ impl Default for PetOptions {
 /// - Höppe P. (1999) The physiological equivalent temperature - a universal
 ///   index for the biometeorological assessment of the thermal environment.
 ///   International Journal of Biometeorology 43:71-75
-pub fn pet_steady(
-    tdb: Temperature,
-    tr: Temperature,
-    v: Speed,
-    rh: Humidity,
-    met: MetabolicRate,
-    clo: ClothingInsulation,
-    options: PetOptions,
-) -> PetResult {
+pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
+    let PetInputs {
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
+    } = inputs;
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let v_ms = v.as_meters_per_second();
@@ -256,6 +292,7 @@ pub fn pet_steady(
         options.wme.as_fraction(),
         p_atm_hpa,
         options.posture,
+        options.forced_convection,
     );
 
     // Check for solver failure
@@ -278,6 +315,7 @@ pub fn pet_steady(
             p_atm_hpa,
             options.posture,
             options.wme.as_fraction(),
+            options.forced_convection,
         )
     };
 
@@ -321,6 +359,7 @@ fn solve_3node_system(
     wme: f64,
     p_atm: f64,
     posture: Posture,
+    forced_convection: bool,
 ) -> (f64, f64, f64) {
     // Initial guess - adjust for cold conditions
     // Python always starts from [36.7, 34, 0.5*(tdb+tr)] regardless of temperature.
@@ -336,8 +375,25 @@ fn solve_3node_system(
     let mut converged = false;
     for iter in 0..max_iter {
         let (e1, e2, e3, _) = calculate_energy_balance(
-            t_core, t_skin, t_clo, tdb, tr, v, rh, met, clo, a_dubois, height, weight, age, sex,
-            wme, p_atm, posture, true,
+            t_core,
+            t_skin,
+            t_clo,
+            tdb,
+            tr,
+            v,
+            rh,
+            met,
+            clo,
+            a_dubois,
+            height,
+            weight,
+            age,
+            sex,
+            wme,
+            p_atm,
+            posture,
+            forced_convection,
+            true,
         );
 
         // Convergence check - tighter for cold conditions
@@ -370,6 +426,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (e1_ts, _, _, _) = calculate_energy_balance(
@@ -390,6 +447,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (e1_tcl, _, _, _) = calculate_energy_balance(
@@ -410,6 +468,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -431,6 +490,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, e2_ts, _, _) = calculate_energy_balance(
@@ -451,6 +511,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, e2_tcl, _, _) = calculate_energy_balance(
@@ -471,6 +532,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -492,6 +554,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, _, e3_ts, _) = calculate_energy_balance(
@@ -512,6 +575,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, _, e3_tcl, _) = calculate_energy_balance(
@@ -532,6 +596,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -620,6 +685,7 @@ fn solve_pet_balance(
     p_atm: f64,
     posture: Posture,
     wme: f64,
+    forced_convection: bool,
 ) -> f64 {
     // Reference environment parameters
     let _tdb = t_pet;
@@ -651,6 +717,7 @@ fn solve_pet_balance(
         wme,
         p_atm,
         posture,
+        forced_convection,
         false,
     );
 
@@ -677,6 +744,7 @@ fn calculate_energy_balance(
     wme: f64,
     p_atm: f64,
     posture: Posture,
+    forced_convection: bool,
     actual_environment: bool,
 ) -> (f64, f64, f64, f64) {
     // Constants
@@ -711,9 +779,13 @@ fn calculate_energy_balance(
     let f_a_cl = if f_a_cl > 1.0 { 1.0 } else { f_a_cl };
     let a_clo = a_dubois * f_a_cl + a_dubois * (fcl - 1.0);
 
-    let f_eff = match posture {
-        Posture::Standing => 0.696,
-        Posture::Sitting => 0.725,
+    // pet_steady.py:313-314 only takes the 0.696 branch when
+    // `position == Postures.standing.value` *exactly*; `"standing, forced convection"`
+    // fails that string comparison and falls through to the 0.725 sitting value. Ported
+    // verbatim: `forced_convection` knocks Standing out of its own branch here.
+    let f_eff = match (posture, forced_convection) {
+        (Posture::Standing, false) => 0.696,
+        _ => 0.725,
     };
     let a_r_eff = a_dubois * f_eff;
 
@@ -723,10 +795,14 @@ fn calculate_energy_balance(
         vpa = 12.0; // Reference environment
     }
 
-    // Convection coefficient
-    let mut hc = match posture {
-        Posture::Sitting => 2.67 + 6.5 * pow(v, 0.67),
-        Posture::Standing => 2.26 + 7.42 * pow(v, 0.67),
+    // Convection coefficient. pet_steady.py:327-331: the "standing, forced convection"
+    // position is a hc override on top of standing, not a posture of its own -- Python
+    // has no "sitting, forced convection" position, so the flag is a no-op combined with
+    // Posture::Sitting, matching the only sensible reading of that unreachable state.
+    let mut hc = match (posture, forced_convection) {
+        (Posture::Standing, true) => 8.6 * pow(v, 0.513),
+        (Posture::Sitting, _) => 2.67 + 6.5 * pow(v, 0.67),
+        (Posture::Standing, false) => 2.26 + 7.42 * pow(v, 0.67),
     };
     let h_cc = 3.0 * pow(p_atm / 1013.25, 0.53);
     if hc < h_cc {
@@ -855,17 +931,20 @@ mod tests {
 
     use measurements::{Length, Mass};
 
+    fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> PetInputs {
+        PetInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+        }
+    }
+
     #[test]
     fn test_pet_basic() {
-        let result = pet_steady(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.0),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
+        let result = pet_steady(inputs(25.0, 25.0, 0.1, 50.0, 1.0, 0.5), Default::default());
 
         // PET should be reasonable for comfortable conditions (Python: 24.17°C)
         assert!(result.pet > 15.0 && result.pet < 35.0);
@@ -874,15 +953,7 @@ mod tests {
 
     #[test]
     fn test_pet_hot() {
-        let result = pet_steady(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(60.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
+        let result = pet_steady(inputs(35.0, 35.0, 1.0, 60.0, 1.2, 0.5), Default::default());
 
         // PET should be high in hot conditions (Python: 36.26°C)
         assert!(result.pet > 30.0);
@@ -898,17 +969,10 @@ mod tests {
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
             posture: Posture::Sitting,
+            forced_convection: false,
         };
 
-        let result = pet_steady(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(5.0),
-            Speed::from_meters_per_second(2.0),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.5),
-            ClothingInsulation::from_clo(1.0),
-            opts,
-        );
+        let result = pet_steady(inputs(5.0, 5.0, 2.0, 50.0, 1.5, 1.0), opts);
 
         // PET should be low in cold conditions (Python gives around -0.5°C)
         assert!(
@@ -917,5 +981,59 @@ mod tests {
             result.pet
         );
         assert!(!result.pet.is_nan());
+    }
+
+    /// Python's `position = "standing, forced convection"` (`pet_steady.py:329-330`) was
+    /// previously unreachable from Rust: there is no third [`Posture`] variant and no
+    /// flag to select it. `forced_convection` makes it reachable and should change both
+    /// the convective coefficient and (per the ported quirk) `f_eff`, so it must not be
+    /// a no-op relative to plain standing.
+    #[test]
+    fn test_pet_forced_convection_differs_from_plain_standing() {
+        let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
+        let standing = PetOptions {
+            posture: Posture::Standing,
+            forced_convection: false,
+            ..Default::default()
+        };
+        let standing_forced = PetOptions {
+            posture: Posture::Standing,
+            forced_convection: true,
+            ..Default::default()
+        };
+
+        let plain = pet_steady(case, standing);
+        let forced = pet_steady(case, standing_forced);
+
+        assert!(!plain.pet.is_nan() && !forced.pet.is_nan());
+        assert!(
+            (plain.pet - forced.pet).abs() > 0.01,
+            "forced convection should change PET: plain={}, forced={}",
+            plain.pet,
+            forced.pet
+        );
+    }
+
+    /// Python has no "sitting, forced convection" position; the flag combined with
+    /// [`Posture::Sitting`] should therefore fall back to the plain-sitting formulas
+    /// rather than silently doing nothing useful or panicking.
+    #[test]
+    fn test_pet_forced_convection_is_noop_for_sitting() {
+        let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
+        let sitting = PetOptions {
+            posture: Posture::Sitting,
+            forced_convection: false,
+            ..Default::default()
+        };
+        let sitting_forced = PetOptions {
+            posture: Posture::Sitting,
+            forced_convection: true,
+            ..Default::default()
+        };
+
+        let plain = pet_steady(case, sitting);
+        let forced = pet_steady(case, sitting_forced);
+
+        assert!((plain.pet - forced.pet).abs() < 1e-9);
     }
 }

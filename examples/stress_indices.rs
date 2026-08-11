@@ -3,7 +3,9 @@
 //! Demonstrates various thermal stress indices for extreme conditions.
 
 use thermalcomfort::models::{
-    discomfort_index, heat_index_rothfusz, humidex, thi, wci, wind_chill_temperature,
+    DiscomfortIndexInputs, HeatIndexRothfuszInputs, HumidexInputs, ThiInputs, WciInputs,
+    WindChillTemperatureInputs, discomfort_index, heat_index_rothfusz, humidex, thi, wci,
+    wind_chill_temperature,
 };
 use thermalcomfort::{Humidity, Speed, Temperature};
 
@@ -23,7 +25,13 @@ fn main() {
     );
 
     // Heat Index (Rothfusz)
-    let hi_result = heat_index_rothfusz(hot_temp, hot_rh, true, true);
+    let hi_result = heat_index_rothfusz(
+        HeatIndexRothfuszInputs {
+            dry_bulb_temp: hot_temp,
+            relative_humidity: hot_rh,
+        },
+        Default::default(),
+    );
     println!("Heat Index (Rothfusz):");
     println!("  {:.1}°C", hi_result.hi);
     if let Some(cat) = hi_result.stress_category {
@@ -33,13 +41,25 @@ fn main() {
     }
 
     // Humidex
-    let humidex_result = humidex(hot_temp, hot_rh, true);
+    let humidex_result = humidex(
+        HumidexInputs {
+            dry_bulb_temp: hot_temp,
+            relative_humidity: hot_rh,
+        },
+        Default::default(),
+    );
     println!("\nHumidex (Canadian):");
     println!("  {:.0}", humidex_result.humidex);
     println!("  {}", humidex_result.discomfort.as_str());
 
     // Temperature-Humidity Index (THI)
-    let thi_val = thi(hot_temp, hot_rh, true);
+    let thi_val = thi(
+        ThiInputs {
+            dry_bulb_temp: hot_temp,
+            relative_humidity: hot_rh,
+        },
+        Default::default(),
+    );
     println!("\nTemperature-Humidity Index:");
     println!("  {:.1}", thi_val);
     if thi_val < 70.0 {
@@ -53,7 +73,10 @@ fn main() {
     }
 
     // Discomfort Index
-    let di_result = discomfort_index(hot_temp, hot_rh);
+    let di_result = discomfort_index(DiscomfortIndexInputs {
+        dry_bulb_temp: hot_temp,
+        relative_humidity: hot_rh,
+    });
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di_result.di);
     println!("  {}", di_result.discomfort_condition.as_str());
@@ -71,7 +94,13 @@ fn main() {
     );
 
     // Wind Chill Temperature
-    let wct = wind_chill_temperature(cold_temp, wind_speed, true);
+    let wct = wind_chill_temperature(
+        WindChillTemperatureInputs {
+            dry_bulb_temp: cold_temp,
+            wind_speed,
+        },
+        Default::default(),
+    );
     println!("Wind Chill Temperature:");
     println!("  {:.1}°C (feels like)", wct);
     if wct > -10.0 {
@@ -87,7 +116,13 @@ fn main() {
     }
 
     // Wind Chill Index
-    let wci_val = wci(cold_temp, wind_speed, true);
+    let wci_val = wci(
+        WciInputs {
+            dry_bulb_temp: cold_temp,
+            wind_speed,
+        },
+        Default::default(),
+    );
     println!("\nWind Chill Index:");
     println!("  {:.0} W/m²", wci_val);
     if wci_val < 600.0 {
@@ -109,8 +144,20 @@ fn main() {
     let temp_30 = Temperature::from_celsius(30.0);
     for rh_val in [30.0, 50.0, 70.0, 90.0] {
         let rh = Humidity::from_percent(rh_val);
-        let hi = heat_index_rothfusz(temp_30, rh, true, true);
-        let hum = humidex(temp_30, rh, true);
+        let hi = heat_index_rothfusz(
+            HeatIndexRothfuszInputs {
+                dry_bulb_temp: temp_30,
+                relative_humidity: rh,
+            },
+            Default::default(),
+        );
+        let hum = humidex(
+            HumidexInputs {
+                dry_bulb_temp: temp_30,
+                relative_humidity: rh,
+            },
+            Default::default(),
+        );
 
         println!(
             "  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",

@@ -3,6 +3,7 @@
 //! The UTCI is the equivalent temperature for the environment derived from a
 //! reference environment, widely used for outdoor thermal comfort assessment.
 
+use crate::utilities::Units;
 use libm::{exp, pow};
 use measurements::{Humidity, Speed, Temperature};
 
@@ -86,9 +87,36 @@ impl StressCategory {
     }
 }
 
+/// The comfort inputs to [`utci`].
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UtciInputs {
+    /// Dry bulb air temperature
+    pub dry_bulb_temp: Temperature,
+    /// Mean radiant temperature
+    pub mean_radiant_temp: Temperature,
+    /// Wind speed at 10m above ground level
+    pub wind_speed: Speed,
+    /// Relative humidity
+    pub relative_humidity: Humidity,
+}
+
 /// Options for UTCI calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UtciOptions {
+    /// Unit system the result is expressed in.
+    ///
+    /// Unlike [`cooling_effect`](crate::models::cooling_effect)'s `Units::IP`, which
+    /// rescales a delta by a non-physical literal factor, `utci.py:89-90,126-130` does a
+    /// genuine SI/IP temperature conversion: it converts typed inputs from °F before
+    /// computing (moot here -- typed [`Temperature`]/[`Speed`] inputs already carry
+    /// their true SI value regardless of `units`) and converts the SI result to °F
+    /// afterwards, **rounding in that output unit**. That output-side rounding is the
+    /// real, reproducible half of the gap: `round(utci_f, 1)` is not the same number as
+    /// converting an already-Celsius-rounded value, so it is replicated here rather than
+    /// derived from the SI result after the fact.
+    pub units: Units,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output value to 1 decimal place
@@ -98,6 +126,7 @@ pub struct UtciOptions {
 impl Default for UtciOptions {
     fn default() -> Self {
         Self {
+            units: Units::SI,
             limit_inputs: true,
             round_output: true,
         }
@@ -115,48 +144,58 @@ impl Default for UtciOptions {
 /// in outdoor spaces, taking into account dry bulb temperature, mean radiation temperature,
 /// water vapor pressure (via relative humidity), and wind speed at 10m elevation.
 ///
+/// UTCI is returned as `f64`, not [`Temperature`]: like [`wbgt`](crate::models::wbgt) and
+/// [`pet_steady`](crate::models::pet::pet_steady), it is a 6th-order polynomial
+/// regression producing an equivalent temperature, not a literal physical temperature
+/// solved from an energy balance. That also keeps `options.units` meaningful: Python's
+/// `utci()` returns a raw float whose *magnitude* depends on `units` (°C for SI, °F for
+/// IP), so a plain `f64` here reproduces that behaviour exactly. Wrapping the result in
+/// [`Temperature`] would make `units` a no-op for every caller who reads the value back
+/// out via `.as_celsius()`/`.as_fahrenheit()`, silently losing the output-side rounding
+/// Python applies in the target unit (see [`UtciOptions::units`]).
+///
 /// # Arguments
 ///
-/// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: -50 to 50°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (recommended range: tdb-70 to tdb+30°C)
-/// * `wind_speed` - Wind speed at 10m above ground (recommended range: 0.5-17 m/s)
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
+/// * `inputs` - Required environmental inputs
 /// * `options` - UTCI calculation options
 ///
 /// # Returns
 ///
-/// UtciResult containing UTCI value and stress category. Returns NaN for UTCI if inputs
-/// are outside valid ranges and limit_inputs is true.
+/// UtciResult containing UTCI value (in the unit selected by `options.units`) and stress
+/// category. Returns NaN for UTCI if inputs are outside valid ranges and limit_inputs is
+/// true.
 ///
 /// # Applicability Limits (when limit_inputs = true)
 ///
 /// * -50 < tdb [°C] < 50
-/// * tdb - 70 < tr [°C] < tdb + 30
+/// * tdb - 30 < tr [°C] < tdb + 70
 /// * 0.5 < v [m/s] < 17.0
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::utci::{utci, UtciOptions};
+/// use thermalcomfort::models::utci::{utci, UtciInputs, UtciOptions};
 /// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = utci(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(25.0),
-///     Speed::from_meters_per_second(1.0),
-///     Humidity::from_percent(50.0),
+///     UtciInputs {
+///         dry_bulb_temp: Temperature::from_celsius(25.0),
+///         mean_radiant_temp: Temperature::from_celsius(25.0),
+///         wind_speed: Speed::from_meters_per_second(1.0),
+///         relative_humidity: Humidity::from_percent(50.0),
+///     },
 ///     Default::default()
 /// );
 /// println!("UTCI: {:.1}°C", result.utci);
 /// println!("Stress: {:?}", result.stress_category);
 /// ```
-pub fn utci(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    wind_speed: Speed,
-    relative_humidity: Humidity,
-    options: UtciOptions,
-) -> UtciResult {
+pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
+    let UtciInputs {
+        dry_bulb_temp,
+        mean_radiant_temp,
+        wind_speed,
+        relative_humidity,
+    } = inputs;
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let wind_speed_mps = wind_speed.as_meters_per_second();
@@ -201,15 +240,35 @@ pub fn utci(
         }
     }
 
-    // Round if requested
-    if options.round_output && !utci_value.is_nan() {
-        utci_value = crate::utilities::round_half_even(utci_value * 10.0) / 10.0;
+    // utci.py:123-124: the stress-category thresholds are in °C, so the SI value is
+    // kept aside before any IP rescale -- `utci_si` below, not the returned `utci_out`.
+    let mut utci_si = utci_value;
+
+    // utci.py:126-130: a genuine SI->IP temperature conversion of the *result*, applied
+    // after the polynomial and the limit check, not a rescale of typed input units (the
+    // typed `Temperature`/`Speed` inputs above are already exact regardless of `units`).
+    let mut utci_out = match options.units {
+        Units::SI => utci_value,
+        Units::IP => utci_value * 9.0 / 5.0 + 32.0,
+    };
+
+    // utci.py:145-147: both values are rounded to 1 decimal in their own unit -- Python
+    // rounds `utci_si` in Celsius and `utci_approx` (this function's `utci_out`) in
+    // whichever unit `units` selected, which are not the same number after an IP
+    // rescale.
+    if options.round_output {
+        if !utci_out.is_nan() {
+            utci_out = crate::utilities::round_half_even(utci_out * 10.0) / 10.0;
+        }
+        if !utci_si.is_nan() {
+            utci_si = crate::utilities::round_half_even(utci_si * 10.0) / 10.0;
+        }
     }
 
-    let stress_category = StressCategory::from_utci_opt(utci_value);
+    let stress_category = StressCategory::from_utci_opt(utci_si);
 
     UtciResult {
-        utci: utci_value,
+        utci: utci_out,
         stress_category,
     }
 }
@@ -461,15 +520,18 @@ fn utci_polynomial(tdb: f64, v: f64, delta_t_tr: f64, pa: f64) -> f64 {
 mod tests {
     use super::*;
 
+    fn inputs(tdb: f64, tr: f64, v: f64, rh: f64) -> UtciInputs {
+        UtciInputs {
+            dry_bulb_temp: Temperature::from_celsius(tdb),
+            mean_radiant_temp: Temperature::from_celsius(tr),
+            wind_speed: Speed::from_meters_per_second(v),
+            relative_humidity: Humidity::from_percent(rh),
+        }
+    }
+
     #[test]
     fn test_utci_basic() {
-        let result = utci(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(50.0),
-            Default::default(),
-        );
+        let result = utci(inputs(25.0, 25.0, 1.0, 50.0), Default::default());
         assert!(result.utci > 20.0 && result.utci < 30.0);
         assert_eq!(
             result.stress_category,
@@ -479,13 +541,7 @@ mod tests {
 
     #[test]
     fn test_utci_cold() {
-        let result = utci(
-            Temperature::from_celsius(-10.0),
-            Temperature::from_celsius(-10.0),
-            Speed::from_meters_per_second(2.0),
-            Humidity::from_percent(50.0),
-            Default::default(),
-        );
+        let result = utci(inputs(-10.0, -10.0, 2.0, 50.0), Default::default());
         assert!(result.utci < 0.0);
         assert!(matches!(
             result.stress_category,
@@ -495,13 +551,7 @@ mod tests {
 
     #[test]
     fn test_utci_hot() {
-        let result = utci(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(50.0),
-            Default::default(),
-        );
+        let result = utci(inputs(35.0, 35.0, 1.0, 50.0), Default::default());
         assert!(result.utci > 30.0);
         assert!(matches!(
             result.stress_category,
@@ -516,38 +566,80 @@ mod tests {
     #[test]
     fn test_utci_limits() {
         // Test invalid tdb
-        let result = utci(
-            Temperature::from_celsius(-60.0),
-            Temperature::from_celsius(-60.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(50.0),
-            Default::default(),
-        );
+        let result = utci(inputs(-60.0, -60.0, 1.0, 50.0), Default::default());
         assert!(result.utci.is_nan());
 
         // Test invalid wind speed
-        let result = utci(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.2),
-            Humidity::from_percent(50.0),
-            Default::default(),
-        );
+        let result = utci(inputs(25.0, 25.0, 0.2, 50.0), Default::default());
         assert!(result.utci.is_nan());
 
         // Test with limits off
         let options = UtciOptions {
+            units: Units::SI,
             limit_inputs: false,
             round_output: true,
         };
-        let result = utci(
-            Temperature::from_celsius(-60.0),
-            Temperature::from_celsius(-60.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(50.0),
-            options,
-        );
+        let result = utci(inputs(-60.0, -60.0, 1.0, 50.0), options);
         assert!(!result.utci.is_nan());
+    }
+
+    /// utci.py:126-130: `Units::IP` converts the *result* (a genuine °C->°F
+    /// conversion), not the typed inputs, and rounds in Fahrenheit -- a different number
+    /// than rounding the SI value to 1 decimal in Celsius and converting that afterwards.
+    #[test]
+    fn test_utci_units_ip_converts_and_rounds_the_result() {
+        let case = inputs(25.0, 25.0, 1.0, 50.0);
+        let si_unrounded = utci(
+            case,
+            UtciOptions {
+                units: Units::SI,
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        let ip = utci(
+            case,
+            UtciOptions {
+                units: Units::IP,
+                round_output: true,
+                ..Default::default()
+            },
+        );
+
+        assert!(!si_unrounded.utci.is_nan() && !ip.utci.is_nan());
+        // The IP result is the *unrounded* SI value converted to Fahrenheit and then
+        // rounded, exactly reproducing utci.py's rounding-after-conversion order.
+        let expected_ip =
+            crate::utilities::round_half_even((si_unrounded.utci * 9.0 / 5.0 + 32.0) * 10.0) / 10.0;
+        assert!((ip.utci - expected_ip).abs() < 1e-9);
+        // Stress category is always derived from the SI value, regardless of units.
+        assert_eq!(si_unrounded.stress_category, ip.stress_category);
+    }
+
+    /// Rounding the SI value first and converting the rounded number afterwards is a
+    /// *different* computation from Python's rounding-after-conversion; this pins the
+    /// two apart with a case chosen so the difference is visible rather than lost in
+    /// floating-point noise.
+    #[test]
+    fn test_utci_units_ip_differs_from_converting_rounded_si() {
+        let case = inputs(24.94, 24.94, 1.0, 50.0);
+        let si_rounded = utci(case, Default::default());
+        let ip = utci(
+            case,
+            UtciOptions {
+                units: Units::IP,
+                ..Default::default()
+            },
+        );
+
+        let naive_ip =
+            crate::utilities::round_half_even((si_rounded.utci * 9.0 / 5.0 + 32.0) * 10.0) / 10.0;
+        assert!(
+            (ip.utci - naive_ip).abs() > 1e-6,
+            "expected rounding order to matter: ip={}, naive={}",
+            ip.utci,
+            naive_ip
+        );
     }
 
     #[test]

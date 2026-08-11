@@ -30,9 +30,9 @@ pub use adaptive::{
     AdaptiveAshraeResult, AdaptiveEnResult, AdaptiveOptions, adaptive_ashrae, adaptive_en,
 };
 pub use cooling_effect::{CoolingEffectInputs, CoolingEffectOptions, cooling_effect};
-pub use heat_index_lu::heat_index_lu;
+pub use heat_index_lu::{HeatIndexLuInputs, HeatIndexLuOptions, heat_index_lu};
 pub use ireq::{DurationLimitedExposure, IreqInputs, IreqOptions, IreqResult, ireq};
-pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
+pub use pet::{PetInputs, PetOptions, PetResult, Posture as PetPosture, pet_steady};
 pub use phs::{Iso7933Model, PhsInputs, PhsOptions, PhsPosture, PhsResult, phs};
 pub use pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
@@ -40,7 +40,8 @@ pub use pmv::{
     pmv_ppd_ashrae, pmv_ppd_iso,
 };
 pub use ridge_regression::{
-    PredictedBodyTemperatures, RidgeRegressionOptions, ridge_regression_predict_t_re_t_sk,
+    PredictedBodyTemperatures, RidgeRegressionInputs, RidgeRegressionOptions,
+    ridge_regression_predict_t_re_t_sk,
 };
 pub use set_tmp::{SetInputs, SetOptions, set_tmp};
 pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
@@ -52,8 +53,13 @@ pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsHeatStressRiskInputs, SportsValues, sports_heat_stress_risk,
 };
 pub use thermal_indices::{
-    at, discomfort_index, esi, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson,
-    net, thi, wci, wind_chill_temperature,
+    AtInputs, AtOptions, DiscomfortCondition, DiscomfortIndexInputs, DiscomfortIndexResult,
+    EsiInputs, EsiOptions, HeatIndexResult, HeatIndexRothfuszInputs, HeatIndexRothfuszOptions,
+    HeatIndexSchoenInputs, HeatIndexSchoenOptions, HeatIndexStress, HumidexDiscomfort,
+    HumidexInputs, HumidexModel, HumidexOptions, HumidexResult, NetInputs, NetOptions, ThiInputs,
+    ThiOptions, WciInputs, WciOptions, WindChillTemperatureInputs, WindChillTemperatureOptions, at,
+    discomfort_index, esi, heat_index_rothfusz, heat_index_schoen, humidex, net, thi, wci,
+    wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult,
@@ -66,9 +72,9 @@ pub use two_nodes_gagge_sleep::{
 pub use use_fans_heatwaves::{
     UseFansHeatwavesInputs, UseFansHeatwavesOptions, UseFansHeatwavesResult, use_fans_heatwaves,
 };
-pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
+pub use utci::{StressCategory, UtciInputs, UtciOptions, UtciResult, utci};
 pub use wbgt::{WbgtInputs, WbgtOptions, wbgt};
 pub use work_capacity::{
-    WorkIntensity, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    WorkCapacityIntensityOptions, WorkIntensity, work_capacity_dunne, work_capacity_hothaps,
+    work_capacity_iso, work_capacity_niosh,
 };

@@ -30,23 +30,29 @@ use thermalcomfort::models::two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
 };
 use thermalcomfort::models::{
-    AdaptiveOptions, CoolingEffectInputs, CoolingEffectOptions, DurationLimitedExposure,
-    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqInputs, IreqOptions, Iso7933Model,
-    PetOptions, PetPosture, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionOptions, SetInputs,
-    SetOptions, SleepInputs, SolarGainInputs, SolarGainOptions, Sports, SportsHeatStressRiskInputs,
-    SportsValues, UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciOptions, WbgtInputs,
-    WbgtOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect,
-    discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex,
-    humidex_masterson, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
-    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk,
-    thi, two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd,
-    wbgt, wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps,
-    work_capacity_iso, work_capacity_niosh,
+    AdaptiveOptions, AtInputs, AtOptions, CoolingEffectInputs, CoolingEffectOptions,
+    DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs, EsiOptions, GaggeTwoNodesOptions,
+    GaggeTwoNodesSleepOptions, HeatIndexLuInputs, HeatIndexLuOptions, HeatIndexRothfuszInputs,
+    HeatIndexRothfuszOptions, HeatIndexSchoenInputs, HeatIndexSchoenOptions, HumidexInputs,
+    HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model, NetInputs, NetOptions,
+    PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionInputs,
+    RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs, SolarGainInputs, SolarGainOptions,
+    Sports, SportsHeatStressRiskInputs, SportsValues, ThiInputs, ThiOptions,
+    UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
+    WbgtOptions, WciInputs, WciOptions, WindChillTemperatureInputs, WindChillTemperatureOptions,
+    WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at,
+    cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen,
+    humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
+    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk, thi,
+    two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt,
+    wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
-    dew_point_temperature, enthalpy_air, mean_radiant_temperature, operative_temperature,
-    psy_ta_rh, wet_bulb_temperature,
+    MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
+    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
+    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
     Ashrae55Model, BsaFormula, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
@@ -500,17 +506,25 @@ fn sweep_utci() {
         .real("v", 0.0, 20.0)
         .real("rh", 0.0, 100.0)
         .flag("limit_inputs")
-        .flag("round_output");
+        .flag("round_output")
+        .enumerated("units", 2);
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let field = FieldCmp::new("utci", 0.06);
+        let field_si = FieldCmp::new("utci", 0.06);
+        // A genuine SI->IP temperature conversion of the result (utci.py:126-130), so a
+        // Celsius-scale tolerance becomes 9/5 as large once expressed in Fahrenheit.
+        let field_ip = FieldCmp::new("utci", 0.06 * 9.0 / 5.0);
 
         run_sweep("sweep_utci", &domain, |s: &Sample| {
             let (tdb, tr, v, rh) = (s.real("tdb"), s.real("tr"), s.real("v"), s.real("rh"));
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let (units, py_units) = match s.index("units") {
+                0 => (Units::SI, "SI"),
+                _ => (Units::IP, "IP"),
+            };
 
             let kwargs = [
                 (
@@ -521,28 +535,46 @@ fn sweep_utci() {
                     "round_output",
                     PyBool::new(py, round_output).to_owned().into_any(),
                 ),
+                ("units", py_units.into_pyobject(py).unwrap().into_any()),
             ]
             .into_py_dict(py)
             .unwrap();
 
+            // Python's `units="IP"` reinterprets its raw tdb/tr/v floats as
+            // Fahrenheit/fps and converts them to SI before doing anything else (see
+            // `sweep_cooling_effect`, which solved this the same way): feed it the IP
+            // equivalents of the same SI environment Rust uses.
+            let (py_tdb, py_tr, py_v) = if units == Units::IP {
+                (tdb * 9.0 / 5.0 + 32.0, tr * 9.0 / 5.0 + 32.0, v * 3.281)
+            } else {
+                (tdb, tr, v)
+            };
+
             let py_result = models
                 .getattr("utci")
                 .unwrap()
-                .call((tdb, tr, v, rh), Some(&kwargs))
+                .call((py_tdb, py_tr, py_v, rh), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = utci(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
+                UtciInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    wind_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
                 UtciOptions {
+                    units,
                     limit_inputs,
                     round_output,
                 },
             );
 
-            compare_field(&field, rust.utci, py_float(&py_result, "utci")?)
+            let field = match units {
+                Units::SI => &field_si,
+                Units::IP => &field_ip,
+            };
+            compare_field(field, rust.utci, py_float(&py_result, "utci")?)
         });
     });
 }
@@ -2204,11 +2236,10 @@ fn tdb_rh_domain() -> Domain {
 
 #[test]
 fn sweep_heat_index_lu() {
-    // The Rust port has no round_output knob; it always rounds, so Python is called the
-    // same way.
     let domain = Domain::new()
         .real("tdb", -20.0, 55.0)
-        .real("rh", 0.0, 100.0);
+        .real("rh", 0.0, 100.0)
+        .flag("round_output");
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
@@ -2217,14 +2248,28 @@ fn sweep_heat_index_lu() {
 
         run_sweep("sweep_heat_index_lu", &domain, |s: &Sample| {
             let (tdb, rh) = (s.real("tdb"), s.real("rh"));
+            let round_output = s.flag("round_output");
+
+            let kwargs = [(
+                "round_output",
+                PyBool::new(py, round_output).to_owned().into_any(),
+            )]
+            .into_py_dict(py)
+            .unwrap();
 
             let py_result = models
                 .getattr("heat_index_lu")
                 .unwrap()
-                .call1((tdb, rh))
+                .call((tdb, rh), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
-            let rust = heat_index_lu(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+            let rust = heat_index_lu(
+                HeatIndexLuInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
+                HeatIndexLuOptions { round_output },
+            );
 
             compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
             compare_category(
@@ -2270,10 +2315,14 @@ fn sweep_heat_index_rothfusz() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = heat_index_rothfusz(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                round_output,
-                limit_inputs,
+                HeatIndexRothfuszInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
+                HeatIndexRothfuszOptions {
+                    round_output,
+                    limit_inputs,
+                },
             );
 
             compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
@@ -2311,9 +2360,11 @@ fn sweep_heat_index_schoen() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = heat_index_schoen(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                round_output,
+                HeatIndexSchoenInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
+                HeatIndexSchoenOptions { round_output },
             );
 
             compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
@@ -2328,17 +2379,27 @@ fn sweep_heat_index_schoen() {
 
 #[test]
 fn sweep_humidex() {
+    // `model` is an enumerated axis so both the Rana (upstream default) and Masterson
+    // vapor-pressure formulations stay covered, rather than dropping one of them: they
+    // are two branches of one Rust function (`HumidexOptions::model`), not the separate
+    // `humidex`/`humidex_masterson` functions this used to sweep independently.
+    let domain = tdb_rh_domain().enumerated("model", 2);
+
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("humidex", 1e-9);
 
-        run_sweep("sweep_humidex", &tdb_rh_domain(), |s: &Sample| {
+        run_sweep("sweep_humidex", &domain, |s: &Sample| {
             let (tdb, rh) = (s.real("tdb"), s.real("rh"));
             let round_output = s.flag("round_output");
+            let (model, py_model) = match s.index("model") {
+                0 => (HumidexModel::Rana, "rana"),
+                _ => (HumidexModel::Masterson, "masterson"),
+            };
 
             let kwargs = [
-                ("model", "rana".into_pyobject(py).unwrap().into_any()),
+                ("model", py_model.into_pyobject(py).unwrap().into_any()),
                 (
                     "round_output",
                     PyBool::new(py, round_output).to_owned().into_any(),
@@ -2354,9 +2415,14 @@ fn sweep_humidex() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = humidex(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                round_output,
+                HumidexInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
+                HumidexOptions {
+                    model,
+                    round_output,
+                },
             );
 
             compare_field(&field, rust.humidex, py_float(&py_result, "humidex")?)?;
@@ -2365,47 +2431,6 @@ fn sweep_humidex() {
                 Some(rust.discomfort.as_str()),
                 py_category(&py_result, "discomfort")?,
             )
-        });
-    });
-}
-
-#[test]
-fn sweep_humidex_masterson() {
-    // Python spells this `humidex(model="masterson")`; the Rust port splits it into its
-    // own function, so it is a rename rather than the missing counterpart the coverage
-    // checker's EXEMPT list used to claim.
-    Python::with_gil(|py| {
-        let models = import_reference(py, "pythermalcomfort.models")
-            .expect("failed to import pythermalcomfort.models");
-        let field = FieldCmp::new("humidex", 1e-9);
-
-        run_sweep("sweep_humidex_masterson", &tdb_rh_domain(), |s: &Sample| {
-            let (tdb, rh) = (s.real("tdb"), s.real("rh"));
-            let round_output = s.flag("round_output");
-
-            let kwargs = [
-                ("model", "masterson".into_pyobject(py).unwrap().into_any()),
-                (
-                    "round_output",
-                    PyBool::new(py, round_output).to_owned().into_any(),
-                ),
-            ]
-            .into_py_dict(py)
-            .unwrap();
-
-            let py_result = models
-                .getattr("humidex")
-                .unwrap()
-                .call((tdb, rh), Some(&kwargs))
-                .map_err(|e| format!("python raised: {e}"))?;
-
-            let rust = humidex_masterson(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                round_output,
-            );
-
-            compare_field(&field, rust, py_float(&py_result, "humidex")?)
         });
     });
 }
@@ -2435,9 +2460,11 @@ fn sweep_thi() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = thi(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                round_output,
+                ThiInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                },
+                ThiOptions { round_output },
             );
 
             compare_field(&field, rust, py_float(&py_result, "thi")?)
@@ -2466,7 +2493,10 @@ fn sweep_discomfort_index() {
                 .call1((tdb, rh))
                 .map_err(|e| format!("python raised: {e}"))?;
 
-            let rust = discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
+            let rust = discomfort_index(DiscomfortIndexInputs {
+                dry_bulb_temp: Temperature::from_celsius(tdb),
+                relative_humidity: Humidity::from_percent(rh),
+            });
 
             compare_field(&field, rust.di, py_float(&py_result, "di")?)?;
             compare_category(
@@ -2508,9 +2538,11 @@ fn sweep_wci() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = wci(
-                Temperature::from_celsius(tdb),
-                Speed::from_meters_per_second(v),
-                round_output,
+                WciInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    wind_speed: Speed::from_meters_per_second(v),
+                },
+                WciOptions { round_output },
             );
 
             compare_field(&field, rust, py_float(&py_result, "wci")?)
@@ -2549,9 +2581,11 @@ fn sweep_wind_chill_temperature() {
 
             // Python documents this input as km/h, unlike `wci` next door which is m/s.
             let rust = wind_chill_temperature(
-                Temperature::from_celsius(tdb),
-                Speed::from_kilometers_per_hour(v),
-                round_output,
+                WindChillTemperatureInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    wind_speed: Speed::from_kilometers_per_hour(v),
+                },
+                WindChillTemperatureOptions { round_output },
             );
 
             compare_field(&field, rust, py_float(&py_result, "wct")?)
@@ -2590,10 +2624,12 @@ fn sweep_net() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = net(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                Speed::from_meters_per_second(v),
-                round_output,
+                NetInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                    wind_speed: Speed::from_meters_per_second(v),
+                },
+                NetOptions { round_output },
             );
 
             compare_field(&field, rust, py_float(&py_result, "net")?)
@@ -2644,11 +2680,15 @@ fn sweep_at() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = at(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                Speed::from_meters_per_second(v),
-                supply_q.then_some(q),
-                round_output,
+                AtInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                    wind_speed: Speed::from_meters_per_second(v),
+                },
+                AtOptions {
+                    q: supply_q.then_some(q),
+                    round_output,
+                },
             );
 
             compare_field(&field, rust, py_float(&py_result, "at")?)
@@ -2687,10 +2727,12 @@ fn sweep_esi() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = esi(
-                Temperature::from_celsius(tdb),
-                Humidity::from_percent(rh),
-                sol,
-                round_output,
+                EsiInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    relative_humidity: Humidity::from_percent(rh),
+                    sol_radiation_global: sol,
+                },
+                EsiOptions { round_output },
             );
 
             compare_field(&field, rust, py_float(&py_result, "esi")?)
@@ -2789,7 +2831,12 @@ fn sweep_pet_steady() {
         // [0, 1] to match every other model's wme axis.
         .real("wme", 0.0, 1.0)
         .enumerated("position", 2)
-        .enumerated("sex", 2);
+        .enumerated("sex", 2)
+        // `PetOptions::forced_convection` exposes Python's third position,
+        // "standing, forced convection" (hc = 8.6 * v**0.513), which was previously
+        // unreachable from Rust. Only takes effect combined with Standing; see the
+        // per-sample match below for how Sitting stays a no-op.
+        .flag("forced_convection");
 
     Python::with_gil(|py| {
         // Force the version guard before the shim imports pythermalcomfort itself.
@@ -2840,9 +2887,13 @@ def call(args, kwargs):
                 s.real("height"),
                 s.real("wme"),
             );
-            let (posture, py_position) = match s.index("position") {
-                0 => (PetPosture::Sitting, "sitting"),
-                _ => (PetPosture::Standing, "standing"),
+            let forced_convection = s.flag("forced_convection");
+            // Python has no "sitting, forced convection" position; the Rust flag is a
+            // documented no-op for Sitting, so only Standing selects the third string.
+            let (posture, py_position) = match (s.index("position"), forced_convection) {
+                (0, _) => (PetPosture::Sitting, "sitting"),
+                (_, true) => (PetPosture::Standing, "standing, forced convection"),
+                (_, false) => (PetPosture::Standing, "standing"),
             };
             let (sex, py_sex) = match s.index("sex") {
                 0 => (Sex::Male, "male"),
@@ -2882,12 +2933,14 @@ def call(args, kwargs):
             }
 
             let rust = pet_steady(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                PetInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                },
                 PetOptions {
                     age,
                     sex,
@@ -2897,6 +2950,7 @@ def call(args, kwargs):
                     wme: WorkEfficiency::new(wme)
                         .expect("the wme axis is bounded to the valid [0, 1] range"),
                     posture,
+                    forced_convection,
                 },
             );
 
@@ -3053,7 +3107,12 @@ fn sweep_work_capacity_dunne() {
                     .unwrap()
                     .call((wbgt_v,), Some(&kwargs))
                     .map_err(|e| format!("python raised: {e}"))?;
-                let rust = work_capacity_dunne(Temperature::from_celsius(wbgt_v), intensity);
+                let rust = work_capacity_dunne(
+                    Temperature::from_celsius(wbgt_v),
+                    WorkCapacityIntensityOptions {
+                        work_intensity: intensity,
+                    },
+                );
                 compare_field(&field, rust, py_float(&py_result, "capacity")?)
             },
         );
@@ -3084,7 +3143,12 @@ fn sweep_work_capacity_hothaps() {
                     .unwrap()
                     .call((wbgt_v,), Some(&kwargs))
                     .map_err(|e| format!("python raised: {e}"))?;
-                let rust = work_capacity_hothaps(Temperature::from_celsius(wbgt_v), intensity);
+                let rust = work_capacity_hothaps(
+                    Temperature::from_celsius(wbgt_v),
+                    WorkCapacityIntensityOptions {
+                        work_intensity: intensity,
+                    },
+                );
                 compare_field(&field, rust, py_float(&py_result, "capacity")?)
             },
         );
@@ -3125,6 +3189,7 @@ fn adaptive_domain() -> Domain {
         .real("v", 0.0, 2.0)
         .flag("limit_inputs")
         .flag("round_output")
+        .enumerated("units", 2)
 }
 
 #[test]
@@ -3132,12 +3197,16 @@ fn sweep_adaptive_ashrae() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = [
-            FieldCmp::new("tmp_cmf", 1e-9),
-            FieldCmp::new("tmp_cmf_80_low", 1e-9),
-            FieldCmp::new("tmp_cmf_80_up", 1e-9),
-            FieldCmp::new("tmp_cmf_90_low", 1e-9),
-            FieldCmp::new("tmp_cmf_90_up", 1e-9),
+        let tol_si = 1e-9;
+        // A genuine SI->IP conversion of the result (adaptive_ashrae.py:120-130), so an
+        // SI-scale tolerance becomes 9/5 as large once expressed in Fahrenheit.
+        let tol_ip = tol_si * 9.0 / 5.0;
+        let field_names = [
+            "tmp_cmf",
+            "tmp_cmf_80_low",
+            "tmp_cmf_80_up",
+            "tmp_cmf_90_low",
+            "tmp_cmf_90_up",
         ];
 
         run_sweep("sweep_adaptive_ashrae", &adaptive_domain(), |s: &Sample| {
@@ -3149,6 +3218,10 @@ fn sweep_adaptive_ashrae() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let (units, py_units) = match s.index("units") {
+                0 => (Units::SI, "SI"),
+                _ => (Units::IP, "IP"),
+            };
 
             let kwargs = [
                 (
@@ -3159,14 +3232,30 @@ fn sweep_adaptive_ashrae() {
                     "round_output",
                     PyBool::new(py, round_output).to_owned().into_any(),
                 ),
+                ("units", py_units.into_pyobject(py).unwrap().into_any()),
             ]
             .into_py_dict(py)
             .unwrap();
 
+            // Python's `units="IP"` reinterprets its raw floats as Fahrenheit/fps and
+            // converts them to SI before doing anything else (see `sweep_cooling_effect`,
+            // which solved this the same way): feed it the IP equivalents of the same SI
+            // environment Rust uses.
+            let (py_tdb, py_tr, py_trm, py_v) = if units == Units::IP {
+                (
+                    tdb * 9.0 / 5.0 + 32.0,
+                    tr * 9.0 / 5.0 + 32.0,
+                    trm * 9.0 / 5.0 + 32.0,
+                    v * 3.281,
+                )
+            } else {
+                (tdb, tr, trm, v)
+            };
+
             let py_result = models
                 .getattr("adaptive_ashrae")
                 .unwrap()
-                .call((tdb, tr, trm, v), Some(&kwargs))
+                .call((py_tdb, py_tr, py_trm, py_v), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = adaptive_ashrae(
@@ -3177,6 +3266,7 @@ fn sweep_adaptive_ashrae() {
                 AdaptiveOptions {
                     limit_inputs,
                     round_output,
+                    units,
                 },
             );
 
@@ -3187,8 +3277,21 @@ fn sweep_adaptive_ashrae() {
                 rust.tmp_cmf_90_low,
                 rust.tmp_cmf_90_up,
             ];
-            for (field, rust_value) in fields.iter().zip(values) {
-                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            let tol = match units {
+                Units::SI => tol_si,
+                Units::IP => tol_ip,
+            };
+            for (name, rust_value) in field_names.iter().zip(values) {
+                let name = *name;
+                let rust_value = match units {
+                    Units::SI => rust_value.as_celsius(),
+                    Units::IP => rust_value.as_fahrenheit(),
+                };
+                compare_field(
+                    &FieldCmp::new(name, tol),
+                    rust_value,
+                    py_float(&py_result, name)?,
+                )?;
             }
             compare_bool("acceptability_80", rust.acceptability_80, &py_result)?;
             compare_bool("acceptability_90", rust.acceptability_90, &py_result)
@@ -3201,14 +3304,18 @@ fn sweep_adaptive_en() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = [
-            FieldCmp::new("tmp_cmf", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_i_low", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_i_up", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_ii_low", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_ii_up", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_iii_low", 1e-9),
-            FieldCmp::new("tmp_cmf_cat_iii_up", 1e-9),
+        let tol_si = 1e-9;
+        // A genuine SI->IP conversion of the result (adaptive_en.py:140-150), so an
+        // SI-scale tolerance becomes 9/5 as large once expressed in Fahrenheit.
+        let tol_ip = tol_si * 9.0 / 5.0;
+        let field_names = [
+            "tmp_cmf",
+            "tmp_cmf_cat_i_low",
+            "tmp_cmf_cat_i_up",
+            "tmp_cmf_cat_ii_low",
+            "tmp_cmf_cat_ii_up",
+            "tmp_cmf_cat_iii_low",
+            "tmp_cmf_cat_iii_up",
         ];
 
         run_sweep("sweep_adaptive_en", &adaptive_domain(), |s: &Sample| {
@@ -3220,6 +3327,10 @@ fn sweep_adaptive_en() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let (units, py_units) = match s.index("units") {
+                0 => (Units::SI, "SI"),
+                _ => (Units::IP, "IP"),
+            };
 
             let kwargs = [
                 (
@@ -3230,14 +3341,29 @@ fn sweep_adaptive_en() {
                     "round_output",
                     PyBool::new(py, round_output).to_owned().into_any(),
                 ),
+                ("units", py_units.into_pyobject(py).unwrap().into_any()),
             ]
             .into_py_dict(py)
             .unwrap();
 
+            // See sweep_adaptive_ashrae: Python's `units="IP"` reinterprets its raw
+            // floats as Fahrenheit/fps, so feed it the IP equivalents of the same SI
+            // environment Rust uses.
+            let (py_tdb, py_tr, py_trm, py_v) = if units == Units::IP {
+                (
+                    tdb * 9.0 / 5.0 + 32.0,
+                    tr * 9.0 / 5.0 + 32.0,
+                    trm * 9.0 / 5.0 + 32.0,
+                    v * 3.281,
+                )
+            } else {
+                (tdb, tr, trm, v)
+            };
+
             let py_result = models
                 .getattr("adaptive_en")
                 .unwrap()
-                .call((tdb, tr, trm, v), Some(&kwargs))
+                .call((py_tdb, py_tr, py_trm, py_v), Some(&kwargs))
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = adaptive_en(
@@ -3248,6 +3374,7 @@ fn sweep_adaptive_en() {
                 AdaptiveOptions {
                     limit_inputs,
                     round_output,
+                    units,
                 },
             );
 
@@ -3260,8 +3387,21 @@ fn sweep_adaptive_en() {
                 rust.tmp_cmf_cat_iii_low,
                 rust.tmp_cmf_cat_iii_up,
             ];
-            for (field, rust_value) in fields.iter().zip(values) {
-                compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
+            let tol = match units {
+                Units::SI => tol_si,
+                Units::IP => tol_ip,
+            };
+            for (name, rust_value) in field_names.iter().zip(values) {
+                let name = *name;
+                let rust_value = match units {
+                    Units::SI => rust_value.as_celsius(),
+                    Units::IP => rust_value.as_fahrenheit(),
+                };
+                compare_field(
+                    &FieldCmp::new(name, tol),
+                    rust_value,
+                    py_float(&py_result, name)?,
+                )?;
             }
             compare_bool("acceptability_cat_i", rust.acceptability_cat_i, &py_result)?;
             compare_bool(
@@ -3872,13 +4012,15 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                     .map_err(|e| format!("python raised: {e}"))?;
 
                 let rust = ridge_regression_predict_t_re_t_sk(
-                    sex,
-                    age,
-                    Length::from_meters(height),
-                    Mass::from_kilograms(weight),
-                    Temperature::from_celsius(tdb),
-                    Humidity::from_percent(rh),
-                    duration,
+                    RidgeRegressionInputs {
+                        sex,
+                        age,
+                        height: Length::from_meters(height),
+                        weight: Mass::from_kilograms(weight),
+                        tdb: Temperature::from_celsius(tdb),
+                        rh: Humidity::from_percent(rh),
+                        duration,
+                    },
                     RidgeRegressionOptions {
                         t_re_initial: supply_initials.then(|| Temperature::from_celsius(t_re0)),
                         t_sk_initial: supply_initials.then(|| Temperature::from_celsius(t_sk0)),
@@ -3900,7 +4042,7 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                     for (minute, (rust_value, py_value)) in
                         rust_series.iter().zip(py_series.iter()).enumerate()
                     {
-                        compare_field(&cmp, *rust_value, *py_value)
+                        compare_field(&cmp, rust_value.as_celsius(), *py_value)
                             .map_err(|e| format!("minute {minute}: {e}"))?;
                     }
                 }
@@ -4418,12 +4560,16 @@ fn sweep_psychrometrics() {
             compare_field(
                 &FieldCmp::new("mean_radiant_temperature", 1e-9),
                 mean_radiant_temperature(
-                    Temperature::from_celsius(tg),
-                    t,
-                    Speed::from_meters_per_second(v),
-                    Length::from_meters(d),
-                    emissivity,
-                    use_iso,
+                    MeanRadiantTemperatureInputs {
+                        tg: Temperature::from_celsius(tg),
+                        tdb: t,
+                        v: Speed::from_meters_per_second(v),
+                    },
+                    MeanRadiantTemperatureOptions {
+                        d: Length::from_meters(d),
+                        emissivity,
+                        use_iso,
+                    },
                 )
                 .as_celsius(),
                 py_util(
@@ -4438,10 +4584,12 @@ fn sweep_psychrometrics() {
             compare_field(
                 &FieldCmp::new("operative_temperature", 1e-9),
                 operative_temperature(
-                    t,
-                    Temperature::from_celsius(tr),
-                    Speed::from_meters_per_second(v),
-                    use_ashrae,
+                    OperativeTemperatureInputs {
+                        tdb: t,
+                        tr: Temperature::from_celsius(tr),
+                        v: Speed::from_meters_per_second(v),
+                    },
+                    OperativeTemperatureOptions { use_ashrae },
                 )
                 .as_celsius(),
                 py_util(&utils, "operative_tmp", (tdb, tr, v, py_op_standard))?,
@@ -4454,7 +4602,15 @@ fn sweep_psychrometrics() {
                 .unwrap()
                 .call1((tdb, rh, p_atm))
                 .map_err(|e| format!("psy_ta_rh raised: {e}"))?;
-            let rust_psy = psy_ta_rh(t, Humidity::from_percent(rh), Pressure::from_pascals(p_atm));
+            let rust_psy = psy_ta_rh(
+                PsyTaRhInputs {
+                    tdb: t,
+                    rh: Humidity::from_percent(rh),
+                },
+                PsyTaRhOptions {
+                    p_atm: Pressure::from_pascals(p_atm),
+                },
+            );
 
             for (py_name, rust_value, tol) in [
                 ("p_sat", rust_psy.p_sat.as_pascals(), 1e-6),

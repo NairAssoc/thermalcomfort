@@ -3,7 +3,7 @@
 //! Demonstrates UTCI (Universal Thermal Climate Index) and WBGT (Wet Bulb Globe Temperature)
 //! for assessing outdoor thermal conditions and heat stress.
 
-use thermalcomfort::models::{WbgtInputs, WbgtOptions, utci, wbgt};
+use thermalcomfort::models::{UtciInputs, WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
 use thermalcomfort::{Humidity, Speed, Temperature};
 
@@ -30,7 +30,15 @@ fn main() {
     println!("  Relative humidity:    {:.0}%\n", rh1.as_percent());
 
     // UTCI calculation
-    let utci_result1 = utci(tdb1, tr1, v1, rh1, Default::default());
+    let utci_result1 = utci(
+        UtciInputs {
+            dry_bulb_temp: tdb1,
+            mean_radiant_temp: tr1,
+            wind_speed: v1,
+            relative_humidity: rh1,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result1.utci);
@@ -86,7 +94,15 @@ fn main() {
     );
     println!("  Relative humidity:    {:.0}%\n", rh2.as_percent());
 
-    let utci_result2 = utci(tdb2, tr2, v2, rh2, Default::default());
+    let utci_result2 = utci(
+        UtciInputs {
+            dry_bulb_temp: tdb2,
+            mean_radiant_temp: tr2,
+            wind_speed: v2,
+            relative_humidity: rh2,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result2.utci);
@@ -140,7 +156,15 @@ fn main() {
     );
     println!("  Relative humidity:    {:.0}%\n", rh3.as_percent());
 
-    let utci_result3 = utci(tdb3, tr3, v3, rh3, Default::default());
+    let utci_result3 = utci(
+        UtciInputs {
+            dry_bulb_temp: tdb3,
+            mean_radiant_temp: tr3,
+            wind_speed: v3,
+            relative_humidity: rh3,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result3.utci);
