@@ -15,7 +15,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 - **Complete coverage**: every pythermalcomfort v4.4.0 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
-- **Rigorously Validated**: 418 tests (200 unit + 83 Python comparison + 81 doctests +
+- **Rigorously Validated**: 413 tests (197 unit + 83 Python comparison + 79 doctests +
   47 differential sweeps + 7 harness self-tests). Every public function with a
   pythermalcomfort counterpart has a cross-library parity test *and* is driven through the
   randomised differential sweep. The examples on this page are compiled by

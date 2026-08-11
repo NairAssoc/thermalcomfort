@@ -57,8 +57,6 @@ EXEMPT: dict[str, str] = {
     "temp_to_celsius": "Rust measurement-type adapter, no Python analogue",
     "ms_to_speed": "Rust measurement-type adapter, no Python analogue",
     "speed_to_ms": "Rust measurement-type adapter, no Python analogue",
-    "pmv_ppd_iso_typed": "typed wrapper over pmv_ppd_iso, which is covered",
-    "pmv_ppd_ashrae_typed": "typed wrapper over pmv_ppd_ashrae, which is covered",
     "body_surface_area_dubois": "Rust splits this out; Python's body_surface_area takes a formula argument",
 }
 

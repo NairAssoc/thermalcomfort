@@ -1,103 +1,95 @@
-//! Example using the type-safe API with the measurements crate
+//! Working in whatever units you have, and letting the types do the conversion.
+//!
+//! This used to demonstrate a separate "typed API" sitting alongside an untyped one. There
+//! is no longer such a split — every model takes typed quantities and named inputs — so what
+//! is left worth showing is the part that was always the point: you hand the library the
+//! units you actually measured in, and comparisons that would be unit errors elsewhere are
+//! either impossible to write or converted for you.
 
-use thermalcomfort::models::pmv_typed::{pmv_ppd_ashrae_typed, pmv_ppd_iso_typed};
+use thermalcomfort::models::pmv::PmvPpdInputs;
+use thermalcomfort::models::{pmv_ppd_ashrae, pmv_ppd_iso};
 use thermalcomfort::utilities::v_relative;
 use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 fn main() {
-    println!("=== Type-Safe Thermal Comfort API Example ===\n");
+    println!("=== Units and typed quantities ===\n");
 
-    // Example 1: Using Fahrenheit and km/h (automatically converted)
-    println!("Example 1: International Units");
-    let tdb_f = Temperature::from_fahrenheit(77.0);
-    let tr_c = Temperature::from_celsius(25.0);
-    let v_kmh = Speed::from_kilometers_per_hour(0.36);
-    let rh = Humidity::from_percent(50.0);
+    // 1. Mixed units in, no manual conversion.
+    println!("1. Fahrenheit and km/h, converted by the types");
+    let tdb = Temperature::from_fahrenheit(77.0);
+    let tr = Temperature::from_celsius(25.0);
+    let v = Speed::from_kilometers_per_hour(0.36);
     let met = MetabolicRate::from_met(1.4);
     let clo = ClothingInsulation::from_clo(0.5);
 
     println!(
-        "  Temperature (F): {:.1}°F = {:.1}°C",
-        tdb_f.as_fahrenheit(),
-        tdb_f.as_celsius()
+        "   {:.1}°F = {:.1}°C, {:.2} km/h = {:.2} m/s",
+        tdb.as_fahrenheit(),
+        tdb.as_celsius(),
+        v.as_kilometers_per_hour(),
+        v.as_meters_per_second()
     );
+
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr: v_relative(v, met),
+            rh: Humidity::from_percent(50.0),
+            met,
+            clo,
+        },
+        Default::default(),
+    );
+    println!("   PMV {:.2}, PPD {:.1}%\n", result.pmv, result.ppd);
+
+    // 2. The same temperature written two ways gives the same answer.
+    println!("2. 20°C and 68°F are the same input");
+    let in_celsius = Temperature::from_celsius(20.0);
+    let in_fahrenheit = Temperature::from_fahrenheit(68.0);
+
+    let pmv_at = |t: Temperature| {
+        pmv_ppd_iso(
+            PmvPpdInputs {
+                tdb: t,
+                tr: t,
+                vr: Speed::from_meters_per_second(0.1),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(1.2),
+                clo: ClothingInsulation::from_clo(1.0),
+            },
+            Default::default(),
+        )
+        .pmv
+    };
+
+    println!("   from_celsius(20.0)    -> PMV {:.2}", pmv_at(in_celsius));
     println!(
-        "  Air speed: {:.2} km/h = {:.2} m/s",
-        v_kmh.as_kilometers_per_hour(),
-        v_kmh.as_meters_per_second()
+        "   from_fahrenheit(68.0) -> PMV {:.2}\n",
+        pmv_at(in_fahrenheit)
     );
 
-    // Calculate relative air speed
-    let vr = v_relative(v_kmh, met);
-
-    let result = pmv_ppd_iso_typed(tdb_f, tr_c, vr, rh, met, clo, Default::default());
-    println!("  PMV: {:.2}", result.pmv);
-    println!("  PPD: {:.1}%", result.ppd);
-    println!("  Thermal Sensation: {:?}\n", result.tsv);
-
-    // Example 2: Comparing different units
-    println!("Example 2: Unit Conversion Verification");
-    let temp_c = Temperature::from_celsius(20.0);
-    let temp_f = Temperature::from_fahrenheit(68.0);
-
-    println!("  20°C = {:.1}°F", temp_c.as_fahrenheit());
-    println!("  68°F = {:.1}°C", temp_f.as_celsius());
-
-    // Both should give same result
-    let vr = Speed::from_meters_per_second(0.1);
-    let rh_50 = Humidity::from_percent(50.0);
-    let result_c = pmv_ppd_iso_typed(
-        temp_c,
-        temp_c,
-        vr,
-        rh_50,
-        MetabolicRate::from_met(1.2),
-        ClothingInsulation::from_clo(1.0),
+    // 3. Named inputs, so a mis-ordered call does not compile rather than
+    //    silently computing the wrong thing.
+    println!("3. ASHRAE 55, with every input named");
+    let result = pmv_ppd_ashrae(
+        PmvPpdInputs {
+            tdb: Temperature::from_celsius(25.0),
+            tr: Temperature::from_celsius(25.0),
+            vr: Speed::from_meters_per_second(0.1),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(1.2),
+            clo: ClothingInsulation::from_clo(0.5),
+        },
         Default::default(),
     );
-    let result_f = pmv_ppd_iso_typed(
-        temp_f,
-        temp_f,
-        vr,
-        rh_50,
-        MetabolicRate::from_met(1.2),
-        ClothingInsulation::from_clo(1.0),
-        Default::default(),
-    );
+    println!("   PMV {:.2}, PPD {:.1}%", result.pmv, result.ppd);
+    println!("   Sensation: {:?}\n", result.tsv);
 
-    println!("  PMV (using Celsius): {:.2}", result_c.pmv);
-    println!("  PMV (using Fahrenheit): {:.2}", result_f.pmv);
-    println!(
-        "  Difference: {:.4} (should be ~0)\n",
-        (result_c.pmv - result_f.pmv).abs()
-    );
-
-    // Example 3: ASHRAE calculation with typed API
-    println!("Example 3: ASHRAE 55 with Type Safety");
-    let tdb = Temperature::from_celsius(25.0);
-    let tr = Temperature::from_celsius(25.0);
-    let v = Speed::from_meters_per_second(0.1);
-    let rh = Humidity::from_percent(50.0);
-
-    let result = pmv_ppd_ashrae_typed(
-        tdb,
-        tr,
-        v,
-        rh,
-        MetabolicRate::from_met(1.2),
-        ClothingInsulation::from_clo(0.5),
-        Default::default(),
-    );
-    println!("  PMV (ASHRAE): {:.2}", result.pmv);
-    println!("  PPD: {:.1}%", result.ppd);
-    println!("  Thermal Sensation: {:?}\n", result.tsv);
-
-    // Example 4: Demonstrating type safety
-    println!("Example 4: Type Safety Benefits");
-    println!("  With typed API, the compiler ensures:");
-    println!("  ✓ Temperature is Temperature, not confused with Speed");
-    println!("  ✓ Speed is Speed, not confused with Temperature");
-    println!("  ✓ Units are automatically converted");
-    println!("  ✓ No risk of passing Fahrenheit where Celsius is expected");
-    println!("  ✓ Clear self-documenting code");
+    println!("What the types rule out:");
+    println!("  - a Speed where a Temperature belongs: will not compile");
+    println!("  - °F read as °C: converted, not mistaken");
+    println!("  - tdb and tr transposed: they are named, not positional");
+    println!("  - a temperature *difference* used as an absolute reading:");
+    println!("    TemperatureDelta is a distinct type from Temperature");
 }

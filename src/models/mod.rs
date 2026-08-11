@@ -8,7 +8,6 @@ pub mod jos3;
 pub mod pet;
 pub mod phs;
 pub mod pmv;
-pub mod pmv_typed;
 pub mod ridge_regression;
 pub mod set_tmp;
 pub mod solar_gain;
