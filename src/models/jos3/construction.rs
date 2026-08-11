@@ -58,7 +58,9 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::utilities::{BsaFormula, body_surface_area};
+use crate::utilities::{
+    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, body_surface_area,
+};
 use crate::{Length, Mass};
 
 use super::matrix::{IDICT, NUM_NODES};
@@ -195,9 +197,13 @@ pub(crate) fn to_array_body_parts_by_name(
 #[must_use]
 pub(crate) fn bsa_rate(height: f64, weight: f64, bsa_equation: BsaFormula) -> f64 {
     let bsa_all = body_surface_area(
-        Mass::from_kilograms(weight),
-        Length::from_meters(height),
-        bsa_equation,
+        BodySurfaceAreaInputs {
+            weight: Mass::from_kilograms(weight),
+            height: Length::from_meters(height),
+        },
+        BodySurfaceAreaOptions {
+            formula: bsa_equation,
+        },
     )
     .as_square_meters();
     bsa_all / defaults::LOCAL_BSA.iter().sum::<f64>()

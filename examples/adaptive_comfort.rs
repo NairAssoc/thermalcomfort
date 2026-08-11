@@ -4,7 +4,9 @@
 //! for naturally ventilated buildings.
 
 use thermalcomfort::models::{adaptive_ashrae, adaptive_en};
-use thermalcomfort::utilities::running_mean_outdoor_temperature;
+use thermalcomfort::utilities::{
+    RunningMeanOutdoorTemperatureOptions, running_mean_outdoor_temperature,
+};
 use thermalcomfort::{Speed, Temperature};
 
 fn main() {
@@ -25,7 +27,10 @@ fn main() {
         Temperature::from_celsius(17.5),
         Temperature::from_celsius(17.0),
     ];
-    let t_running_mean = running_mean_outdoor_temperature(&outdoor_temps, 0.8);
+    let t_running_mean = running_mean_outdoor_temperature(
+        &outdoor_temps,
+        RunningMeanOutdoorTemperatureOptions::default(),
+    );
 
     println!("Indoor Conditions:");
     println!("  Operative temperature: {:.1}°C", tdb.as_celsius());

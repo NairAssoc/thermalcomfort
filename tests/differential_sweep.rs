@@ -24,7 +24,8 @@ use thermalcomfort::models::pmv::{
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
+    VerticalTmpGradPpdOptions,
 };
 use thermalcomfort::models::two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
@@ -55,12 +56,13 @@ use thermalcomfort::psychrometrics::{
     enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    Ashrae55Model, BsaFormula, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
-    CloDynamicIsoInputs, CloDynamicIsoOptions, Iso9920Model, Posture, Units, antoine,
-    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
-    clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
-    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    Ashrae55Model, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula,
+    CloDynamicAshraeInputs, CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
+    Iso9920Model, Posture, RunningMeanOutdoorTemperatureOptions, Units, antoine, body_surface_area,
+    clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
+    clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
+    clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
+    p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
     ActivityRatio, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
@@ -4313,9 +4315,11 @@ fn sweep_body_surface_area_and_hr_to_rh() {
                 compare_field(
                     &FieldCmp::new("body_surface_area", 1e-9),
                     body_surface_area(
-                        Mass::from_kilograms(weight),
-                        Length::from_meters(height),
-                        formula,
+                        BodySurfaceAreaInputs {
+                            weight: Mass::from_kilograms(weight),
+                            height: Length::from_meters(height),
+                        },
+                        BodySurfaceAreaOptions { formula },
                     )
                     .as_square_meters(),
                     py_bsa,
@@ -4348,6 +4352,7 @@ fn sweep_running_mean_and_ensemble() {
         .real("t5", -20.0, 40.0)
         .real("t6", -20.0, 40.0)
         .real("alpha", 0.0, 1.0)
+        .enumerated("units", 2)
         .real("g0", 0.0, 1.0)
         .real("g1", 0.0, 1.0)
         .real("g2", 0.0, 1.0);
@@ -4367,11 +4372,25 @@ fn sweep_running_mean_and_ensemble() {
                 s.real("t6"),
             ];
             let alpha = s.real("alpha");
+            let (units, py_units) = match s.index("units") {
+                0 => (Units::SI, "SI"),
+                _ => (Units::IP, "IP"),
+            };
+
+            // utilities.py:944-950's IP branch reinterprets its raw list as Fahrenheit
+            // and converts to SI before averaging; feed it the IP-valued equivalents of
+            // the same SI environment Rust uses (see `sweep_cooling_effect`/`sweep_utci`,
+            // which solve this the same way for their own `units` axis).
+            let py_temps: Vec<f64> = if units == Units::IP {
+                temps.iter().map(|t| t * 9.0 / 5.0 + 32.0).collect()
+            } else {
+                temps.to_vec()
+            };
 
             let py_rm = utils
                 .getattr("running_mean_outdoor_temperature")
                 .unwrap()
-                .call1((temps.to_vec(), alpha))
+                .call1((py_temps, alpha, py_units))
                 .map_err(|e| format!("running_mean_outdoor_temperature raised: {e}"))?;
             let py_rm: f64 = py_rm
                 .extract()
@@ -4382,9 +4401,17 @@ fn sweep_running_mean_and_ensemble() {
                 .iter()
                 .map(|t| Temperature::from_celsius(*t))
                 .collect();
+            let rust_rm = running_mean_outdoor_temperature(
+                &rust_temps,
+                RunningMeanOutdoorTemperatureOptions { alpha, units },
+            );
+            let rust_value = match units {
+                Units::SI => rust_rm.as_celsius(),
+                Units::IP => rust_rm.as_fahrenheit(),
+            };
             compare_field(
                 &FieldCmp::new("running_mean_outdoor_temperature", 1e-9),
-                running_mean_outdoor_temperature(&rust_temps, alpha).as_celsius(),
+                rust_value,
                 py_rm,
             )?;
 
@@ -4433,11 +4460,11 @@ fn sweep_f_svv_and_transpose_sharp_altitude() {
 
                 compare_field(
                     &FieldCmp::new("f_svv", 1e-9),
-                    f_svv(
-                        Length::from_meters(w),
-                        Length::from_meters(h),
-                        Length::from_meters(d),
-                    ),
+                    f_svv(FSvvInputs {
+                        width: Length::from_meters(w),
+                        height: Length::from_meters(h),
+                        distance: Length::from_meters(d),
+                    }),
                     py_util(&utils, "f_svv", (w, h, d))?,
                 )?;
 
@@ -4450,9 +4477,20 @@ fn sweep_f_svv_and_transpose_sharp_altitude() {
                     .extract()
                     .map_err(|e| format!("transpose_sharp_altitude: could not read: {e}"))?;
 
-                let (rust_sharp, rust_alt) = transpose_sharp_altitude(sharp, altitude);
-                compare_field(&FieldCmp::new("sharp", 1e-9), rust_sharp, py_sharp)?;
-                compare_field(&FieldCmp::new("altitude", 1e-9), rust_alt, py_alt)
+                let (rust_sharp, rust_alt) = transpose_sharp_altitude(
+                    Angle::from_degrees(sharp),
+                    Angle::from_degrees(altitude),
+                );
+                compare_field(
+                    &FieldCmp::new("sharp", 1e-9),
+                    rust_sharp.as_degrees(),
+                    py_sharp,
+                )?;
+                compare_field(
+                    &FieldCmp::new("altitude", 1e-9),
+                    rust_alt.as_degrees(),
+                    py_alt,
+                )
             },
         );
     });

@@ -5,7 +5,7 @@
 use crate::models::pmv::{PmvPpdAshraeOptions, PmvPpdInputs, pmv_ppd_ashrae};
 use crate::utilities::round_to;
 use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
-use measurements::{Humidity, Length, Speed, Temperature};
+use measurements::{Angle, Humidity, Length, Speed, Temperature};
 
 /// The comfort inputs to [`ankle_draft`].
 ///
@@ -311,15 +311,24 @@ pub fn vertical_tmp_grad_ppd(
     (ppd_vtg, acceptability)
 }
 
+/// The inputs to [`f_svv`]: `utilities.py:660` requires all three (no default), and they
+/// are three adjacent same-typed [`Length`]s — precisely the swap hazard this pattern
+/// exists for.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FSvvInputs {
+    /// Width of the window
+    pub width: Length,
+    /// Height of the window
+    pub height: Length,
+    /// Distance between the occupant and the window
+    pub distance: Length,
+}
+
 /// Calculate sky-vault view fraction
 ///
 /// Calculates the fraction of the sky visible through a window.
-///
-/// # Arguments
-///
-/// * `w` - Width of the window
-/// * `h` - Height of the window
-/// * `d` - Distance between occupant and window
 ///
 /// # Returns
 ///
@@ -328,16 +337,25 @@ pub fn vertical_tmp_grad_ppd(
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::f_svv;
+/// use thermalcomfort::models::{f_svv, FSvvInputs};
 /// use thermalcomfort::Length;
 ///
-/// let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
+/// let svv = f_svv(FSvvInputs {
+///     width: Length::from_meters(2.0),
+///     height: Length::from_meters(1.5),
+///     distance: Length::from_meters(3.0),
+/// });
 /// assert!(svv > 0.0 && svv <= 1.0);
 /// ```
-pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
-    let w = w.as_meters();
-    let h = h.as_meters();
-    let d = d.as_meters();
+pub fn f_svv(inputs: FSvvInputs) -> f64 {
+    let FSvvInputs {
+        width,
+        height,
+        distance,
+    } = inputs;
+    let w = width.as_meters();
+    let h = height.as_meters();
+    let d = distance.as_meters();
     let angle_h = libm::atan(h / (2.0 * d));
     let angle_w = libm::atan(w / (2.0 * d));
 
@@ -348,30 +366,20 @@ pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
     (degrees_h * degrees_w) / 16200.0
 }
 
-/// Transpose the solar altitude and solar azimuth angles
+/// Transpose the solar altitude and solar azimuth angles, in plain degrees.
 ///
-/// Used by [`crate::models::solar_gain`] to reuse the standing projected-area table for
-/// a supine occupant, by rotating the sun's position into the body's frame.
-///
-/// # Arguments
-///
-/// * `sharp` - Solar horizontal angle relative to the front of the person (degrees)
-/// * `altitude` - Solar altitude measured from the horizontal (degrees)
+/// The in-crate entry point for [`crate::models::solar_gain`], which already holds its
+/// `sharp`/`sol_altitude` as unwrapped `f64` degrees (see [`solar_gain`](crate::models::solar_gain::solar_gain)'s
+/// "Convert once here, then calculate in plain f64 throughout"). Going through the
+/// typed [`transpose_sharp_altitude`] wrapper there would mean re-wrapping those `f64`s
+/// into an [`measurements::Angle`] just to call it and unwrap again — exactly the
+/// round-trip anti-pattern that cost a 2 °C bug elsewhere in this crate (28adfa8).
 ///
 /// # Returns
 ///
-/// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
-/// match pythermalcomfort.
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::models::transpose_sharp_altitude;
-///
-/// let (sharp, altitude) = transpose_sharp_altitude(0.0, 0.0);
-/// assert_eq!((sharp, altitude), (0.0, 90.0));
-/// ```
-pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
+/// Tuple of (transposed sharp, transposed altitude) in degrees, each rounded to 3
+/// decimals to match pythermalcomfort.
+pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f64, f64) {
     let to_rad = core::f64::consts::PI / 180.0;
     let to_deg = 180.0 / core::f64::consts::PI;
 
@@ -390,6 +398,38 @@ pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
     // builtin on 5. So despite `sharp`/`altitude` being ordinary `float` parameters, the
     // jit context makes this numpy's rule.
     (round_to(sharp_new, 3), round_to(altitude_new, 3))
+}
+
+/// Transpose the solar altitude and solar azimuth angles
+///
+/// Used by [`crate::models::solar_gain`] to reuse the standing projected-area table for
+/// a supine occupant, by rotating the sun's position into the body's frame.
+///
+/// A thin newtype wrapper over `transpose_sharp_altitude_degrees`; see that function's
+/// doc comment for why the crate keeps a plain-`f64` core rather than only this typed
+/// entry point.
+///
+/// # Returns
+///
+/// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
+/// match pythermalcomfort.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::transpose_sharp_altitude;
+/// use thermalcomfort::Angle;
+///
+/// let (sharp, altitude) = transpose_sharp_altitude(Angle::from_degrees(0.0), Angle::from_degrees(0.0));
+/// assert_eq!((sharp.as_degrees(), altitude.as_degrees()), (0.0, 90.0));
+/// ```
+pub fn transpose_sharp_altitude(sharp: Angle, altitude: Angle) -> (Angle, Angle) {
+    let (sharp_new, altitude_new) =
+        transpose_sharp_altitude_degrees(sharp.as_degrees(), altitude.as_degrees());
+    (
+        Angle::from_degrees(sharp_new),
+        Angle::from_degrees(altitude_new),
+    )
 }
 
 #[cfg(test)]
@@ -593,18 +633,28 @@ mod tests {
 
     #[test]
     fn test_f_svv() {
-        let svv = f_svv(
-            Length::from_meters(2.0),
-            Length::from_meters(1.5),
-            Length::from_meters(3.0),
-        );
+        let svv = f_svv(FSvvInputs {
+            width: Length::from_meters(2.0),
+            height: Length::from_meters(1.5),
+            distance: Length::from_meters(3.0),
+        });
         assert!(svv > 0.0 && svv <= 1.0);
     }
 
     #[test]
     fn test_transpose_sharp_altitude() {
-        let (sharp_t, alt_t) = transpose_sharp_altitude(30.0, 45.0);
-        assert!(sharp_t > 0.0);
-        assert!(alt_t > 0.0);
+        let (sharp_t, alt_t) =
+            transpose_sharp_altitude(Angle::from_degrees(30.0), Angle::from_degrees(45.0));
+        assert!(sharp_t.as_degrees() > 0.0);
+        assert!(alt_t.as_degrees() > 0.0);
+    }
+
+    #[test]
+    fn test_transpose_sharp_altitude_degrees_matches_typed_wrapper() {
+        let (sharp_deg, alt_deg) = transpose_sharp_altitude_degrees(30.0, 45.0);
+        let (sharp_t, alt_t) =
+            transpose_sharp_altitude(Angle::from_degrees(30.0), Angle::from_degrees(45.0));
+        assert!((sharp_t.as_degrees() - sharp_deg).abs() < 1e-9);
+        assert!((alt_t.as_degrees() - alt_deg).abs() < 1e-9);
     }
 }

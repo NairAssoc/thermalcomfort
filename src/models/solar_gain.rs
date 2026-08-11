@@ -193,7 +193,7 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
 
     // Transpose angles for supine posture
     let (sharp_adj, alt_adj) = if posture == Posture::Supine {
-        crate::models::transpose_sharp_altitude(sharp, sol_altitude)
+        crate::models::specialty::transpose_sharp_altitude_degrees(sharp, sol_altitude)
     } else {
         (sharp, sol_altitude)
     };

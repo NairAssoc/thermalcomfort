@@ -46,8 +46,8 @@ pub use ridge_regression::{
 pub use set_tmp::{SetInputs, SetOptions, set_tmp};
 pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
 pub use specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
-    ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
+    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
+    VerticalTmpGradPpdOptions, ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
 };
 pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsHeatStressRiskInputs, SportsValues, sports_heat_stress_risk,

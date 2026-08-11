@@ -80,6 +80,37 @@ pub enum Model {
     Iso79332023,
 }
 
+/// Optional parameters for [`running_mean_outdoor_temperature`], with pythermalcomfort's
+/// defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunningMeanOutdoorTemperatureOptions {
+    /// Weighting constant between 0 and 1 (default: 0.8)
+    /// - EN 16798-1 recommends 0.8
+    /// - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
+    /// - Use 0.9 for stable climates, 0.6 for variable climates
+    pub alpha: f64,
+    /// Unit system the result is expressed in.
+    ///
+    /// `utilities.py:944-950`'s IP branch is a genuine °C<->°F conversion: it converts
+    /// each element of `temp_array` from °F before averaging, and converts the result
+    /// back to °F afterwards, **rounding in that output unit**. Typed [`Temperature`]
+    /// inputs make the input-side conversion moot (they already carry their true SI
+    /// value regardless of `units`), but the output-side rounding is real: `round(t_rm_f,
+    /// 1)` is not the same physical temperature as rounding an already-Celsius-rounded
+    /// value and converting it, so it is replicated here rather than derived after the
+    /// fact.
+    pub units: Units,
+}
+
+impl Default for RunningMeanOutdoorTemperatureOptions {
+    fn default() -> Self {
+        Self {
+            alpha: 0.8,
+            units: Units::SI,
+        }
+    }
+}
+
 /// Calculate running mean outdoor temperature (prevailing mean)
 ///
 /// Estimates the exponentially weighted running mean temperature from an array
@@ -89,10 +120,7 @@ pub enum Model {
 ///
 /// * `temp_array` - Array of daily mean temperatures in descending order
 ///   (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
-/// * `alpha` - Weighting constant between 0 and 1 (default: 0.8)
-///   - EN 16798-1 recommends 0.8
-///   - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
-///   - Use 0.9 for stable climates, 0.6 for variable climates
+/// * `options` - Weighting constant and output unit system
 ///
 /// # Returns
 ///
@@ -101,7 +129,7 @@ pub enum Model {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::running_mean_outdoor_temperature;
+/// use thermalcomfort::utilities::{running_mean_outdoor_temperature, RunningMeanOutdoorTemperatureOptions};
 /// use thermalcomfort::Temperature;
 ///
 /// // Last 7 days of daily mean temperatures (yesterday to 7 days ago)
@@ -114,13 +142,24 @@ pub enum Model {
 ///     Temperature::from_celsius(17.0),
 ///     Temperature::from_celsius(16.5),
 /// ];
-/// let t_rm = running_mean_outdoor_temperature(&temps, 0.8);
+/// let t_rm = running_mean_outdoor_temperature(&temps, RunningMeanOutdoorTemperatureOptions::default());
 /// // Rounded to one decimal, matching pythermalcomfort
 /// assert!((t_rm.as_celsius() - 19.9).abs() < 0.01);
 /// ```
-pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) -> Temperature {
+pub fn running_mean_outdoor_temperature(
+    temp_array: &[Temperature],
+    options: RunningMeanOutdoorTemperatureOptions,
+) -> Temperature {
+    let RunningMeanOutdoorTemperatureOptions { alpha, units } = options;
+
+    // utilities.py:944-950's IP branch converts an empty list identically to the SI
+    // branch (both would hit ZeroDivisionError in Python); this NaN-avoiding shortcut is
+    // a pre-existing Rust-only guard, not upstream behaviour, so it is unit-agnostic too.
     if temp_array.is_empty() {
-        return Temperature::from_celsius(0.0);
+        return match units {
+            Units::SI => Temperature::from_celsius(0.0),
+            Units::IP => Temperature::from_fahrenheit(32.0),
+        };
     }
 
     let mut sum_weighted = 0.0;
@@ -132,11 +171,27 @@ pub fn running_mean_outdoor_temperature(temp_array: &[Temperature], alpha: f64) 
         sum_weights += weight;
     }
 
+    let t_rm_celsius = sum_weighted / sum_weights;
+
+    // utilities.py:944-950: converts to the output unit before rounding, matching
+    // `units_converter`'s literal `(value * 9 / 5) + 32` formula exactly (rather than
+    // routing through `Temperature`'s Kelvin storage, which would lose the last ULP —
+    // see 28adfa8).
+    let t_rm_out = match units {
+        Units::SI => t_rm_celsius,
+        Units::IP => t_rm_celsius * 9.0 / 5.0 + 32.0,
+    };
+
     // pythermalcomfort rounds this to one decimal before returning; without it the two
     // implementations disagree in the second decimal for every input. `utilities.py:955`
     // rounds a plain Python float (not a numba-jit or numpy value), so this is CPython's
     // builtin decimal rounding, not numpy's.
-    Temperature::from_celsius(round_to_exact_decimal(sum_weighted / sum_weights, 1))
+    let t_rm_rounded = round_to_exact_decimal(t_rm_out, 1);
+
+    match units {
+        Units::SI => Temperature::from_celsius(t_rm_rounded),
+        Units::IP => Temperature::from_fahrenheit(t_rm_rounded),
+    }
 }
 
 /// Calculate relative air speed which combines average air speed plus body movement
@@ -500,13 +555,27 @@ pub fn body_surface_area_dubois(weight: Mass, height: Length) -> Area {
     Area::from_square_meters(0.202 * pow(weight_kg, 0.425) * pow(height_m, 0.725))
 }
 
+/// The inputs to [`body_surface_area`]: weight and height are both required in
+/// pythermalcomfort's signature (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodySurfaceAreaInputs {
+    /// Body weight
+    pub weight: Mass,
+    /// Body height
+    pub height: Length,
+}
+
+/// Optional parameters for [`body_surface_area`], with pythermalcomfort's default
+/// (`formula: str = BodySurfaceAreaEquations.dubois.value`, `utilities.py:610-616`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BodySurfaceAreaOptions {
+    /// Formula to use for calculation
+    pub formula: BsaFormula,
+}
+
 /// Calculate body surface area using various formulas
-///
-/// # Arguments
-///
-/// * `weight` - Body weight
-/// * `height` - Body height
-/// * `formula` - Formula to use for calculation
 ///
 /// # Returns
 ///
@@ -522,17 +591,21 @@ pub fn body_surface_area_dubois(weight: Mass, height: Length) -> Area {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::{body_surface_area, BsaFormula};
+/// use thermalcomfort::utilities::{body_surface_area, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula};
 /// use thermalcomfort::{Mass, Length};
 ///
 /// let bsa = body_surface_area(
-///     Mass::from_kilograms(70.0),
-///     Length::from_meters(1.75),
-///     BsaFormula::DuBois
+///     BodySurfaceAreaInputs {
+///         weight: Mass::from_kilograms(70.0),
+///         height: Length::from_meters(1.75),
+///     },
+///     BodySurfaceAreaOptions { formula: BsaFormula::DuBois },
 /// );
 /// assert!((bsa.as_square_meters() - 1.844).abs() < 0.01);
 /// ```
-pub fn body_surface_area(weight: Mass, height: Length, formula: BsaFormula) -> Area {
+pub fn body_surface_area(inputs: BodySurfaceAreaInputs, options: BodySurfaceAreaOptions) -> Area {
+    let BodySurfaceAreaInputs { weight, height } = inputs;
+    let BodySurfaceAreaOptions { formula } = options;
     let weight_kg = weight.as_kilograms();
     let height_m = height.as_meters();
     let area_m2 = match formula {

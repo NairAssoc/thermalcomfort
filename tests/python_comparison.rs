@@ -16,7 +16,8 @@ use thermalcomfort::models::pmv::{
     PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions, f_svv,
+    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
+    VerticalTmpGradPpdOptions, f_svv,
 };
 use thermalcomfort::models::{
     AtInputs, CoolingEffectInputs, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs,
@@ -40,8 +41,9 @@ use thermalcomfort::psychrometrics::{
     enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, CloDynamicAshraeInputs,
-    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions, Posture, antoine,
+    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
+    CLO_TYPICAL_ENSEMBLES, CloDynamicAshraeInputs, CloDynamicAshraeOptions, CloDynamicIsoInputs,
+    CloDynamicIsoOptions, Posture, RunningMeanOutdoorTemperatureOptions, Units, antoine,
     body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
     clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
     clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
@@ -576,10 +578,11 @@ fn test_compare_transpose_sharp_altitude() {
                 .unwrap();
             let (py_sharp, py_altitude): (f64, f64) = py_pair.extract().unwrap();
 
-            let (rust_sharp, rust_altitude) = transpose_sharp_altitude(sharp, altitude);
+            let (rust_sharp, rust_altitude) =
+                transpose_sharp_altitude(Angle::from_degrees(sharp), Angle::from_degrees(altitude));
 
-            assert_abs_diff_eq!(rust_sharp, py_sharp, epsilon = 1e-3);
-            assert_abs_diff_eq!(rust_altitude, py_altitude, epsilon = 1e-3);
+            assert_abs_diff_eq!(rust_sharp.as_degrees(), py_sharp, epsilon = 1e-3);
+            assert_abs_diff_eq!(rust_altitude.as_degrees(), py_altitude, epsilon = 1e-3);
         }
     });
 }
@@ -671,11 +674,11 @@ fn test_compare_f_svv() {
                 .extract()
                 .unwrap();
 
-            let rust_f = f_svv(
-                Length::from_meters(w),
-                Length::from_meters(h),
-                Length::from_meters(d),
-            );
+            let rust_f = f_svv(FSvvInputs {
+                width: Length::from_meters(w),
+                height: Length::from_meters(h),
+                distance: Length::from_meters(d),
+            });
             assert_abs_diff_eq!(rust_f, py_f, epsilon = 1e-6);
         }
     });
@@ -762,9 +765,11 @@ fn test_compare_body_surface_area() {
                     .unwrap();
 
                 let rust_bsa = body_surface_area(
-                    Mass::from_kilograms(weight),
-                    Length::from_meters(height),
-                    formula,
+                    BodySurfaceAreaInputs {
+                        weight: Mass::from_kilograms(weight),
+                        height: Length::from_meters(height),
+                    },
+                    BodySurfaceAreaOptions { formula },
                 );
                 assert_abs_diff_eq!(rust_bsa.as_square_meters(), py_bsa, epsilon = 1e-6);
             }
@@ -943,21 +948,40 @@ fn test_compare_running_mean_outdoor_temperature() {
 
         for temps in series {
             for alpha in [0.8, 0.6, 0.9] {
-                let py_rmot: f64 = pythermal_utils
-                    .getattr("running_mean_outdoor_temperature")
-                    .unwrap()
-                    .call1((temps.to_vec(), alpha))
-                    .unwrap()
-                    .extract()
-                    .unwrap();
+                for (units, py_units) in [(Units::SI, "SI"), (Units::IP, "IP")] {
+                    // Python's units="IP" reinterprets its raw list as Fahrenheit and
+                    // converts to SI before averaging (utilities.py:944-950); feed it the
+                    // IP-valued equivalents of the same SI environment Rust uses, as
+                    // `sweep_running_mean_and_ensemble` does.
+                    let py_temps: Vec<f64> = if units == Units::IP {
+                        temps.iter().map(|t| t * 9.0 / 5.0 + 32.0).collect()
+                    } else {
+                        temps.to_vec()
+                    };
 
-                let rust_input: Vec<Temperature> = temps
-                    .iter()
-                    .map(|t| Temperature::from_celsius(*t))
-                    .collect();
-                let rust_rmot = running_mean_outdoor_temperature(&rust_input, alpha);
+                    let py_rmot: f64 = pythermal_utils
+                        .getattr("running_mean_outdoor_temperature")
+                        .unwrap()
+                        .call1((py_temps, alpha, py_units))
+                        .unwrap()
+                        .extract()
+                        .unwrap();
 
-                assert_abs_diff_eq!(rust_rmot.as_celsius(), py_rmot, epsilon = 1e-6);
+                    let rust_input: Vec<Temperature> = temps
+                        .iter()
+                        .map(|t| Temperature::from_celsius(*t))
+                        .collect();
+                    let rust_rmot = running_mean_outdoor_temperature(
+                        &rust_input,
+                        RunningMeanOutdoorTemperatureOptions { alpha, units },
+                    );
+
+                    let rust_value = match units {
+                        Units::SI => rust_rmot.as_celsius(),
+                        Units::IP => rust_rmot.as_fahrenheit(),
+                    };
+                    assert_abs_diff_eq!(rust_value, py_rmot, epsilon = 1e-6);
+                }
             }
         }
     });
