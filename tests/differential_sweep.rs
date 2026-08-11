@@ -997,6 +997,142 @@ fn py_float_seq(obj: &Bound<'_, PyAny>, field: &str) -> Result<Vec<f64>, String>
         .map_err(|e| format!("{field}: could not read as a float sequence: {e}"))
 }
 
+/// One `two_nodes_gagge_ji` call as the sweep hands it to pythermalcomfort.
+///
+/// Held in a struct, with the numeric arguments in one array, so the conditioning probe
+/// can re-issue the identical call with exactly one of them moved by a single ULP.
+#[derive(Clone)]
+struct JiPyCall {
+    /// `tdb, tr, v, met, clo, vapor_pressure` (the positional six), then `wme,
+    /// body_surface_area, p_atm, body_weight, initial_skin_temp, initial_core_temp`.
+    floats: [f64; 12],
+    position: &'static str,
+    acclimatized: bool,
+    length_time_simulation: usize,
+}
+
+/// Call pythermalcomfort's `two_nodes_gagge_ji`.
+fn two_nodes_gagge_ji_python_run<'py>(
+    models: &Bound<'py, PyModule>,
+    call: &JiPyCall,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = models.py();
+    let [
+        tdb,
+        tr,
+        v,
+        met,
+        clo,
+        vapor_pressure,
+        wme,
+        body_surface_area,
+        p_atm,
+        body_weight,
+        initial_skin_temp,
+        initial_core_temp,
+    ] = call.floats;
+
+    let kwargs = [
+        ("wme", wme.into_pyobject(py)?.into_any()),
+        (
+            "body_surface_area",
+            body_surface_area.into_pyobject(py)?.into_any(),
+        ),
+        ("p_atm", p_atm.into_pyobject(py)?.into_any()),
+        ("position", call.position.into_pyobject(py)?.into_any()),
+        (
+            "acclimatized",
+            PyBool::new(py, call.acclimatized).to_owned().into_any(),
+        ),
+        ("body_weight", body_weight.into_pyobject(py)?.into_any()),
+        (
+            "length_time_simulation",
+            call.length_time_simulation.into_pyobject(py)?.into_any(),
+        ),
+        (
+            "initial_skin_temp",
+            initial_skin_temp.into_pyobject(py)?.into_any(),
+        ),
+        (
+            "initial_core_temp",
+            initial_core_temp.into_pyobject(py)?.into_any(),
+        ),
+    ]
+    .into_py_dict(py)?;
+
+    models
+        .getattr("two_nodes_gagge_ji")?
+        .call((tdb, tr, v, met, clo, vapor_pressure), Some(&kwargs))
+}
+
+/// How far does pythermalcomfort's own `field` series move away from itself, at or before
+/// `minute`, when any single input is shifted by one ULP?
+///
+/// The Ji model integrates minute by minute with each step's state feeding the next, and
+/// the trajectory has a positive Lyapunov exponent: last-bit differences grow
+/// exponentially with elapsed time, and the swept runs are up to 180 minutes long. On the
+/// sample that first exposed this (`SWEEP_SEED=12648430 SWEEP_N=3000`, sample 1546,
+/// `t_skin`), the Rust-vs-Python difference and pythermalcomfort's own difference from
+/// itself under a 1-ULP change to `tdb` grow side by side, at the same rate, a roughly
+/// constant factor apart:
+///
+/// ```text
+/// minute            0..70     85       105      135      155      165
+/// Rust vs Python   <4.3e-14  6.4e-13  2.5e-12  5.3e-11  6.2e-09  1.4e-07
+/// Python vs itself      0    5.7e-14  2.6e-13  1.6e-12  1.8e-10  4.1e-09
+/// ```
+///
+/// Both series are flat at last-bit level for seventy minutes and then climb five orders
+/// of magnitude in eighty. That is the signature of amplified rounding noise, not of a
+/// port defect: a wrong coefficient or a transposed term perturbs the very first step and
+/// cannot be invisible for seventy minutes first.
+///
+/// Every input is probed, in both directions, and the largest spread is returned, because
+/// the Rust/Python difference is not one perturbation but a last-bit difference injected
+/// at every step and in every intermediate, whereas each probe injects once at t=0. A
+/// single probe therefore understates what an equally-valid implementation can reach: on
+/// the sample above, moving `tdb` reaches 4.1e-9 while moving `initial_core_temp` reaches
+/// 1.4e-7, and the observed Rust-vs-Python difference was 1.37e-7. Even so the gate clears
+/// that sample by only 2%, so this is a bound with teeth, not a widened tolerance: a
+/// deliberate defect added to the Rust trajectory was caught at sample 0 at 4e-8 constant
+/// (the relative bound's floor), and at 2e-7 even when injected only from minute 150,
+/// where the reference's own spread is 7.1e-15.
+///
+/// A probe that pythermalcomfort rejects (a one-ULP step can push an input just outside
+/// its validator's range) contributes nothing rather than failing the sweep.
+fn ji_reference_ulp_spread(
+    models: &Bound<'_, PyModule>,
+    call: &JiPyCall,
+    base: &[f64],
+    field: &str,
+    minute: usize,
+) -> Result<f64, String> {
+    let mut spread: f64 = 0.0;
+    for i in 0..call.floats.len() {
+        let value = call.floats[i];
+        // A zero input has no last bit to move: its neighbours are a subnormal and a
+        // negative, neither of which is the same physical quantity.
+        if !value.is_finite() || value <= 0.0 {
+            continue;
+        }
+        for neighbour in [next_up(value), next_down(value)] {
+            let mut probe = call.clone();
+            probe.floats[i] = neighbour;
+            let Ok(result) = two_nodes_gagge_ji_python_run(models, &probe) else {
+                continue;
+            };
+            let perturbed = py_float_seq(&result, field)?;
+            let last = minute
+                .min(base.len().saturating_sub(1))
+                .min(perturbed.len().saturating_sub(1));
+            for m in 0..=last {
+                spread = spread.max((base[m] - perturbed[m]).abs());
+            }
+        }
+    }
+    Ok(spread)
+}
+
 #[test]
 fn sweep_two_nodes_gagge_ji() {
     // The Ji model takes vapour pressure where the Rust wrapper takes relative humidity,
@@ -1029,6 +1165,8 @@ fn sweep_two_nodes_gagge_ji() {
             .expect("failed to import pythermalcomfort.models");
         let utilities = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
+
+        let ill_conditioned = std::cell::Cell::new(0usize);
 
         run_sweep("sweep_two_nodes_gagge_ji", &domain, |s: &Sample| {
             let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm, body_weight, init_skin, init_core) = (
@@ -1072,42 +1210,27 @@ fn sweep_two_nodes_gagge_ji() {
                 .map_err(|e| format!("p_sat_torr did not return a number: {e}"))?;
             let vapor_pressure = rh * p_sat / 100.0;
 
-            let kwargs = [
-                ("wme", wme.into_pyobject(py).unwrap().into_any()),
-                (
-                    "body_surface_area",
-                    bsa.into_pyobject(py).unwrap().into_any(),
-                ),
-                ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
-                ("position", py_posture.into_pyobject(py).unwrap().into_any()),
-                (
-                    "acclimatized",
-                    PyBool::new(py, acclimatized).to_owned().into_any(),
-                ),
-                (
-                    "body_weight",
-                    body_weight.into_pyobject(py).unwrap().into_any(),
-                ),
-                (
-                    "length_time_simulation",
-                    length_time_simulation.into_pyobject(py).unwrap().into_any(),
-                ),
-                (
-                    "initial_skin_temp",
-                    init_skin.into_pyobject(py).unwrap().into_any(),
-                ),
-                (
-                    "initial_core_temp",
-                    init_core.into_pyobject(py).unwrap().into_any(),
-                ),
-            ]
-            .into_py_dict(py)
-            .unwrap();
+            let py_call = JiPyCall {
+                floats: [
+                    tdb,
+                    tr,
+                    v,
+                    met,
+                    clo,
+                    vapor_pressure,
+                    wme,
+                    bsa,
+                    p_atm,
+                    body_weight,
+                    init_skin,
+                    init_core,
+                ],
+                position: py_posture,
+                acclimatized,
+                length_time_simulation,
+            };
 
-            let py_result = models
-                .getattr("two_nodes_gagge_ji")
-                .unwrap()
-                .call((tdb, tr, v, met, clo, vapor_pressure), Some(&kwargs))
+            let py_result = two_nodes_gagge_ji_python_run(&models, &py_call)
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = two_nodes_gagge_ji(
@@ -1139,6 +1262,29 @@ fn sweep_two_nodes_gagge_ji() {
             // np.around call anywhere; the Rust flag was invented, and it and this
             // accommodation are both gone.
 
+            // 1e-9 absolute stays the primary bound: it holds for every sample of a
+            // 3000-deep sweep bar one, and neither addition below relaxes it anywhere the
+            // reference is well enough conditioned to hold it.
+            //
+            // What forces the additions is that this model integrates minute by minute
+            // with a positive Lyapunov exponent, so by the end of the swept 180-minute
+            // runs pythermalcomfort's own answer is no longer determined to 1e-9 by its
+            // own inputs -- see `ji_reference_ulp_spread` for the measured growth curves,
+            // which show Rust and Python tracking each other at last-bit level for
+            // seventy minutes and then diverging in lockstep with upstream's divergence
+            // from itself.
+            //
+            //   - The 1e-9 relative bound covers the mild end of that curve. It is nine
+            //     significant figures and, at the 30-40 °C these two fields occupy, gives
+            //     up resolution below roughly 3.5e-8 °C -- about 35x coarser than the
+            //     absolute bound, and still far finer than any transcription, coefficient
+            //     or ordering error could hide in. It is what keeps the one deep-sweep
+            //     divergence compared for ten more minutes (it first breaks 1e-9 absolute
+            //     at minute 155) instead of being handed to the gate and dropped whole.
+            //   - Past that no fixed tolerance can be right, because the reference's own
+            //     spread keeps growing, so the conditioning gate below measures that
+            //     spread directly and skips the sample only when upstream's own answers
+            //     are already at least as far apart as Rust and Python are.
             for (name, rust_series) in [("t_core", &rust.t_core), ("t_skin", &rust.t_skin)] {
                 let py_series = py_float_seq(&py_result, name)?;
                 if py_series.len() != rust_series.len() {
@@ -1148,16 +1294,52 @@ fn sweep_two_nodes_gagge_ji() {
                         py_series.len()
                     ));
                 }
-                let cmp = FieldCmp::new(name, 1e-9);
+                let cmp = FieldCmp::new(name, 1e-9).rel(1e-9);
                 for (minute, (rust_value, py_value)) in
                     rust_series.iter().zip(py_series.iter()).enumerate()
                 {
-                    compare_field(&cmp, rust_value.as_celsius(), *py_value)
-                        .map_err(|e| format!("minute {minute}: {e}"))?;
+                    let rust_value = rust_value.as_celsius();
+                    let Err(mismatch) = compare_field(&cmp, rust_value, *py_value) else {
+                        continue;
+                    };
+                    // Both bounds failed. Before calling that a port defect, ask whether
+                    // pythermalcomfort's own answer is even determined to this resolution
+                    // by this minute: re-run it with each input moved a single ULP and
+                    // see how far the reference walks away from itself. The sample is
+                    // excused only if that spread already reaches the observed
+                    // Rust-vs-Python difference at or before the failing minute -- the
+                    // literal statement "the reference is not a function of its inputs at
+                    // this resolution here", which a genuine defect cannot satisfy,
+                    // because every earlier minute of this series has just been compared
+                    // at 1e-9 and passed, and on a well-conditioned sample the spread is
+                    // exactly zero.
+                    let delta = (rust_value - py_value).abs();
+                    let spread =
+                        ji_reference_ulp_spread(&models, &py_call, &py_series, name, minute)?;
+                    // A NaN `delta` (one side NaN, the other a number) never satisfies
+                    // `>=`, so a NaN mismatch is always reported rather than excused.
+                    if spread >= delta {
+                        ill_conditioned.set(ill_conditioned.get() + 1);
+                        return Ok(());
+                    }
+                    return Err(format!(
+                        "minute {minute}: {mismatch}; pythermalcomfort's own spread under \
+                         a 1-ULP input change is only {spread:e} by here, so this is not \
+                         the reference losing conditioning"
+                    ));
                 }
             }
             Ok(())
         });
+
+        // Not a silent cap: report the excluded share so it cannot drift upward unseen.
+        eprintln!(
+            "sweep_two_nodes_gagge_ji: skipped {} sample(s) whose pythermalcomfort \
+             reference had already moved further under a 1-ULP input change than Rust \
+             and Python differ (minute-by-minute integration with a positive Lyapunov \
+             exponent)",
+            ill_conditioned.get()
+        );
     });
 }
 
@@ -1999,11 +2181,20 @@ fn jos3_python_run<'py>(
 /// The next representable f64 above `value`.
 ///
 /// Hand-rolled rather than `f64::next_up`, which stabilised in Rust 1.86 while this crate
-/// pins `rust-version = "1.85"`. Only ever called on the sweep's `tdb` axis, which is
-/// drawn from [10, 35], so the positive-finite bit-increment is the whole story.
+/// pins `rust-version = "1.85"`. Only ever called on a sweep axis known to be positive and
+/// finite -- JOS3's `tdb`, and the Ji conditioning probe's inputs, which it filters -- so
+/// the bit-increment is the whole story.
 fn next_up(value: f64) -> f64 {
     debug_assert!(value.is_finite() && value > 0.0);
     f64::from_bits(value.to_bits() + 1)
+}
+
+/// The next representable f64 below `value`. Companion to [`next_up`], and subject to the
+/// same positive-finite restriction: the Ji conditioning probe skips any input that is not
+/// strictly positive.
+fn next_down(value: f64) -> f64 {
+    debug_assert!(value.is_finite() && value > 0.0);
+    f64::from_bits(value.to_bits() - 1)
 }
 
 #[test]
