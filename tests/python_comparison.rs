@@ -43,12 +43,14 @@ use thermalcomfort::psychrometrics::{
 };
 use thermalcomfort::utilities::{
     BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
-    CLO_TYPICAL_ENSEMBLES, CloDynamicAshraeInputs, CloDynamicAshraeOptions, CloDynamicIsoInputs,
-    CloDynamicIsoOptions, Posture, RunningMeanOutdoorTemperatureOptions, Units, antoine,
-    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
-    clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
-    clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
-    p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    CLO_TYPICAL_ENSEMBLES, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
+    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
+    CloInsulationAirLayerInputs, CloTotalInsulationInputs, Posture,
+    RunningMeanOutdoorTemperatureOptions, Units, antoine, body_surface_area, clo_area_factor,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_individual_garment,
+    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
+    clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
+    running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
     ActivityRatio, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
@@ -800,11 +802,11 @@ fn test_compare_clo_insulation_helpers() {
                 .extract()
                 .unwrap();
             assert_abs_diff_eq!(
-                clo_correction_factor_environment(
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_cl),
-                ),
+                clo_correction_factor_environment(CloCorrectionFactorEnvironmentInputs {
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_cl: ClothingInsulation::from_clo(i_cl),
+                }),
                 py_ccfe,
                 epsilon = 1e-6
             );
@@ -817,11 +819,11 @@ fn test_compare_clo_insulation_helpers() {
                 .extract()
                 .unwrap();
             assert_abs_diff_eq!(
-                clo_insulation_air_layer(
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_a),
-                ),
+                clo_insulation_air_layer(CloInsulationAirLayerInputs {
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_a_static: ClothingInsulation::from_clo(i_a),
+                }),
                 py_cial,
                 epsilon = 1e-6
             );
@@ -834,13 +836,13 @@ fn test_compare_clo_insulation_helpers() {
                 .extract()
                 .unwrap();
             assert_abs_diff_eq!(
-                clo_total_insulation(
-                    ClothingInsulation::from_clo(i_t),
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_a),
-                    ClothingInsulation::from_clo(i_cl),
-                ),
+                clo_total_insulation(CloTotalInsulationInputs {
+                    i_t: ClothingInsulation::from_clo(i_t),
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_a_static: ClothingInsulation::from_clo(i_a),
+                    i_cl: ClothingInsulation::from_clo(i_cl),
+                }),
                 py_cti,
                 epsilon = 1e-6
             );

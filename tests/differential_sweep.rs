@@ -57,12 +57,13 @@ use thermalcomfort::psychrometrics::{
 };
 use thermalcomfort::utilities::{
     Ashrae55Model, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula,
-    CloDynamicAshraeInputs, CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
-    Iso9920Model, Posture, RunningMeanOutdoorTemperatureOptions, Units, antoine, body_surface_area,
-    clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
-    clo_individual_garment, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
-    clo_total_insulation, clo_tout, clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine,
-    p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
+    CloDynamicIsoInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
+    CloTotalInsulationInputs, Iso9920Model, Posture, RunningMeanOutdoorTemperatureOptions, Units,
+    antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
+    clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
+    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
     ActivityRatio, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
@@ -4241,21 +4242,21 @@ fn sweep_clo_insulation_helpers() {
 
             compare_field(
                 &FieldCmp::new("clo_insulation_air_layer", 1e-9),
-                clo_insulation_air_layer(
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_a_static),
-                ),
+                clo_insulation_air_layer(CloInsulationAirLayerInputs {
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_a_static: ClothingInsulation::from_clo(i_a_static),
+                }),
                 py_util(&utils, "clo_insulation_air_layer", (vr, v_walk, i_a_static))?,
             )?;
 
             compare_field(
                 &FieldCmp::new("clo_correction_factor_environment", 1e-9),
-                clo_correction_factor_environment(
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_cl),
-                ),
+                clo_correction_factor_environment(CloCorrectionFactorEnvironmentInputs {
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_cl: ClothingInsulation::from_clo(i_cl),
+                }),
                 py_util(
                     &utils,
                     "clo_correction_factor_environment",
@@ -4265,13 +4266,13 @@ fn sweep_clo_insulation_helpers() {
 
             compare_field(
                 &FieldCmp::new("clo_total_insulation", 1e-9),
-                clo_total_insulation(
-                    ClothingInsulation::from_clo(i_t),
-                    Speed::from_meters_per_second(vr),
-                    Speed::from_meters_per_second(v_walk),
-                    ClothingInsulation::from_clo(i_a_static),
-                    ClothingInsulation::from_clo(i_cl),
-                ),
+                clo_total_insulation(CloTotalInsulationInputs {
+                    i_t: ClothingInsulation::from_clo(i_t),
+                    vr: Speed::from_meters_per_second(vr),
+                    v_walk: Speed::from_meters_per_second(v_walk),
+                    i_a_static: ClothingInsulation::from_clo(i_a_static),
+                    i_cl: ClothingInsulation::from_clo(i_cl),
+                }),
                 py_util(
                     &utils,
                     "clo_total_insulation",
