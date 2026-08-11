@@ -3,30 +3,90 @@
 //! Estimate if environmental conditions would cause heat strain during heatwaves
 //! when using fans.
 
-use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
-use crate::{ClothingInsulation, MetabolicRate};
+use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
+
+/// The comfort inputs to [`use_fans_heatwaves`]: pythermalcomfort requires all six (no
+/// default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UseFansHeatwavesInputs {
+    /// Dry bulb air temperature
+    pub dry_bulb_temp: Temperature,
+    /// Mean radiant temperature
+    pub mean_radiant_temp: Temperature,
+    /// Air speed
+    pub air_speed: Speed,
+    /// Relative humidity
+    pub relative_humidity: Humidity,
+    /// Metabolic rate
+    pub metabolic_rate: MetabolicRate,
+    /// Clothing insulation
+    pub clothing_insulation: ClothingInsulation,
+}
+
+/// Optional parameters for [`use_fans_heatwaves`], with pythermalcomfort's defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UseFansHeatwavesOptions {
+    /// External work
+    pub wme: MetabolicRate,
+    /// Body surface area
+    pub body_surface_area: Area,
+    /// Atmospheric pressure
+    pub p_atm: Pressure,
+    /// Body posture
+    pub posture: Posture,
+    /// Maximum blood flow from the core to the skin [kg/h/m²].
+    ///
+    /// Defaults to **80** here, unlike [`two_nodes_gagge`]'s default of 90 -- this
+    /// model's own upstream default is different and must not be copied from the other
+    /// one.
+    pub max_skin_blood_flow: f64,
+    /// Maximum rate at which regulatory sweat is generated [kg/h/m²]
+    pub max_sweating: f64,
+    /// Limit inputs to standard applicability ranges
+    pub limit_inputs: bool,
+    /// Round output values
+    pub round_output: bool,
+}
+
+impl Default for UseFansHeatwavesOptions {
+    fn default() -> Self {
+        Self {
+            wme: MetabolicRate::from_met(0.0),
+            body_surface_area: Area::from_square_meters(1.8258),
+            p_atm: Pressure::from_pascals(101325.0),
+            posture: Posture::Standing,
+            max_skin_blood_flow: 80.0,
+            max_sweating: 500.0,
+            limit_inputs: true,
+            round_output: true,
+        }
+    }
+}
 
 /// Result of fan use during heatwaves assessment
 #[derive(Debug, Clone, Copy)]
 pub struct UseFansHeatwavesResult {
-    /// Total evaporative heat loss from skin [W/m²]
-    pub e_skin: f64,
-    /// Heat lost by evaporation of regulatory sweat [W/m²]
-    pub e_rsw: f64,
-    /// Maximum evaporative capacity [W/m²]
-    pub e_max: f64,
-    /// Sensible heat loss [W/m²]
-    pub q_sensible: f64,
-    /// Total heat loss from skin [W/m²]
-    pub q_skin: f64,
-    /// Heat loss by respiration [W/m²]
-    pub q_res: f64,
-    /// Core temperature [°C]
-    pub t_core: f64,
-    /// Skin temperature [°C]
-    pub t_skin: f64,
+    /// Total evaporative heat loss from skin
+    pub e_skin: HeatFluxDensity,
+    /// Heat lost by evaporation of regulatory sweat
+    pub e_rsw: HeatFluxDensity,
+    /// Maximum evaporative capacity
+    pub e_max: HeatFluxDensity,
+    /// Sensible heat loss
+    pub q_sensible: HeatFluxDensity,
+    /// Total heat loss from skin
+    pub q_skin: HeatFluxDensity,
+    /// Heat loss by respiration
+    pub q_res: HeatFluxDensity,
+    /// Core temperature
+    pub t_core: Temperature,
+    /// Skin temperature
+    pub t_skin: Temperature,
     /// Skin blood flow [kg/h/m²]
     pub m_bl: f64,
     /// Regulatory sweat generation [kg/h/m²]
@@ -57,70 +117,57 @@ pub struct UseFansHeatwavesResult {
 /// - Skin wettedness (w)
 /// - Skin blood flow (m_bl)
 ///
-/// # Arguments
-///
-/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()`, recommended range: 20-50°C)
-/// * `air_speed` - Air speed (use `Speed::from_meters_per_second()`, recommended range: 0.1-4.5 m/s)
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate (recommended range: 0.7-2.0 met)
-/// * `clothing_insulation` - Clothing insulation (recommended range: 0-1 clo)
-/// * `wme` - External work (default 0)
-/// * `body_surface_area` - Body surface area (use `Area::from_square_meters()`, default 1.8258 m²)
-/// * `p_atm` - Atmospheric pressure (use `Pressure::from_pascals()`, default 101325 Pa)
-/// * `posture` - Body posture
-/// * `max_skin_blood_flow` - Maximum blood flow [kg/h/m², default 80]
-/// * `max_sweating` - Maximum sweat rate [kg/h/m², default 500]
-///
 /// # Returns
 ///
-/// UseFansHeatwavesResult with physiological variables and heat strain indicators
+/// [`UseFansHeatwavesResult`] with physiological variables and heat strain indicators
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::use_fans_heatwaves::use_fans_heatwaves;
-/// use thermalcomfort::utilities::Posture;
-/// use thermalcomfort::{Temperature, Speed, Area, Pressure, Humidity, MetabolicRate, ClothingInsulation};
+/// use thermalcomfort::models::use_fans_heatwaves::{
+///     use_fans_heatwaves, UseFansHeatwavesInputs, UseFansHeatwavesOptions,
+/// };
+/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let result = use_fans_heatwaves(
-///     Temperature::from_celsius(35.0),
-///     Temperature::from_celsius(35.0),
-///     Speed::from_meters_per_second(1.0),
-///     Humidity::from_percent(50.0),
-///     MetabolicRate::from_met(1.2),
-///     ClothingInsulation::from_clo(0.5),
-///     MetabolicRate::from_met(0.0),
-///     Area::from_square_meters(1.8258),
-///     Pressure::from_pascals(101325.0),
-///     Posture::Standing,
-///     80.0,
-///     500.0,
-///     true,  // limit_inputs
-///     true,  // round_output
+///     UseFansHeatwavesInputs {
+///         dry_bulb_temp: Temperature::from_celsius(35.0),
+///         mean_radiant_temp: Temperature::from_celsius(35.0),
+///         air_speed: Speed::from_meters_per_second(1.0),
+///         relative_humidity: Humidity::from_percent(50.0),
+///         metabolic_rate: MetabolicRate::from_met(1.2),
+///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///     },
+///     Default::default(),
 /// );
-/// assert!(result.e_skin > 0.0);
+/// assert!(result.e_skin.as_watts_per_square_meter() > 0.0);
 /// assert_eq!(result.heat_strain, Some(false));
 /// ```
-#[allow(clippy::too_many_arguments)]
 pub fn use_fans_heatwaves(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    air_speed: Speed,
-    relative_humidity: Humidity,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
-    wme: MetabolicRate,
-    body_surface_area: Area,
-    p_atm: Pressure,
-    posture: Posture,
-    max_skin_blood_flow: f64,
-    max_sweating: f64,
-    limit_inputs: bool,
-    round_output: bool,
+    inputs: UseFansHeatwavesInputs,
+    options: UseFansHeatwavesOptions,
 ) -> UseFansHeatwavesResult {
+    let UseFansHeatwavesInputs {
+        dry_bulb_temp,
+        mean_radiant_temp,
+        air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+    } = inputs;
+    let UseFansHeatwavesOptions {
+        wme,
+        body_surface_area,
+        p_atm,
+        posture,
+        max_skin_blood_flow,
+        max_sweating,
+        limit_inputs,
+        round_output,
+    } = options;
+
     // Run two-nodes Gagge model
-    let options = GaggeTwoNodesOptions {
+    let gagge_options = GaggeTwoNodesOptions {
         wme,
         body_surface_area,
         p_atm,
@@ -136,13 +183,15 @@ pub fn use_fans_heatwaves(
     };
 
     let gagge_result = two_nodes_gagge(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        options,
+        GaggeTwoNodesInputs {
+            dry_bulb_temp,
+            mean_radiant_temp,
+            air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+        },
+        gagge_options,
     );
 
     // Detect heat strain conditions.
@@ -172,14 +221,14 @@ pub fn use_fans_heatwaves(
 
     if !within_limits {
         return UseFansHeatwavesResult {
-            e_skin: f64::NAN,
-            e_rsw: f64::NAN,
-            e_max: f64::NAN,
-            q_sensible: f64::NAN,
-            q_skin: f64::NAN,
-            q_res: f64::NAN,
-            t_core: f64::NAN,
-            t_skin: f64::NAN,
+            e_skin: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            e_rsw: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            e_max: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            q_sensible: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            q_skin: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            q_res: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            t_core: Temperature::from_celsius(f64::NAN),
+            t_skin: Temperature::from_celsius(f64::NAN),
             m_bl: f64::NAN,
             m_rsw: f64::NAN,
             w: f64::NAN,
@@ -200,14 +249,26 @@ pub fn use_fans_heatwaves(
     };
 
     UseFansHeatwavesResult {
-        e_skin: round1(gagge_result.e_skin),
-        e_rsw: round1(gagge_result.e_rsw),
-        e_max: round1(gagge_result.e_max),
-        q_sensible: round1(gagge_result.q_sensible),
-        q_skin: round1(gagge_result.q_skin),
-        q_res: round1(gagge_result.q_res),
-        t_core: round1(gagge_result.t_core),
-        t_skin: round1(gagge_result.t_skin),
+        e_skin: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.e_skin.as_watts_per_square_meter(),
+        )),
+        e_rsw: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.e_rsw.as_watts_per_square_meter(),
+        )),
+        e_max: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.e_max.as_watts_per_square_meter(),
+        )),
+        q_sensible: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.q_sensible.as_watts_per_square_meter(),
+        )),
+        q_skin: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.q_skin.as_watts_per_square_meter(),
+        )),
+        q_res: HeatFluxDensity::from_watts_per_square_meter(round1(
+            gagge_result.q_res.as_watts_per_square_meter(),
+        )),
+        t_core: Temperature::from_celsius(round1(gagge_result.t_core.as_celsius())),
+        t_skin: Temperature::from_celsius(round1(gagge_result.t_skin.as_celsius())),
         m_bl: round1(gagge_result.m_bl),
         m_rsw: round1(gagge_result.m_rsw),
         w: round1(gagge_result.w),
@@ -223,48 +284,39 @@ pub fn use_fans_heatwaves(
 mod tests {
     use super::*;
 
+    fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> UseFansHeatwavesInputs {
+        UseFansHeatwavesInputs {
+            dry_bulb_temp: Temperature::from_celsius(tdb),
+            mean_radiant_temp: Temperature::from_celsius(tr),
+            air_speed: Speed::from_meters_per_second(v),
+            relative_humidity: Humidity::from_percent(rh),
+            metabolic_rate: MetabolicRate::from_met(met),
+            clothing_insulation: ClothingInsulation::from_clo(clo),
+        }
+    }
+
     #[test]
     fn test_use_fans_heatwaves() {
-        let result = use_fans_heatwaves(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            MetabolicRate::from_met(0.0),
-            Area::from_square_meters(1.8258),
-            Pressure::from_pascals(101325.0),
-            Posture::Standing,
-            80.0,
-            500.0,
-            true,
-            true,
-        );
-        assert!(result.e_skin > 0.0);
-        assert!(result.t_core > 36.0 && result.t_core < 39.0);
+        let result =
+            use_fans_heatwaves(inputs(35.0, 35.0, 1.0, 50.0, 1.2, 0.5), Default::default());
+        assert!(result.e_skin.as_watts_per_square_meter() > 0.0);
+        let t_core = result.t_core.as_celsius();
+        assert!(t_core > 36.0 && t_core < 39.0);
     }
 
     #[test]
     fn test_heat_strain_detection() {
         // Extreme conditions that should trigger heat strain
-        let result = use_fans_heatwaves(
-            Temperature::from_celsius(45.0),
-            Temperature::from_celsius(45.0),
-            Speed::from_meters_per_second(0.5),
-            Humidity::from_percent(70.0),
-            MetabolicRate::from_met(1.8),
-            ClothingInsulation::from_clo(0.3),
-            MetabolicRate::from_met(0.0),
-            Area::from_square_meters(1.8258),
-            Pressure::from_pascals(101325.0),
-            Posture::Standing,
-            80.0,
-            500.0,
-            true,
-            true,
-        );
+        let result =
+            use_fans_heatwaves(inputs(45.0, 45.0, 0.5, 70.0, 1.8, 0.3), Default::default());
         // Should detect some form of heat strain in extreme conditions
-        assert!(result.t_core > 37.0);
+        assert!(result.t_core.as_celsius() > 37.0);
+    }
+
+    /// `max_skin_blood_flow` defaults to 80 here, not the 90 that [`two_nodes_gagge`]
+    /// defaults to -- copying the wrong default would silently change every result.
+    #[test]
+    fn default_max_skin_blood_flow_is_80_not_90() {
+        assert_eq!(UseFansHeatwavesOptions::default().max_skin_blood_flow, 80.0);
     }
 }

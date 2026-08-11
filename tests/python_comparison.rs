@@ -5,7 +5,7 @@
 
 use approx::assert_abs_diff_eq;
 use core::time::Duration;
-use measurements::{Angle, Area, Humidity, Length, Power, Pressure, Speed, Temperature};
+use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,10 +19,11 @@ use thermalcomfort::models::specialty::{
     AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions, f_svv,
 };
 use thermalcomfort::models::{
-    CoolingEffectInputs, DurationLimitedExposure, IreqOptions, Iso7933Model, PhsOptions,
-    PhsPosture, SleepInputs, SolarGainInputs, SolarGainOptions, WbgtInputs, WbgtOptions,
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
+    CoolingEffectInputs, DurationLimitedExposure, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs,
+    IreqOptions, Iso7933Model, PhsOptions, PhsPosture, SetInputs, SleepInputs, SolarGainInputs,
+    SolarGainOptions, UseFansHeatwavesInputs, WbgtInputs, WbgtOptions, WorkIntensity,
+    adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
+    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
     pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
     solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
     two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
@@ -970,31 +971,29 @@ fn test_compare_use_fans_heatwaves() {
                 .unwrap();
 
             let rust_result = use_fans_heatwaves(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                MetabolicRate::from_met(0.0),
-                Area::from_square_meters(1.8258),
-                Pressure::from_pascals(101325.0),
-                Posture::Standing,
-                80.0,
-                500.0,
-                true,
-                true,
+                UseFansHeatwavesInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
+                Default::default(),
             );
 
             let numeric_fields: [(&str, f64); 12] = [
-                ("e_skin", rust_result.e_skin),
-                ("e_rsw", rust_result.e_rsw),
-                ("e_max", rust_result.e_max),
-                ("q_sensible", rust_result.q_sensible),
-                ("q_skin", rust_result.q_skin),
-                ("q_res", rust_result.q_res),
-                ("t_core", rust_result.t_core),
-                ("t_skin", rust_result.t_skin),
+                ("e_skin", rust_result.e_skin.as_watts_per_square_meter()),
+                ("e_rsw", rust_result.e_rsw.as_watts_per_square_meter()),
+                ("e_max", rust_result.e_max.as_watts_per_square_meter()),
+                (
+                    "q_sensible",
+                    rust_result.q_sensible.as_watts_per_square_meter(),
+                ),
+                ("q_skin", rust_result.q_skin.as_watts_per_square_meter()),
+                ("q_res", rust_result.q_res.as_watts_per_square_meter()),
+                ("t_core", rust_result.t_core.as_celsius()),
+                ("t_skin", rust_result.t_skin.as_celsius()),
                 ("m_bl", rust_result.m_bl),
                 ("m_rsw", rust_result.m_rsw),
                 ("w", rust_result.w),
@@ -1467,30 +1466,56 @@ fn test_compare_two_nodes_gagge() {
 
             // Call Rust function with measurement types
             let rust_result = two_nodes_gagge(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                GaggeTwoNodesInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
             );
 
             // Two-node model is iterative — tolerances scale with field magnitude.
-            assert_abs_diff_eq!(rust_result.set, py_set, epsilon = 0.15);
-            assert_abs_diff_eq!(rust_result.e_skin, py_e_skin, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.e_rsw, py_e_rsw, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.e_max, py_e_max, epsilon = 1.5);
-            assert_abs_diff_eq!(rust_result.q_sensible, py_q_sensible, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.q_skin, py_q_skin, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.q_res, py_q_res, epsilon = 0.5);
-            assert_abs_diff_eq!(rust_result.t_core, py_t_core, epsilon = 0.1);
-            assert_abs_diff_eq!(rust_result.t_skin, py_t_skin, epsilon = 0.3);
+            assert_abs_diff_eq!(rust_result.set.as_celsius(), py_set, epsilon = 0.15);
+            assert_abs_diff_eq!(
+                rust_result.e_skin.as_watts_per_square_meter(),
+                py_e_skin,
+                epsilon = 1.0
+            );
+            assert_abs_diff_eq!(
+                rust_result.e_rsw.as_watts_per_square_meter(),
+                py_e_rsw,
+                epsilon = 1.0
+            );
+            assert_abs_diff_eq!(
+                rust_result.e_max.as_watts_per_square_meter(),
+                py_e_max,
+                epsilon = 1.5
+            );
+            assert_abs_diff_eq!(
+                rust_result.q_sensible.as_watts_per_square_meter(),
+                py_q_sensible,
+                epsilon = 1.0
+            );
+            assert_abs_diff_eq!(
+                rust_result.q_skin.as_watts_per_square_meter(),
+                py_q_skin,
+                epsilon = 1.0
+            );
+            assert_abs_diff_eq!(
+                rust_result.q_res.as_watts_per_square_meter(),
+                py_q_res,
+                epsilon = 0.5
+            );
+            assert_abs_diff_eq!(rust_result.t_core.as_celsius(), py_t_core, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.t_skin.as_celsius(), py_t_skin, epsilon = 0.3);
             assert_abs_diff_eq!(rust_result.m_bl, py_m_bl, epsilon = 2.0);
             assert_abs_diff_eq!(rust_result.m_rsw, py_m_rsw, epsilon = 5.0);
             assert_abs_diff_eq!(rust_result.w, py_w, epsilon = 0.03);
             assert_abs_diff_eq!(rust_result.w_max, py_w_max, epsilon = 0.02);
-            assert_abs_diff_eq!(rust_result.et, py_et, epsilon = 0.3);
+            assert_abs_diff_eq!(rust_result.et.as_celsius(), py_et, epsilon = 0.3);
             assert_abs_diff_eq!(rust_result.pmv_gagge, py_pmv_gagge, epsilon = 0.05);
             assert_abs_diff_eq!(rust_result.pmv_set, py_pmv_set, epsilon = 0.05);
             assert_abs_diff_eq!(rust_result.disc, py_disc, epsilon = 0.2);
@@ -1692,14 +1717,17 @@ fn test_compare_set_tmp() {
             let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
 
             let rust_result = set_tmp(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                SetInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 Default::default(),
-            );
+            )
+            .as_celsius();
 
             assert_abs_diff_eq!(rust_result, py_set, epsilon = 1.5);
         }
@@ -2900,14 +2928,17 @@ fn test_readme_example_set() {
 
         // Rust calculation with measurement types
         let set = set_tmp(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tr),
-            Speed::from_meters_per_second(v),
-            Humidity::from_percent(rh),
-            MetabolicRate::from_met(met),
-            ClothingInsulation::from_clo(clo),
+            SetInputs {
+                dry_bulb_temp: Temperature::from_celsius(tdb),
+                mean_radiant_temp: Temperature::from_celsius(tr),
+                air_speed: Speed::from_meters_per_second(v),
+                relative_humidity: Humidity::from_percent(rh),
+                metabolic_rate: MetabolicRate::from_met(met),
+                clothing_insulation: ClothingInsulation::from_clo(clo),
+            },
             Default::default(),
-        );
+        )
+        .as_celsius();
 
         // SET has some numerical differences due to iterative solvers
         assert_abs_diff_eq!(set, py_set, epsilon = 1.0);
@@ -3489,12 +3520,14 @@ fn test_two_nodes_gagge_ji_comparison() {
 
             // Call Rust function
             let rust_result = two_nodes_gagge_ji(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                GaggeTwoNodesJiInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    vapor_pressure: Pressure::from_torrs(vapor_pressure),
+                },
                 Default::default(),
             );
 
@@ -3502,10 +3535,11 @@ fn test_two_nodes_gagge_ji_comparison() {
                 "  Python - T_core (final): {:.2}, T_skin (final): {:.2}",
                 py_t_core_final, py_t_skin_final
             );
+            let rust_t_core_final = rust_result.t_core.last().unwrap().as_celsius();
+            let rust_t_skin_final = rust_result.t_skin.last().unwrap().as_celsius();
             println!(
                 "  Rust   - T_core (final): {:.2}, T_skin (final): {:.2}",
-                rust_result.t_core.last().unwrap(),
-                rust_result.t_skin.last().unwrap()
+                rust_t_core_final, rust_t_skin_final
             );
 
             // Check length
@@ -3514,13 +3548,9 @@ fn test_two_nodes_gagge_ji_comparison() {
 
             // Compare final values
             // Ji model has acceptable accuracy within 0.5°C for skin temperature
+            assert_abs_diff_eq!(rust_t_core_final, py_t_core_final, epsilon = 0.1);
             assert_abs_diff_eq!(
-                *rust_result.t_core.last().unwrap(),
-                py_t_core_final,
-                epsilon = 0.1
-            );
-            assert_abs_diff_eq!(
-                *rust_result.t_skin.last().unwrap(),
+                rust_t_skin_final,
                 py_t_skin_final,
                 epsilon = 0.5 // Larger tolerance for skin temp due to numerical differences
             );

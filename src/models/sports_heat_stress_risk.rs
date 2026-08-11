@@ -25,7 +25,7 @@
 
 use crate::models::phs::{Iso7933Model, PhsOptions, PhsPosture, phs};
 use crate::numerical::brentq;
-use crate::utilities::round_to_exact_decimal;
+use crate::utilities::{np_maximum, py_min, round_to_exact_decimal};
 use crate::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 /// Sport-specific parameters for heat stress risk calculation.
@@ -449,11 +449,11 @@ pub fn sports_heat_stress_risk(
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let rh_pct = rh.as_percent();
-    // Enforce sport-specific minimum air speed
-    let vr_ms = {
-        let v = vr.as_meters_per_second();
-        if v < sport.vr { sport.vr } else { v }
-    };
+    // Enforce sport-specific minimum air speed.
+    // `sports_heat_stress_risk.py:199` is `np.maximum(vr, sport.vr)`, which propagates a
+    // NaN `vr`. The `if v < sport.vr` form previously written here happened to agree, but
+    // spelling the construct out keeps the whole file on one min/max vocabulary.
+    let vr_ms = np_maximum(vr.as_meters_per_second(), sport.vr);
 
     // Early returns for temperatures outside the threshold range
     if tdb_c < MIN_T_MEDIUM {
@@ -507,7 +507,13 @@ pub fn sports_heat_stress_risk(
 
     // The extreme band is entered at the *rounded* t_extreme — the same value returned
     // to callers — so the reported threshold and the risk level stay consistent.
-    let extreme_entry_t = round_to_exact_decimal(t_extreme, 1).min(MAX_T_HIGH);
+    //
+    // `sports_heat_stress_risk.py:356` is the builtin `min(round(t_extreme, 1),
+    // max_t_high)`, so a NaN threshold survives. That matters beyond the returned value:
+    // in Python a NaN here makes every risk-band comparison false, leaving
+    // `risk_level_interpolated` NaN and raising `ValueError`. `f64::min` returned
+    // `MAX_T_HIGH` instead, manufacturing a finite risk level for an unsolved threshold.
+    let extreme_entry_t = py_min(round_to_exact_decimal(t_extreme, 1), MAX_T_HIGH);
 
     // Calculate interpolated risk level (1.0-4.9 scale)
     let risk_level = if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
@@ -525,7 +531,9 @@ pub fn sports_heat_stress_risk(
 
     // Floor-truncate to one decimal place. The 1e-9 epsilon guards against the float
     // representation of 4.9 (e.g. 4.8999…) flooring to 4.8.
-    let risk_level_floor = floor1(risk_level + 1e-9).min(4.9);
+    // `sports_heat_stress_risk.py:377`: builtin `min(np.floor(...) / 10.0, 4.9)`, which
+    // keeps a NaN risk level rather than reporting a confident 4.9.
+    let risk_level_floor = py_min(floor1(risk_level + 1e-9), 4.9);
 
     SportsHeatStressRisk {
         risk_level_interpolated: risk_level_floor,

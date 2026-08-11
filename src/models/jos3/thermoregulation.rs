@@ -65,7 +65,7 @@ use libm::{fabs, pow};
 use super::construction;
 use super::matrix::IDICT;
 use super::parameters::{NUM_BODY_PARTS, defaults};
-use crate::utilities::{BsaFormula, antoine};
+use crate::utilities::{BsaFormula, antoine, np_maximum, np_minimum, py_max, py_min};
 use crate::{BmrEquation, Sex, Temperature};
 
 // ---------------------------------------------------------------------------
@@ -81,59 +81,8 @@ use crate::{BmrEquation, Sex, Temperature};
 //
 // `libm::fmin`/`fmax` are IEEE-754/C99 `fmin`/`fmax`, which *discard* NaN and return
 // the other operand (`fmin(NaN, 1.0) == 1.0`). That matches neither Python construct
-// used here, so neither is imported: use one of the four helpers instead.
-
-/// Mirrors CPython's two-argument builtin `min(a, b)`, which is `b if b < a else a`.
-///
-/// NaN handling is therefore *order-dependent*: `min(nan, 1) == nan` but
-/// `min(1, nan) == 1`, because a NaN in `b` makes `b < a` false and loses. Callers
-/// must preserve Python's argument order. This is not `libm::fmin`, which always
-/// discards NaN, nor `np.minimum`, which always propagates it.
-#[inline]
-fn py_min(a: f64, b: f64) -> f64 {
-    if b < a { b } else { a }
-}
-
-/// Mirrors CPython's two-argument builtin `max(a, b)`, which is `b if b > a else a`.
-///
-/// NaN handling is therefore *order-dependent*: `max(nan, 1) == nan` but
-/// `max(1, nan) == 1`, because a NaN in `b` makes `b > a` false and loses. Callers
-/// must preserve Python's argument order. This is not `libm::fmax`, which always
-/// discards NaN, nor `np.maximum`, which always propagates it.
-#[inline]
-fn py_max(a: f64, b: f64) -> f64 {
-    if b > a { b } else { a }
-}
-
-/// Mirrors `np.minimum(a, b)`, which propagates NaN from *either* operand.
-///
-/// This is not `libm::fmin`, which returns the non-NaN operand instead, and not the
-/// builtin `min`, whose NaN behaviour depends on argument order.
-#[inline]
-fn np_minimum(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if b < a {
-        b
-    } else {
-        a
-    }
-}
-
-/// Mirrors `np.maximum(a, b)`, which propagates NaN from *either* operand.
-///
-/// This is not `libm::fmax`, which returns the non-NaN operand instead, and not the
-/// builtin `max`, whose NaN behaviour depends on argument order.
-#[inline]
-fn np_maximum(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if b > a {
-        b
-    } else {
-        a
-    }
-}
+// used here, so neither is imported: use `py_min`/`py_max` (CPython's order-dependent
+// builtins) or `np_minimum`/`np_maximum` (always propagate) from [`crate::utilities`].
 
 // ---------------------------------------------------------------------------
 // Posture

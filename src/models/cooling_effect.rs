@@ -3,7 +3,7 @@
 //! This module calculates the cooling effect when air speed is elevated above
 //! the still air threshold (0.1 m/s).
 
-use crate::models::set_tmp::{SetOptions, set_tmp};
+use crate::models::set_tmp::{SetInputs, SetOptions, set_tmp};
 use crate::numerical::brentq;
 use crate::utilities::{Posture, Units};
 use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
@@ -143,14 +143,17 @@ pub fn cooling_effect(
     };
 
     let initial_set = set_tmp(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        SetInputs {
+            dry_bulb_temp,
+            mean_radiant_temp,
+            air_speed: relative_air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+        },
         set_options,
-    );
+    )
+    .as_celsius();
 
     // If SET calculation failed, return 0
     if initial_set.is_nan() {
@@ -164,14 +167,19 @@ pub fn cooling_effect(
     // We want to find ce such that SET(tdb-ce, tr-ce, still_air) = SET(tdb, tr, vr)
     let function = |cooling_effect_delta: f64| -> f64 {
         let set_still = set_tmp(
-            Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
-            Temperature::from_celsius(radiant_celsius - cooling_effect_delta),
-            Speed::from_meters_per_second(STILL_AIR_THRESHOLD_MS),
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            SetInputs {
+                dry_bulb_temp: Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
+                mean_radiant_temp: Temperature::from_celsius(
+                    radiant_celsius - cooling_effect_delta,
+                ),
+                air_speed: Speed::from_meters_per_second(STILL_AIR_THRESHOLD_MS),
+                relative_humidity,
+                metabolic_rate,
+                clothing_insulation,
+            },
             set_options,
-        );
+        )
+        .as_celsius();
         set_still - initial_set
     };
 

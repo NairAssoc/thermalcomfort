@@ -13,6 +13,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+use crate::utilities::{py_max, py_min};
 use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
@@ -210,7 +211,10 @@ fn sleep_set(
     let sbc = 5.6697e-8;
     let sa = sqrt((height_cm * weight_kg) / 3600.0);
 
-    let v = if v > 0.1 { v } else { 0.1 };
+    // `two_nodes_gagge_sleep.py:221` is the builtin `max(v, 0.1)`, i.e. `0.1 if 0.1 > v
+    // else v`, so a NaN `v` survives. The `if v > 0.1` form written here inverted that and
+    // healed NaN into 0.1.
+    let v = py_max(v, 0.1);
     let mut t_skin = state.t_skin;
     let mut t_core = t_core_prescribed;
     let rmm = m;
@@ -295,16 +299,18 @@ fn sleep_set(
         t_core += d_t_cr;
         t_body = alfa * t_skin + (1.0 - alfa) * t_core;
 
-        let warm_sk = (t_skin - 33.7).max(0.0);
-        let cold_s = (33.7 - t_skin).max(0.0);
+        // `two_nodes_gagge_sleep.py:297-301`: builtin `max(signal, 0)`, whose first
+        // argument is the signal, so a NaN trajectory stays NaN. `f64::max` would return 0.
+        let warm_sk = py_max(t_skin - 33.7, 0.0);
+        let cold_s = py_max(33.7 - t_skin, 0.0);
         // Measured against the *prescribed* core temperature for this minute, not against
         // a fixed neutral value: upstream's driver passes the Yan quadratic in as
         // `temp_core_neutral`, so the reference moves with the trajectory. Using a fixed
         // 36.8 here leaves minute 0 correct — nothing in a single minute reads the updated
         // blood flow — and corrupts every minute after it.
-        let warm_c = (t_core - t_core_prescribed).max(0.0);
-        let cold_c = (t_core_prescribed - t_core).max(0.0);
-        let warm_b = (t_body - temp_body_neutral).max(0.0);
+        let warm_c = py_max(t_core - t_core_prescribed, 0.0);
+        let cold_c = py_max(t_core_prescribed - t_core, 0.0);
+        let warm_b = py_max(t_body - temp_body_neutral, 0.0);
 
         skin_blood_flow =
             (skin_blood_flow_neutral + options.c_dil * warm_c) / (1.0 + options.c_str * cold_s);
@@ -312,7 +318,8 @@ fn sleep_set(
         // agrees with Python on NaN too (both propagate it).
         skin_blood_flow = skin_blood_flow.clamp(0.5, 90.0);
         let mut reg_sw = options.c_sw * warm_b * exp(warm_sk / 10.7);
-        reg_sw = reg_sw.min(500.0);
+        // `two_nodes_gagge_sleep.py:308`: builtin `min(reg_sw, 500)`.
+        reg_sw = py_min(reg_sw, 500.0);
         e_rsw = 0.68 * reg_sw;
         r_ea = 1.0 / (lr * f_a_cl * chc);
         r_ecl = r_clo / (lr * i_cl);
@@ -334,7 +341,8 @@ fn sleep_set(
 
     let q_skin = dry + e_skin;
     let rn = m - w;
-    let e_comfort = (0.42 * (rn - 58.2)).max(0.0);
+    // `two_nodes_gagge_sleep.py:328-329`: builtin `max(e_comfort, 0)`.
+    let e_comfort = py_max(0.42 * (rn - 58.2), 0.0);
     e_max *= w_max;
     let h_d = 1.0 / (r_a + r_clo);
     let h_e = 1.0 / (r_ea + r_ecl);

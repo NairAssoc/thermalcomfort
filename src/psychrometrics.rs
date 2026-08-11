@@ -1,7 +1,7 @@
 //! Psychrometric functions for calculating properties of moist air
 
 use crate::constants::*;
-use crate::utilities::p_sat;
+use crate::utilities::{np_maximum, p_sat};
 use libm::{atan, exp, fabs as abs, log, pow, sqrt};
 use measurements::{Humidity, Length, Pressure, Speed, Temperature};
 
@@ -213,11 +213,6 @@ pub fn mean_radiant_temperature(
     Temperature::from_celsius(tr_celsius)
 }
 
-#[inline]
-fn fmax(a: f64, b: f64) -> f64 {
-    if a > b { a } else { b }
-}
-
 /// Calculate mean radiant temperature using ISO 7726:1998 method
 fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
     let tg_k = tg + C_TO_K;
@@ -235,8 +230,10 @@ fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f
     // - 0.4: diameter exponent
     let h_f = 6.3 * pow(v, 0.6) / pow(d, 0.4); // forced convection
 
-    // Use maximum of the two
-    let h = fmax(h_n, h_f);
+    // Use maximum of the two. Python (`utilities.py:450`) is `np.maximum(h_f, h_n)`,
+    // which propagates a NaN from either coefficient — `h_n` is NaN whenever `tg` or
+    // `tdb` is, and `h_f` whenever `v` is.
+    let h = np_maximum(h_f, h_n);
 
     pow(
         pow(tg_k, 4.0) + h * (tg_k - tdb_k) / (emissivity * 5.67e-8),

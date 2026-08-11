@@ -186,6 +186,77 @@ pub fn valid_range(value: f64, min: f64, max: f64) -> f64 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// NaN-faithful min/max
+// ---------------------------------------------------------------------------
+//
+// Several models legitimately produce NaN: `valid_range` above returns NaN for any
+// out-of-range input, and JOS3's operative-temperature PMV search returns NaN whenever a
+// subject's reference metabolic rate falls below ISO 7730's 0.8 met floor. A clamp that
+// silently drops the NaN would heal an invalid calculation into a plausible-looking wrong
+// number, so every clamp has to reproduce the NaN behaviour of the exact Python construct
+// it ports.
+//
+// `libm::fmin`/`fmax` are IEEE-754/C99 `fmin`/`fmax`, which *discard* NaN and return the
+// other operand (`fmin(NaN, 1.0) == 1.0`). That matches neither Python construct, so
+// neither should be used for a ported min/max: use one of the four helpers below.
+//
+// Rust's `f64::min`/`max` are also wrong here — they too return the non-NaN operand.
+// `f64::clamp` is the one built-in that already propagates, and it matches Python's
+// `min(max(x, lo), hi)` exactly, so clamp sites need no helper.
+
+/// Mirrors CPython's two-argument builtin `min(a, b)`, which is `b if b < a else a`.
+///
+/// NaN handling is therefore *order-dependent*: `min(nan, 1) == nan` but
+/// `min(1, nan) == 1`, because a NaN in `b` makes `b < a` false and loses. Callers
+/// must preserve Python's argument order. This is not `libm::fmin`, which always
+/// discards NaN, nor `np.minimum`, which always propagates it.
+#[inline]
+pub(crate) fn py_min(a: f64, b: f64) -> f64 {
+    if b < a { b } else { a }
+}
+
+/// Mirrors CPython's two-argument builtin `max(a, b)`, which is `b if b > a else a`.
+///
+/// NaN handling is therefore *order-dependent*: `max(nan, 1) == nan` but
+/// `max(1, nan) == 1`, because a NaN in `b` makes `b > a` false and loses. Callers
+/// must preserve Python's argument order. This is not `libm::fmax`, which always
+/// discards NaN, nor `np.maximum`, which always propagates it.
+#[inline]
+pub(crate) fn py_max(a: f64, b: f64) -> f64 {
+    if b > a { b } else { a }
+}
+
+/// Mirrors `np.minimum(a, b)`, which propagates NaN from *either* operand.
+///
+/// This is not `libm::fmin`, which returns the non-NaN operand instead, and not the
+/// builtin `min`, whose NaN behaviour depends on argument order.
+#[inline]
+pub(crate) fn np_minimum(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+/// Mirrors `np.maximum(a, b)`, which propagates NaN from *either* operand.
+///
+/// This is not `libm::fmax`, which returns the non-NaN operand instead, and not the
+/// builtin `max`, whose NaN behaviour depends on argument order.
+#[inline]
+pub(crate) fn np_maximum(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b > a {
+        b
+    } else {
+        a
+    }
+}
+
 /// Round to specified decimal places, half-to-even.
 ///
 /// Matches `numpy.around`, which pythermalcomfort uses for every rounded output.

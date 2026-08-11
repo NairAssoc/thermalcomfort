@@ -14,7 +14,7 @@
 //! - ISO 11079:2007 - Ergonomics of the thermal environment
 
 use crate::constants::MET_TO_W_M2;
-use crate::utilities::round_to;
+use crate::utilities::{np_minimum, round_to};
 use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 use libm::{exp, fabs, log, pow};
 
@@ -411,7 +411,11 @@ fn solve_criterion(
 
 /// Boolean mask of inputs within the ISO 11079 applicability limits.
 fn valid_iso_11079_inputs(met: f64, tdb: f64, vr: f64, walk_sp: f64) -> bool {
-    let minimum_walking_speed = (0.0052 * (met - 58.0)).min(1.2);
+    // `ireq.py:395` is `np.minimum(0.0052 * (met - 58.0), 1.2)`, which propagates NaN;
+    // `f64::min` would return 1.2 instead. Only the `met` range check below currently
+    // keeps a NaN `met` from reaching a comparison against a healed 1.2, and relying on
+    // the order of the `&&` chain for that is exactly the fragility this replaces.
+    let minimum_walking_speed = np_minimum(0.0052 * (met - 58.0), 1.2);
 
     (58.0..=400.0).contains(&met)
         && tdb <= 10.0

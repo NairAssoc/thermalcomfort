@@ -3,10 +3,29 @@
 //! This module provides a wrapper around the two-node Gagge model
 //! to calculate SET values.
 
-use crate::models::two_nodes_gagge::{GaggeTwoNodesOptions, two_nodes_gagge};
+use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
 use crate::utilities::Posture;
 use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
+
+/// The comfort inputs to [`set_tmp`]: pythermalcomfort requires all six (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SetInputs {
+    /// Dry bulb air temperature
+    pub dry_bulb_temp: Temperature,
+    /// Mean radiant temperature
+    pub mean_radiant_temp: Temperature,
+    /// Air speed
+    pub air_speed: Speed,
+    /// Relative humidity
+    pub relative_humidity: Humidity,
+    /// Metabolic rate
+    pub metabolic_rate: MetabolicRate,
+    /// Clothing insulation
+    pub clothing_insulation: ClothingInsulation,
+}
 
 /// Options for SET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,19 +76,9 @@ impl Default for SetOptions {
 /// is the same as that from a person in the actual environment with actual clothing
 /// and activity level (Gagge1986).
 ///
-/// # Arguments
-///
-/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
-/// * `air_speed` - Air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate
-/// * `clothing_insulation` - Clothing insulation
-/// * `options` - SET calculation options
-///
 /// # Returns
 ///
-/// Standard Effective Temperature [°C], or NaN if inputs are outside valid ranges
+/// Standard Effective Temperature, or NaN if inputs are outside valid ranges
 /// and limit_inputs is true
 ///
 /// # Standard Applicability Limits (when limit_inputs = true)
@@ -83,29 +92,32 @@ impl Default for SetOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::set_tmp::{set_tmp, SetOptions};
+/// use thermalcomfort::models::set_tmp::{set_tmp, SetInputs, SetOptions};
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let set = set_tmp(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(25.0),
-///     Speed::from_meters_per_second(0.1),
-///     Humidity::from_percent(50.0),
-///     MetabolicRate::from_met(1.2),
-///     ClothingInsulation::from_clo(0.5),
-///     Default::default()
+///     SetInputs {
+///         dry_bulb_temp: Temperature::from_celsius(25.0),
+///         mean_radiant_temp: Temperature::from_celsius(25.0),
+///         air_speed: Speed::from_meters_per_second(0.1),
+///         relative_humidity: Humidity::from_percent(50.0),
+///         metabolic_rate: MetabolicRate::from_met(1.2),
+///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///     },
+///     Default::default(),
 /// );
-/// println!("SET: {:.1}°C", set);
+/// println!("SET: {:.1}°C", set.as_celsius());
 /// ```
-pub fn set_tmp(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    air_speed: Speed,
-    relative_humidity: Humidity,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
-    options: SetOptions,
-) -> f64 {
+pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
+    let SetInputs {
+        dry_bulb_temp,
+        mean_radiant_temp,
+        air_speed,
+        relative_humidity,
+        metabolic_rate,
+        clothing_insulation,
+    } = inputs;
+
     let dry_bulb_celsius = dry_bulb_temp.as_celsius();
     let radiant_celsius = mean_radiant_temp.as_celsius();
     let speed_mps = air_speed.as_meters_per_second();
@@ -115,19 +127,19 @@ pub fn set_tmp(
     // Check standard compliance if limit_inputs is true
     if options.limit_inputs {
         if !(10.0..=40.0).contains(&dry_bulb_celsius) {
-            return f64::NAN;
+            return Temperature::from_celsius(f64::NAN);
         }
         if !(10.0..=40.0).contains(&radiant_celsius) {
-            return f64::NAN;
+            return Temperature::from_celsius(f64::NAN);
         }
         if !(0.0..=2.0).contains(&speed_mps) {
-            return f64::NAN;
+            return Temperature::from_celsius(f64::NAN);
         }
         if !(1.0..=4.0).contains(&met) {
-            return f64::NAN;
+            return Temperature::from_celsius(f64::NAN);
         }
         if !(0.0..=1.5).contains(&clo) {
-            return f64::NAN;
+            return Temperature::from_celsius(f64::NAN);
         }
     }
 
@@ -145,20 +157,22 @@ pub fn set_tmp(
     };
 
     let result = two_nodes_gagge(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        GaggeTwoNodesInputs {
+            dry_bulb_temp,
+            mean_radiant_temp,
+            air_speed,
+            relative_humidity,
+            metabolic_rate,
+            clothing_insulation,
+        },
         gagge_options,
     );
-    let set = result.set;
+    let set = result.set.as_celsius();
 
     if options.round_output {
-        crate::utilities::round_half_even(set * 10.0) / 10.0
+        Temperature::from_celsius(crate::utilities::round_half_even(set * 10.0) / 10.0)
     } else {
-        set
+        Temperature::from_celsius(set)
     }
 }
 
@@ -166,17 +180,21 @@ pub fn set_tmp(
 mod tests {
     use super::*;
 
+    fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> SetInputs {
+        SetInputs {
+            dry_bulb_temp: Temperature::from_celsius(tdb),
+            mean_radiant_temp: Temperature::from_celsius(tr),
+            air_speed: Speed::from_meters_per_second(v),
+            relative_humidity: Humidity::from_percent(rh),
+            metabolic_rate: MetabolicRate::from_met(met),
+            clothing_insulation: ClothingInsulation::from_clo(clo),
+        }
+    }
+
     #[test]
     fn test_set_tmp_basic() {
-        let set = set_tmp(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
+        let set = set_tmp(inputs(25.0, 25.0, 0.1, 50.0, 1.2, 0.5), Default::default());
+        let set = set.as_celsius();
         assert!(set > 20.0 && set < 30.0);
         assert!(!set.is_nan());
     }
@@ -184,56 +202,24 @@ mod tests {
     #[test]
     fn test_set_tmp_limits() {
         // Test invalid tdb (too low)
-        let set = set_tmp(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
-        assert!(set.is_nan());
+        let set = set_tmp(inputs(5.0, 25.0, 0.1, 50.0, 1.2, 0.5), Default::default());
+        assert!(set.as_celsius().is_nan());
 
         // Test invalid tdb (too high)
-        let set = set_tmp(
-            Temperature::from_celsius(45.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
-        assert!(set.is_nan());
+        let set = set_tmp(inputs(45.0, 25.0, 0.1, 50.0, 1.2, 0.5), Default::default());
+        assert!(set.as_celsius().is_nan());
 
         // Test invalid met (too low)
-        let set = set_tmp(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(0.5),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
-        assert!(set.is_nan());
+        let set = set_tmp(inputs(25.0, 25.0, 0.1, 50.0, 0.5, 0.5), Default::default());
+        assert!(set.as_celsius().is_nan());
 
         // Test with limit_inputs = false
         let options = SetOptions {
             limit_inputs: false,
             ..Default::default()
         };
-        let set = set_tmp(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            options,
-        );
-        assert!(!set.is_nan());
+        let set = set_tmp(inputs(5.0, 25.0, 0.1, 50.0, 1.2, 0.5), options);
+        assert!(!set.as_celsius().is_nan());
     }
 
     #[test]
@@ -242,31 +228,15 @@ mod tests {
             round_output: true,
             ..Default::default()
         };
-        let set_rounded = set_tmp(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            options_round,
-        );
+        let set_rounded = set_tmp(inputs(25.0, 25.0, 0.1, 50.0, 1.2, 0.5), options_round);
 
         let options_no_round = SetOptions {
             round_output: false,
             ..Default::default()
         };
-        let set_exact = set_tmp(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            options_no_round,
-        );
+        let set_exact = set_tmp(inputs(25.0, 25.0, 0.1, 50.0, 1.2, 0.5), options_no_round);
 
         // Rounded value should be close to exact value but rounded to 1 decimal
-        assert!((set_rounded - set_exact).abs() < 0.1);
+        assert!((set_rounded.as_celsius() - set_exact.as_celsius()).abs() < 0.1);
     }
 }

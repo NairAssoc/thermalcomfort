@@ -26,19 +26,21 @@ use thermalcomfort::models::pmv::{
 use thermalcomfort::models::specialty::{
     AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
-use thermalcomfort::models::two_nodes_gagge::{GaggeTwoNodesJiOptions, two_nodes_gagge_ji};
+use thermalcomfort::models::two_nodes_gagge::{
+    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
+};
 use thermalcomfort::models::{
     AdaptiveOptions, CoolingEffectInputs, CoolingEffectOptions, DurationLimitedExposure,
     GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions,
-    PetPosture, PhsOptions, PhsPosture, RidgeRegressionOptions, SetOptions, SleepInputs,
-    SolarGainInputs, SolarGainOptions, Sports, SportsValues, UtciOptions, WbgtInputs, WbgtOptions,
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq,
-    net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
-    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk, thi,
-    two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt,
-    wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    PetPosture, PhsOptions, PhsPosture, RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs,
+    SolarGainInputs, SolarGainOptions, Sports, SportsValues, UseFansHeatwavesInputs,
+    UseFansHeatwavesOptions, UtciOptions, WbgtInputs, WbgtOptions, WorkIntensity, adaptive_ashrae,
+    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
+    heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq, net, pet_steady, phs,
+    pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
+    set_tmp, solar_gain, sports_heat_stress_risk, thi, two_nodes_gagge, two_nodes_gagge_sleep,
+    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
+    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
@@ -346,12 +348,14 @@ fn sweep_two_nodes_gagge() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = two_nodes_gagge(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                GaggeTwoNodesInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 GaggeTwoNodesOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
@@ -365,20 +369,20 @@ fn sweep_two_nodes_gagge() {
             );
 
             let rust_values = [
-                rust.e_skin,
-                rust.e_rsw,
-                rust.e_max,
-                rust.q_sensible,
-                rust.q_skin,
-                rust.q_res,
-                rust.t_core,
-                rust.t_skin,
+                rust.e_skin.as_watts_per_square_meter(),
+                rust.e_rsw.as_watts_per_square_meter(),
+                rust.e_max.as_watts_per_square_meter(),
+                rust.q_sensible.as_watts_per_square_meter(),
+                rust.q_skin.as_watts_per_square_meter(),
+                rust.q_res.as_watts_per_square_meter(),
+                rust.t_core.as_celsius(),
+                rust.t_skin.as_celsius(),
                 rust.m_bl,
                 rust.m_rsw,
                 rust.w,
                 rust.w_max,
-                rust.set,
-                rust.et,
+                rust.set.as_celsius(),
+                rust.et.as_celsius(),
                 rust.pmv_gagge,
                 rust.pmv_set,
                 rust.disc,
@@ -460,12 +464,14 @@ fn sweep_set_tmp() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = set_tmp(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                SetInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
                 SetOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
@@ -475,7 +481,8 @@ fn sweep_set_tmp() {
                     round_output,
                     calculate_ce: false,
                 },
-            );
+            )
+            .as_celsius();
 
             compare_field(&field, rust, py_float(&py_result, "set")?)
         });
@@ -727,31 +734,35 @@ fn sweep_use_fans_heatwaves() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = use_fans_heatwaves(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                MetabolicRate::from_met(wme),
-                Area::from_square_meters(bsa),
-                Pressure::from_pascals(p_atm),
-                posture,
-                msbf,
-                msw,
-                s.flag("limit_inputs"),
-                s.flag("round_output"),
+                UseFansHeatwavesInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    relative_humidity: Humidity::from_percent(rh),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                },
+                UseFansHeatwavesOptions {
+                    wme: MetabolicRate::from_met(wme),
+                    body_surface_area: Area::from_square_meters(bsa),
+                    p_atm: Pressure::from_pascals(p_atm),
+                    posture,
+                    max_skin_blood_flow: msbf,
+                    max_sweating: msw,
+                    limit_inputs: s.flag("limit_inputs"),
+                    round_output: s.flag("round_output"),
+                },
             );
 
             let values = [
-                rust.e_skin,
-                rust.e_rsw,
-                rust.e_max,
-                rust.q_sensible,
-                rust.q_skin,
-                rust.q_res,
-                rust.t_core,
-                rust.t_skin,
+                rust.e_skin.as_watts_per_square_meter(),
+                rust.e_rsw.as_watts_per_square_meter(),
+                rust.e_max.as_watts_per_square_meter(),
+                rust.q_sensible.as_watts_per_square_meter(),
+                rust.q_skin.as_watts_per_square_meter(),
+                rust.q_res.as_watts_per_square_meter(),
+                rust.t_core.as_celsius(),
+                rust.t_skin.as_celsius(),
                 rust.m_bl,
                 rust.m_rsw,
                 rust.w,
@@ -953,6 +964,11 @@ fn sweep_two_nodes_gagge_ji() {
     // The Ji model takes vapour pressure where the Rust wrapper takes relative humidity,
     // so the sweep samples `rh` and lets each side derive the vapour pressure its own
     // way. That deliberately puts `p_sat_torr` inside the comparison.
+    //
+    // `body_weight`, `length_time_simulation`, `initial_skin_temp` and
+    // `initial_core_temp` are newly-exposed options (previously hardcoded inside the
+    // Rust port, silently ignoring anything Python did with them) so they get their own
+    // axes here rather than being left pinned at their defaults.
     let domain = Domain::new()
         .real("tdb", 5.0, 45.0)
         .real("tr", 5.0, 45.0)
@@ -963,6 +979,10 @@ fn sweep_two_nodes_gagge_ji() {
         .real("wme", 0.0, 1.0)
         .real("body_surface_area", 1.5, 2.2)
         .real("p_atm", 80_000.0, 105_000.0)
+        .real("body_weight", 40.0, 150.0)
+        .real("initial_skin_temp", 30.0, 38.0)
+        .real("initial_core_temp", 35.0, 39.0)
+        .enumerated("length_time_simulation", 3)
         .enumerated("position", 3)
         .flag("acclimatized");
 
@@ -973,7 +993,7 @@ fn sweep_two_nodes_gagge_ji() {
             .expect("failed to import pythermalcomfort.utilities");
 
         run_sweep("sweep_two_nodes_gagge_ji", &domain, |s: &Sample| {
-            let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm) = (
+            let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm, body_weight, init_skin, init_core) = (
                 s.real("tdb"),
                 s.real("tr"),
                 s.real("v"),
@@ -983,6 +1003,9 @@ fn sweep_two_nodes_gagge_ji() {
                 s.real("wme"),
                 s.real("body_surface_area"),
                 s.real("p_atm"),
+                s.real("body_weight"),
+                s.real("initial_skin_temp"),
+                s.real("initial_core_temp"),
             );
             // Python's Ji validator accepts exactly these three. Only `sitting` takes
             // the 0.7 radiating-area branch; both standing forms share 0.77, which the
@@ -994,6 +1017,11 @@ fn sweep_two_nodes_gagge_ji() {
                 _ => (Posture::Standing, "standing, forced convection"),
             };
             let acclimatized = s.flag("acclimatized");
+            let length_time_simulation = match s.index("length_time_simulation") {
+                0 => 60_usize,
+                1 => 120,
+                _ => 180,
+            };
 
             let p_sat = utilities
                 .getattr("p_sat_torr")
@@ -1018,6 +1046,22 @@ fn sweep_two_nodes_gagge_ji() {
                     "acclimatized",
                     PyBool::new(py, acclimatized).to_owned().into_any(),
                 ),
+                (
+                    "body_weight",
+                    body_weight.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "length_time_simulation",
+                    length_time_simulation.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "initial_skin_temp",
+                    init_skin.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "initial_core_temp",
+                    init_core.into_pyobject(py).unwrap().into_any(),
+                ),
             ]
             .into_py_dict(py)
             .unwrap();
@@ -1029,18 +1073,24 @@ fn sweep_two_nodes_gagge_ji() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = two_nodes_gagge_ji(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
+                GaggeTwoNodesJiInputs {
+                    dry_bulb_temp: Temperature::from_celsius(tdb),
+                    mean_radiant_temp: Temperature::from_celsius(tr),
+                    air_speed: Speed::from_meters_per_second(v),
+                    metabolic_rate: MetabolicRate::from_met(met),
+                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    vapor_pressure: Pressure::from_torrs(vapor_pressure),
+                },
                 GaggeTwoNodesJiOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
                     posture,
                     acclimatized,
+                    body_weight: Mass::from_kilograms(body_weight),
+                    length_time_simulation,
+                    initial_skin_temp: Temperature::from_celsius(init_skin),
+                    initial_core_temp: Temperature::from_celsius(init_core),
                 },
             );
 
@@ -1064,7 +1114,7 @@ fn sweep_two_nodes_gagge_ji() {
                 for (minute, (rust_value, py_value)) in
                     rust_series.iter().zip(py_series.iter()).enumerate()
                 {
-                    compare_field(&cmp, *rust_value, *py_value)
+                    compare_field(&cmp, rust_value.as_celsius(), *py_value)
                         .map_err(|e| format!("minute {minute}: {e}"))?;
                 }
             }

@@ -37,7 +37,7 @@
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::utilities::{body_surface_area_dubois, p_sat};
+use crate::utilities::{body_surface_area_dubois, p_sat, py_max, py_min};
 use crate::{ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Speed, Temperature};
 use libm::{cos, exp, pow, sqrt};
 
@@ -367,7 +367,9 @@ pub fn phs(
     if !walking {
         // ISO 7933 uses a literal 58 here, not the 58.15 met->W/m2 factor.
         walk_sp = 0.0052 * (met * MET_TO_W_M2 - 58.0);
-        walk_sp = walk_sp.min(0.7);
+        // `phs.py:622` is the builtin `min(walk_sp, 0.7)`: NaN in the first argument
+        // propagates, so `f64::min` (which would return 0.7) is the wrong helper.
+        walk_sp = py_min(walk_sp, 0.7);
     }
 
     // Relative air velocity.
@@ -396,15 +398,21 @@ pub fn phs(
         v
     };
 
-    // Dynamic insulation corrections
-    let v_ux = v_r.min(3.0);
-    let w_a_ux = walk_sp.min(1.5);
+    // Dynamic insulation corrections.
+    //
+    // `phs.py:625-629` writes these two as `v_ux = v_r; if v_r > 3: v_ux = 3`, which keeps
+    // a NaN `v_r` (the `if` is false) and is therefore the builtin-`min` semantics, not
+    // `f64::min`'s.
+    let v_ux = py_min(v_r, 3.0);
+    let w_a_ux = py_min(walk_sp, 1.5);
 
     let corr_cl = 1.044 * exp((0.066 * v_ux - 0.398) * v_ux + (0.094 * w_a_ux - 0.378) * w_a_ux);
-    let corr_cl = corr_cl.min(1.0);
+    // `phs.py:636` / `:639`: builtin `min(corr_*, 1)`, NaN-propagating in the first
+    // argument.
+    let corr_cl = py_min(corr_cl, 1.0);
 
     let corr_ia = exp((0.047 * v_r - 0.472) * v_r + (0.117 * w_a_ux - 0.342) * w_a_ux);
-    let corr_ia = corr_ia.min(1.0);
+    let corr_ia = py_min(corr_ia, 1.0);
 
     let corr_tot = if clo <= 0.6 {
         ((0.6 - clo) * corr_ia + clo * corr_cl) / 0.6
@@ -417,7 +425,8 @@ pub fn phs(
     let i_cl_dyn = i_tot_dyn - i_a_dyn / fcl;
 
     let corr_e = (2.6 * corr_tot - 6.5) * corr_tot + 4.9;
-    let im_dyn = (options.i_mst * corr_e).min(0.9);
+    // `phs.py:651`: builtin `min(im_dyn, 0.9)`.
+    let im_dyn = py_min(options.i_mst * corr_e, 0.9);
     let r_t_dyn = i_tot_dyn / im_dyn / 16.7;
 
     // Respiratory heat loss
@@ -469,7 +478,9 @@ pub fn phs(
                 2.38 * pow((t_cl_init - tdb).abs(), 0.25)
             }
         };
-        hc_dyn_base.max(z)
+        // `phs.py:669`: builtin `max(hc_dyn, z)`. A NaN `t_sk`/`tdb`/`tr` makes
+        // `hc_dyn_base` NaN and must stay NaN; `f64::max` would return `z`.
+        py_max(hc_dyn_base, z)
     };
 
     // Initialize state
@@ -567,8 +578,11 @@ pub fn phs(
             } else {
                 1.0 - pow(w_req, 2.0) / 2.0
             };
+            // `phs.py:749` is `max(0.05, e_v_eff)` — arguments in that order, so a NaN
+            // `e_v_eff` loses and 0.05 wins, which is what `f64::max` already does here.
             let e_v_eff = e_v_eff.max(0.05);
-            (e_req / e_v_eff).min(sw_max)
+            // `phs.py:752`: builtin `min(sw_req, sw_max)`, NaN-propagating in `sw_req`.
+            py_min(e_req / e_v_eff, sw_max)
         };
 
         sweat_rate_watt = sweat_rate_watt * CONST_SW + sw_req * (1.0 - CONST_SW);
@@ -577,13 +591,17 @@ pub fn phs(
         let e_p = if sweat_rate_watt <= 0.0 {
             0.0
         } else {
-            let k = e_max / sweat_rate_watt.max(1e-6);
+            // `phs.py:762`: builtin `max(sweat_rate_watt, EPSILON)`. A NaN sweat rate
+            // takes this branch (`NaN <= 0` is false) and must stay NaN; `f64::max` would
+            // silently substitute 1e-6.
+            let k = e_max / py_max(sweat_rate_watt, 1e-6);
             let wp = if k >= 0.5 {
                 -k + sqrt(k * k + 2.0)
             } else {
                 1.0
             };
-            let wp = wp.min(w_max);
+            // `phs.py:766`: builtin `min(wp, w_max)`.
+            let wp = py_min(wp, w_max);
             wp * e_max
         };
 

@@ -42,7 +42,7 @@ pub use pmv::{
 pub use ridge_regression::{
     PredictedBodyTemperatures, RidgeRegressionOptions, ridge_regression_predict_t_re_t_sk,
 };
-pub use set_tmp::{SetOptions, set_tmp};
+pub use set_tmp::{SetInputs, SetOptions, set_tmp};
 pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
 pub use specialty::{
     AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
@@ -56,14 +56,16 @@ pub use thermal_indices::{
     net, thi, wci, wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
-    GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult, GaggeTwoNodesOptions, GaggeTwoNodesResult,
-    two_nodes_gagge, two_nodes_gagge_ji,
+    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult,
+    GaggeTwoNodesOptions, GaggeTwoNodesResult, two_nodes_gagge, two_nodes_gagge_ji,
 };
 pub use two_nodes_gagge_sleep::{
     GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, MismatchedScheduleLengths, SleepInputs,
     two_nodes_gagge_sleep,
 };
-pub use use_fans_heatwaves::{UseFansHeatwavesResult, use_fans_heatwaves};
+pub use use_fans_heatwaves::{
+    UseFansHeatwavesInputs, UseFansHeatwavesOptions, UseFansHeatwavesResult, use_fans_heatwaves,
+};
 pub use utci::{StressCategory, UtciOptions, UtciResult, utci};
 pub use wbgt::{WbgtInputs, WbgtOptions, wbgt};
 pub use work_capacity::{

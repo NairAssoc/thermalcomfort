@@ -3,9 +3,9 @@
 //! Implementation of thermal comfort models according to ISO 7730 and ASHRAE 55 standards
 
 use crate::constants::*;
-use crate::utilities::{Ashrae55Model, round_to, valid_range};
+use crate::utilities::{Ashrae55Model, py_max, round_to, valid_range};
 use crate::{ClothingInsulation, MetabolicRate};
-use libm::{exp, fabs as abs, fmax, pow, sqrt};
+use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Humidity, Speed, Temperature};
 
 /// Result of PMV/PPD calculation
@@ -670,7 +670,9 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
         // Natural convection coefficient: 2.38 W/(m²·K^1.25) and exponent 0.25
         // from natural convection heat transfer correlation
         let hcn = 2.38 * pow(abs(100.0 * xf - taa), 0.25);
-        hc = fmax(hcn, hcf);
+        // `_pmv_ppd_optimized.py:54` is the *builtin* `max(hcn, hcf)`, which propagates a
+        // NaN only from its first argument. `libm::fmax` would propagate from neither.
+        hc = py_max(hcn, hcf);
         xn = (p5 + p4 * hc - p2 * pow(xf, 4.0)) / (100.0 + p3 * hc);
         n += 1;
         // Maximum 150 iterations to prevent infinite loops
