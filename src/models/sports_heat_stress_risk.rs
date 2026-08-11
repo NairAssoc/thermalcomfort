@@ -23,10 +23,31 @@
 //! - Sports Medicine Australia heat policy framework
 //! - ISO 7933 (PHS model used internally)
 
-use crate::models::phs::{Iso7933Model, PhsOptions, PhsPosture, phs};
+use crate::models::phs::{Iso7933Model, PhsInputs, PhsOptions, PhsPosture, phs};
 use crate::numerical::brentq;
 use crate::utilities::{np_maximum, py_min, round_to_exact_decimal};
 use crate::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
+
+/// The comfort inputs to [`sports_heat_stress_risk`]: pythermalcomfort requires all five
+/// (no default -- Python has zero optional parameters for this model).
+///
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming every field forecloses a
+/// silent transposition between them.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SportsHeatStressRiskInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Relative air speed
+    pub vr: Speed,
+    /// Sport-specific parameters (use a constant from [`Sports`])
+    pub sport: SportsValues,
+}
 
 /// Sport-specific parameters for heat stress risk calculation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,16 +86,18 @@ impl SportsValues {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+/// use thermalcomfort::models::sports_heat_stress_risk::{
+///     Sports, SportsHeatStressRiskInputs, sports_heat_stress_risk,
+/// };
 /// use thermalcomfort::{Temperature, Humidity, Speed};
 ///
-/// let result = sports_heat_stress_risk(
-///     Temperature::from_celsius(35.0),
-///     Temperature::from_celsius(35.0),
-///     Humidity::from_percent(40.0),
-///     Speed::from_meters_per_second(0.1),
-///     Sports::RUNNING,
-/// );
+/// let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+///     tdb: Temperature::from_celsius(35.0),
+///     tr: Temperature::from_celsius(35.0),
+///     rh: Humidity::from_percent(40.0),
+///     vr: Speed::from_meters_per_second(0.1),
+///     sport: Sports::RUNNING,
+/// });
 /// // vr=0.1 is clamped to sport minimum (2.0 for running)
 /// assert_eq!(result.risk_level_interpolated, 2.1);
 /// ```
@@ -293,12 +316,12 @@ pub struct SportsHeatStressRisk {
     /// Interpolated risk level (1.0-4.9), truncated to one decimal place.
     /// Risk levels: 1-2 = low, 2-3 = moderate, 3-4 = high, 4 = extreme.
     pub risk_level_interpolated: f64,
-    /// Temperature threshold for medium risk level [°C]
-    pub t_medium: f64,
-    /// Temperature threshold for high risk level [°C]
-    pub t_high: f64,
-    /// Temperature threshold for extreme risk level [°C]
-    pub t_extreme: f64,
+    /// Temperature threshold for medium risk level
+    pub t_medium: Temperature,
+    /// Temperature threshold for high risk level
+    pub t_high: Temperature,
+    /// Temperature threshold for extreme risk level
+    pub t_extreme: Temperature,
     /// Heat stress management recommendation
     pub recommendation: &'static str,
 }
@@ -333,13 +356,15 @@ fn get_recommendation(risk_level: f64) -> &'static str {
 /// Run PHS and return sweat loss [g]
 fn phs_sweat_loss(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f64 {
     let result = phs(
-        Temperature::from_celsius(tdb),
-        Temperature::from_celsius(tr),
-        Speed::from_meters_per_second(vr),
-        Humidity::from_percent(rh),
-        sport.met,
-        sport.clo,
-        PhsPosture::Standing,
+        PhsInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(rh),
+            met: sport.met,
+            clo: sport.clo,
+            posture: PhsPosture::Standing,
+        },
         PhsOptions {
             duration: sport.duration,
             round_output: false,
@@ -350,19 +375,21 @@ fn phs_sweat_loss(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> 
             ..Default::default()
         },
     );
-    result.sweat_loss_g
+    result.sweat_loss_g.as_grams()
 }
 
 /// Run PHS and return core temperature [°C]
 fn phs_core_temp(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f64 {
     let result = phs(
-        Temperature::from_celsius(tdb),
-        Temperature::from_celsius(tr),
-        Speed::from_meters_per_second(vr),
-        Humidity::from_percent(rh),
-        sport.met,
-        sport.clo,
-        PhsPosture::Standing,
+        PhsInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(rh),
+            met: sport.met,
+            clo: sport.clo,
+            posture: PhsPosture::Standing,
+        },
         PhsOptions {
             duration: sport.duration,
             round_output: false,
@@ -373,7 +400,7 @@ fn phs_core_temp(tdb: f64, tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f
             ..Default::default()
         },
     );
-    result.t_cr
+    result.t_cr.as_celsius()
 }
 
 /// Floor-truncate to 1 decimal place toward negative infinity
@@ -392,11 +419,7 @@ fn floor1(x: f64) -> f64 {
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature
-/// * `tr` - Mean radiant temperature
-/// * `rh` - Relative humidity [%]
-/// * `vr` - Relative air speed [m/s]
-/// * `sport` - Sport-specific parameters (use a constant from [`Sports`])
+/// * `inputs` - Required comfort inputs, see [`SportsHeatStressRiskInputs`]
 ///
 /// # Returns
 ///
@@ -408,30 +431,32 @@ fn floor1(x: f64) -> f64 {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+/// use thermalcomfort::models::sports_heat_stress_risk::{
+///     Sports, SportsHeatStressRiskInputs, sports_heat_stress_risk,
+/// };
 /// use thermalcomfort::{Temperature, Humidity, Speed};
 ///
 /// // Running at 35°C, 40% RH
-/// let result = sports_heat_stress_risk(
-///     Temperature::from_celsius(35.0),
-///     Temperature::from_celsius(35.0),
-///     Humidity::from_percent(40.0),
-///     Speed::from_meters_per_second(0.1),
-///     Sports::RUNNING,
-/// );
+/// let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+///     tdb: Temperature::from_celsius(35.0),
+///     tr: Temperature::from_celsius(35.0),
+///     rh: Humidity::from_percent(40.0),
+///     vr: Speed::from_meters_per_second(0.1),
+///     sport: Sports::RUNNING,
+/// });
 /// assert_eq!(result.risk_level_interpolated, 2.1);
-/// assert_eq!(result.t_medium, 34.5);
-/// assert_eq!(result.t_extreme, 41.6);
+/// assert!((result.t_medium.as_celsius() - 34.5).abs() < 1e-9);
+/// assert!((result.t_extreme.as_celsius() - 41.6).abs() < 1e-9);
 /// assert_eq!(result.recommendation, "Increase frequency and/or duration of rest breaks");
 ///
 /// // Soccer at moderate conditions
-/// let result = sports_heat_stress_risk(
-///     Temperature::from_celsius(30.0),
-///     Temperature::from_celsius(30.0),
-///     Humidity::from_percent(50.0),
-///     Speed::from_meters_per_second(0.5),
-///     Sports::SOCCER,
-/// );
+/// let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+///     tdb: Temperature::from_celsius(30.0),
+///     tr: Temperature::from_celsius(30.0),
+///     rh: Humidity::from_percent(50.0),
+///     vr: Speed::from_meters_per_second(0.5),
+///     sport: Sports::SOCCER,
+/// });
 /// assert!(result.risk_level_interpolated < 2.0); // Low risk
 /// ```
 ///
@@ -439,13 +464,14 @@ fn floor1(x: f64) -> f64 {
 ///
 /// - Sports Medicine Australia heat policy framework
 /// - ISO 7933 (PHS model used internally for threshold calculation)
-pub fn sports_heat_stress_risk(
-    tdb: Temperature,
-    tr: Temperature,
-    rh: Humidity,
-    vr: Speed,
-    sport: SportsValues,
-) -> SportsHeatStressRisk {
+pub fn sports_heat_stress_risk(inputs: SportsHeatStressRiskInputs) -> SportsHeatStressRisk {
+    let SportsHeatStressRiskInputs {
+        tdb,
+        tr,
+        rh,
+        vr,
+        sport,
+    } = inputs;
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let rh_pct = rh.as_percent();
@@ -459,9 +485,9 @@ pub fn sports_heat_stress_risk(
     if tdb_c < MIN_T_MEDIUM {
         return SportsHeatStressRisk {
             risk_level_interpolated: 1.0,
-            t_medium: MIN_T_MEDIUM,
-            t_high: MIN_T_HIGH,
-            t_extreme: MIN_T_EXTREME,
+            t_medium: Temperature::from_celsius(MIN_T_MEDIUM),
+            t_high: Temperature::from_celsius(MIN_T_HIGH),
+            t_extreme: Temperature::from_celsius(MIN_T_EXTREME),
             recommendation: get_recommendation(1.0),
         };
     }
@@ -537,9 +563,9 @@ pub fn sports_heat_stress_risk(
 
     SportsHeatStressRisk {
         risk_level_interpolated: risk_level_floor,
-        t_medium: round_to_exact_decimal(t_medium, 1),
-        t_high: round_to_exact_decimal(t_high, 1),
-        t_extreme: round_to_exact_decimal(t_extreme, 1),
+        t_medium: Temperature::from_celsius(round_to_exact_decimal(t_medium, 1)),
+        t_high: Temperature::from_celsius(round_to_exact_decimal(t_high, 1)),
+        t_extreme: Temperature::from_celsius(round_to_exact_decimal(t_extreme, 1)),
         recommendation: get_recommendation(risk_level_floor),
     }
 }
@@ -585,20 +611,45 @@ fn find_threshold_core_temp(tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> 
 mod tests {
     use super::*;
 
+    fn inputs(
+        tdb: f64,
+        tr: f64,
+        rh: f64,
+        vr: f64,
+        sport: SportsValues,
+    ) -> SportsHeatStressRiskInputs {
+        SportsHeatStressRiskInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            rh: Humidity::from_percent(rh),
+            vr: Speed::from_meters_per_second(vr),
+            sport,
+        }
+    }
+
+    /// Compares a [`Temperature`] against a Celsius literal with a tiny tolerance.
+    ///
+    /// `Temperature` stores kelvin internally, so `from_celsius(x).as_celsius()` can lose
+    /// the last ULP on the round trip; `assert_eq!` against a literal is too strict for
+    /// values produced that way (e.g. 38.2 comes back as 38.19999999999999). This is a
+    /// float-representation artifact of the newtype, not a difference worth pinning
+    /// exactly.
+    fn assert_temp_eq(actual: Temperature, expected_celsius: f64) {
+        let actual_celsius = actual.as_celsius();
+        assert!(
+            (actual_celsius - expected_celsius).abs() < 1e-9,
+            "expected {expected_celsius}, got {actual_celsius}"
+        );
+    }
+
     #[test]
     fn test_running_vr_clamped() {
         // vr=0.1 is clamped to sport minimum (2.0 for running)
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Humidity::from_percent(40.0),
-            Speed::from_meters_per_second(0.1),
-            Sports::RUNNING,
-        );
+        let result = sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::RUNNING));
         assert_eq!(result.risk_level_interpolated, 2.1);
-        assert_eq!(result.t_medium, 34.5);
-        assert_eq!(result.t_high, 39.0);
-        assert_eq!(result.t_extreme, 41.6);
+        assert_temp_eq(result.t_medium, 34.5);
+        assert_temp_eq(result.t_high, 39.0);
+        assert_temp_eq(result.t_extreme, 41.6);
         assert_eq!(
             result.recommendation,
             "Increase frequency and/or duration of rest breaks"
@@ -607,17 +658,11 @@ mod tests {
 
     #[test]
     fn test_soccer_low_risk() {
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(30.0),
-            Temperature::from_celsius(30.0),
-            Humidity::from_percent(50.0),
-            Speed::from_meters_per_second(0.5),
-            Sports::SOCCER,
-        );
+        let result = sports_heat_stress_risk(inputs(30.0, 30.0, 50.0, 0.5, Sports::SOCCER));
         assert_eq!(result.risk_level_interpolated, 1.6);
-        assert_eq!(result.t_medium, 34.5);
-        assert_eq!(result.t_high, 38.2);
-        assert_eq!(result.t_extreme, 39.9);
+        assert_temp_eq(result.t_medium, 34.5);
+        assert_temp_eq(result.t_high, 38.2);
+        assert_temp_eq(result.t_extreme, 39.9);
         assert_eq!(
             result.recommendation,
             "Increase hydration & modify clothing"
@@ -626,17 +671,11 @@ mod tests {
 
     #[test]
     fn test_low_temperature() {
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(20.0),
-            Temperature::from_celsius(20.0),
-            Humidity::from_percent(50.0),
-            Speed::from_meters_per_second(0.5),
-            Sports::WALKING,
-        );
+        let result = sports_heat_stress_risk(inputs(20.0, 20.0, 50.0, 0.5, Sports::WALKING));
         assert_eq!(result.risk_level_interpolated, 1.0);
-        assert_eq!(result.t_medium, 23.0);
-        assert_eq!(result.t_high, 25.0);
-        assert_eq!(result.t_extreme, 26.0);
+        assert_temp_eq(result.t_medium, 23.0);
+        assert_temp_eq(result.t_high, 25.0);
+        assert_temp_eq(result.t_extreme, 26.0);
         assert_eq!(
             result.recommendation,
             "Increase hydration & modify clothing"
@@ -645,64 +684,40 @@ mod tests {
 
     #[test]
     fn test_very_high_temperature() {
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(45.0),
-            Temperature::from_celsius(45.0),
-            Humidity::from_percent(30.0),
-            Speed::from_meters_per_second(0.5),
-            Sports::CYCLING,
-        );
+        let result = sports_heat_stress_risk(inputs(45.0, 45.0, 30.0, 0.5, Sports::CYCLING));
         // 45°C is 1.5°C above t_extreme (43.5), so risk ramps into the extreme band:
         // 4.0 + 1.5/5.0*0.9 = 4.27 -> floored to 4.2
         assert_eq!(result.risk_level_interpolated, 4.2);
-        assert_eq!(result.t_medium, 34.5);
-        assert_eq!(result.t_high, 39.0);
-        assert_eq!(result.t_extreme, 43.5);
+        assert_temp_eq(result.t_medium, 34.5);
+        assert_temp_eq(result.t_high, 39.0);
+        assert_temp_eq(result.t_extreme, 43.5);
         assert_eq!(result.recommendation, "Consider suspending play");
     }
 
     #[test]
     fn test_tennis_high_radiant() {
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(33.0),
-            Temperature::from_celsius(70.0),
-            Humidity::from_percent(60.0),
-            Speed::from_meters_per_second(0.1),
-            Sports::TENNIS,
-        );
+        let result = sports_heat_stress_risk(inputs(33.0, 70.0, 60.0, 0.1, Sports::TENNIS));
         // 33°C is 3.5°C above t_extreme (29.5): 4.0 + 3.5/5.0*0.9 = 4.63 -> floored to 4.6
         assert_eq!(result.risk_level_interpolated, 4.6);
-        assert_eq!(result.t_medium, 23.0);
-        assert_eq!(result.t_high, 25.0);
-        assert_eq!(result.t_extreme, 29.5);
+        assert_temp_eq(result.t_medium, 23.0);
+        assert_temp_eq(result.t_high, 25.0);
+        assert_temp_eq(result.t_extreme, 29.5);
         assert_eq!(result.recommendation, "Consider suspending play");
     }
 
     #[test]
     fn test_croquet_preset() {
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Humidity::from_percent(40.0),
-            Speed::from_meters_per_second(0.1),
-            Sports::CROQUET,
-        );
+        let result = sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::CROQUET));
         assert_eq!(result.risk_level_interpolated, 2.1);
-        assert_eq!(result.t_medium, 34.5);
-        assert_eq!(result.t_high, 39.0);
-        assert_eq!(result.t_extreme, 43.3);
+        assert_temp_eq(result.t_medium, 34.5);
+        assert_temp_eq(result.t_high, 39.0);
+        assert_temp_eq(result.t_extreme, 43.3);
     }
 
     #[test]
     fn test_extreme_band_caps_at_4_9() {
         // Far above t_extreme the risk level must clamp at 4.9, not grow without bound.
-        let result = sports_heat_stress_risk(
-            Temperature::from_celsius(70.0),
-            Temperature::from_celsius(70.0),
-            Humidity::from_percent(30.0),
-            Speed::from_meters_per_second(0.5),
-            Sports::CYCLING,
-        );
+        let result = sports_heat_stress_risk(inputs(70.0, 70.0, 30.0, 0.5, Sports::CYCLING));
         assert_eq!(result.risk_level_interpolated, 4.9);
     }
 

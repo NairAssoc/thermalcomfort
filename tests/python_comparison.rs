@@ -20,15 +20,15 @@ use thermalcomfort::models::specialty::{
 };
 use thermalcomfort::models::{
     CoolingEffectInputs, DurationLimitedExposure, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs,
-    IreqOptions, Iso7933Model, PhsOptions, PhsPosture, SetInputs, SleepInputs, SolarGainInputs,
-    SolarGainOptions, UseFansHeatwavesInputs, WbgtInputs, WbgtOptions, WorkIntensity,
-    adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi,
-    heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, phs, pmv_a,
-    pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp,
-    solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    IreqInputs, IreqOptions, Iso7933Model, PhsInputs, PhsOptions, PhsPosture, SetInputs,
+    SleepInputs, SolarGainInputs, SolarGainOptions, SportsHeatStressRiskInputs,
+    UseFansHeatwavesInputs, WbgtInputs, WbgtOptions, WorkIntensity, adaptive_ashrae, adaptive_en,
+    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
+    heat_index_schoen, humidex, ireq, net, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi,
+    transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
+    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
+    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
     dew_point_temperature, enthalpy_air, mean_radiant_temperature, operative_temperature,
@@ -487,22 +487,24 @@ fn test_compare_ireq() {
                 .unwrap();
 
             let rust_result = ireq(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                AirPermeability::from_l_per_m2_s(p),
-                Speed::from_meters_per_second(walk_sp),
+                IreqInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    p: AirPermeability::from_l_per_m2_s(p),
+                    walk_sp: Speed::from_meters_per_second(walk_sp),
+                },
                 IreqOptions::default(),
             );
 
             for (field, rust_value) in [
-                ("ireq_min", rust_result.ireq_min),
-                ("ireq_neutral", rust_result.ireq_neutral),
-                ("icl_min", rust_result.icl_min),
-                ("icl_neutral", rust_result.icl_neutral),
+                ("ireq_min", rust_result.ireq_min.as_clo()),
+                ("ireq_neutral", rust_result.ireq_neutral.as_clo()),
+                ("icl_min", rust_result.icl_min.as_clo()),
+                ("icl_neutral", rust_result.icl_neutral.as_clo()),
             ] {
                 let py_value: f64 = py_result.getattr(field).unwrap().extract().unwrap();
                 if py_value.is_nan() {
@@ -3670,13 +3672,15 @@ fn test_phs_iso2023_comparison() {
             };
 
             let rust_result = phs(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                rust_posture,
+                PhsInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    posture: rust_posture,
+                },
                 PhsOptions::default(),
             );
 
@@ -3686,13 +3690,16 @@ fn test_phs_iso2023_comparison() {
             );
             println!(
                 "  Rust   - t_re: {:.1}°C, t_sk: {:.1}°C, t_cr: {:.1}°C, d_lim_50: {:.0} min",
-                rust_result.t_re, rust_result.t_sk, rust_result.t_cr, rust_result.d_lim_loss_50
+                rust_result.t_re.as_celsius(),
+                rust_result.t_sk.as_celsius(),
+                rust_result.t_cr.as_celsius(),
+                rust_result.d_lim_loss_50
             );
 
             // Compare results
-            assert_abs_diff_eq!(rust_result.t_re, py_t_re, epsilon = 0.2);
-            assert_abs_diff_eq!(rust_result.t_sk, py_t_sk, epsilon = 0.2);
-            assert_abs_diff_eq!(rust_result.t_cr, py_t_cr, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.t_re.as_celsius(), py_t_re, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.t_sk.as_celsius(), py_t_sk, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.t_cr.as_celsius(), py_t_cr, epsilon = 0.2);
             // Exposure time limits can differ slightly due to rounding
             assert_abs_diff_eq!(rust_result.d_lim_loss_50, py_d_lim_loss_50, epsilon = 2.0);
         }
@@ -3734,13 +3741,15 @@ fn test_phs_iso2004_comparison() {
         };
 
         let rust_result = phs(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tr),
-            Speed::from_meters_per_second(v),
-            Humidity::from_percent(rh),
-            MetabolicRate::from_met(met),
-            ClothingInsulation::from_clo(clo),
-            PhsPosture::Standing,
+            PhsInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                rh: Humidity::from_percent(rh),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
+                posture: PhsPosture::Standing,
+            },
             options,
         );
 
@@ -3750,13 +3759,15 @@ fn test_phs_iso2004_comparison() {
         );
         println!(
             "  Rust   - t_re: {:.1}°C, t_sk: {:.1}°C, t_cr: {:.1}°C",
-            rust_result.t_re, rust_result.t_sk, rust_result.t_cr
+            rust_result.t_re.as_celsius(),
+            rust_result.t_sk.as_celsius(),
+            rust_result.t_cr.as_celsius()
         );
 
         // Compare results
-        assert_abs_diff_eq!(rust_result.t_re, py_t_re, epsilon = 0.2);
-        assert_abs_diff_eq!(rust_result.t_sk, py_t_sk, epsilon = 0.2);
-        assert_abs_diff_eq!(rust_result.t_cr, py_t_cr, epsilon = 0.2);
+        assert_abs_diff_eq!(rust_result.t_re.as_celsius(), py_t_re, epsilon = 0.2);
+        assert_abs_diff_eq!(rust_result.t_sk.as_celsius(), py_t_sk, epsilon = 0.2);
+        assert_abs_diff_eq!(rust_result.t_cr.as_celsius(), py_t_cr, epsilon = 0.2);
     });
 }
 
@@ -3793,13 +3804,15 @@ fn test_phs_short_duration() {
         };
 
         let rust_result = phs(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tr),
-            Speed::from_meters_per_second(v),
-            Humidity::from_percent(rh),
-            MetabolicRate::from_met(met),
-            ClothingInsulation::from_clo(clo),
-            PhsPosture::Standing,
+            PhsInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                rh: Humidity::from_percent(rh),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
+                posture: PhsPosture::Standing,
+            },
             options,
         );
 
@@ -3809,14 +3822,19 @@ fn test_phs_short_duration() {
         );
         println!(
             "  Rust   - t_re: {:.1}°C, sweat_loss: {:.0} g",
-            rust_result.t_re, rust_result.sweat_loss_g
+            rust_result.t_re.as_celsius(),
+            rust_result.sweat_loss_g.as_grams()
         );
 
         // Compare results
         // Note: Short duration simulations can have slightly larger temperature differences
         // due to numerical precision in the time-stepping process
-        assert_abs_diff_eq!(rust_result.t_re, py_t_re, epsilon = 0.5);
-        assert_abs_diff_eq!(rust_result.sweat_loss_g, py_sweat_loss_g, epsilon = 50.0);
+        assert_abs_diff_eq!(rust_result.t_re.as_celsius(), py_t_re, epsilon = 0.5);
+        assert_abs_diff_eq!(
+            rust_result.sweat_loss_g.as_grams(),
+            py_sweat_loss_g,
+            epsilon = 50.0
+        );
     });
 }
 
@@ -3905,13 +3923,13 @@ fn test_sports_heat_stress_risk_comparison() {
                 .unwrap();
 
             // Call Rust
-            let rust_result = sports_heat_stress_risk(
-                Temperature::from_celsius(*tdb),
-                Temperature::from_celsius(*tr),
-                Humidity::from_percent(*rh),
-                Speed::from_meters_per_second(*vr),
-                *rust_sport,
-            );
+            let rust_result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+                tdb: Temperature::from_celsius(*tdb),
+                tr: Temperature::from_celsius(*tr),
+                rh: Humidity::from_percent(*rh),
+                vr: Speed::from_meters_per_second(*vr),
+                sport: *rust_sport,
+            });
 
             println!(
                 "  Python - risk: {}, t_med: {}, t_high: {}, t_ext: {}",
@@ -3920,16 +3938,24 @@ fn test_sports_heat_stress_risk_comparison() {
             println!(
                 "  Rust   - risk: {}, t_med: {}, t_high: {}, t_ext: {}",
                 rust_result.risk_level_interpolated,
-                rust_result.t_medium,
-                rust_result.t_high,
-                rust_result.t_extreme
+                rust_result.t_medium.as_celsius(),
+                rust_result.t_high.as_celsius(),
+                rust_result.t_extreme.as_celsius()
             );
 
             // Compare results
             assert_abs_diff_eq!(rust_result.risk_level_interpolated, py_risk, epsilon = 0.1);
-            assert_abs_diff_eq!(rust_result.t_medium, py_t_medium, epsilon = 0.5);
-            assert_abs_diff_eq!(rust_result.t_high, py_t_high, epsilon = 0.5);
-            assert_abs_diff_eq!(rust_result.t_extreme, py_t_extreme, epsilon = 0.5);
+            assert_abs_diff_eq!(
+                rust_result.t_medium.as_celsius(),
+                py_t_medium,
+                epsilon = 0.5
+            );
+            assert_abs_diff_eq!(rust_result.t_high.as_celsius(), py_t_high, epsilon = 0.5);
+            assert_abs_diff_eq!(
+                rust_result.t_extreme.as_celsius(),
+                py_t_extreme,
+                epsilon = 0.5
+            );
             assert_eq!(rust_result.recommendation, py_recommendation.as_str());
         }
     });

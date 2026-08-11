@@ -31,16 +31,17 @@ use thermalcomfort::models::two_nodes_gagge::{
 };
 use thermalcomfort::models::{
     AdaptiveOptions, CoolingEffectInputs, CoolingEffectOptions, DurationLimitedExposure,
-    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqOptions, Iso7933Model, PetOptions,
-    PetPosture, PhsOptions, PhsPosture, RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs,
-    SolarGainInputs, SolarGainOptions, Sports, SportsValues, UseFansHeatwavesInputs,
-    UseFansHeatwavesOptions, UtciOptions, WbgtInputs, WbgtOptions, WorkIntensity, adaptive_ashrae,
-    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
-    heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson, ireq, net, pet_steady, phs,
-    pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, sports_heat_stress_risk, thi, two_nodes_gagge, two_nodes_gagge_sleep,
-    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
-    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, IreqInputs, IreqOptions, Iso7933Model,
+    PetOptions, PetPosture, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionOptions, SetInputs,
+    SetOptions, SleepInputs, SolarGainInputs, SolarGainOptions, Sports, SportsHeatStressRiskInputs,
+    SportsValues, UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciOptions, WbgtInputs,
+    WbgtOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect,
+    discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex,
+    humidex_masterson, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, sports_heat_stress_risk,
+    thi, two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd,
+    wbgt, wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps,
+    work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
@@ -906,13 +907,15 @@ fn sweep_phs() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = phs(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(v),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                posture,
+                PhsInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    posture,
+                },
                 PhsOptions {
                     wme: MetabolicRate::from_met(wme),
                     round_output,
@@ -930,16 +933,16 @@ fn sweep_phs() {
             );
 
             let values = [
-                rust.t_re,
-                rust.t_sk,
-                rust.t_cr,
-                rust.t_cr_eq,
+                rust.t_re.as_celsius(),
+                rust.t_sk.as_celsius(),
+                rust.t_cr.as_celsius(),
+                rust.t_cr_eq.as_celsius(),
                 rust.t_sk_t_cr_wg,
                 rust.d_lim_loss_50,
                 rust.d_lim_loss_95,
                 rust.d_lim_t_re,
-                rust.sweat_loss_g,
-                rust.sweat_rate_watt,
+                rust.sweat_loss_g.as_grams(),
+                rust.sweat_rate_watt.as_watts_per_square_meter(),
                 rust.evap_load_wm2_min,
             ];
             for (field, rust_value) in fields.iter().zip(values) {
@@ -3616,14 +3619,16 @@ fn sweep_ireq() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = ireq(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                AirPermeability::from_l_per_m2_s(p),
-                Speed::from_meters_per_second(walk_sp),
+                IreqInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    p: AirPermeability::from_l_per_m2_s(p),
+                    walk_sp: Speed::from_meters_per_second(walk_sp),
+                },
                 IreqOptions {
                     wme: MetabolicRate::from_met(wme),
                     limit_inputs,
@@ -3632,10 +3637,10 @@ fn sweep_ireq() {
             );
 
             let values = [
-                rust.ireq_min,
-                rust.ireq_neutral,
-                rust.icl_min,
-                rust.icl_neutral,
+                rust.ireq_min.as_clo(),
+                rust.ireq_neutral.as_clo(),
+                rust.icl_min.as_clo(),
+                rust.icl_neutral.as_clo(),
             ];
             for (field, rust_value) in fields.iter().zip(values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
@@ -3761,19 +3766,19 @@ fn sweep_sports_heat_stress_risk() {
                 .call1((tdb, tr, rh, vr, py_sport))
                 .map_err(|e| format!("python raised: {e}"))?;
 
-            let rust = sports_heat_stress_risk(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Humidity::from_percent(rh),
-                Speed::from_meters_per_second(vr),
-                sport_at(index),
-            );
+            let rust = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                rh: Humidity::from_percent(rh),
+                vr: Speed::from_meters_per_second(vr),
+                sport: sport_at(index),
+            });
 
             let values = [
                 rust.risk_level_interpolated,
-                rust.t_medium,
-                rust.t_high,
-                rust.t_extreme,
+                rust.t_medium.as_celsius(),
+                rust.t_high.as_celsius(),
+                rust.t_extreme.as_celsius(),
             ];
             for (field, rust_value) in fields.iter().zip(values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)

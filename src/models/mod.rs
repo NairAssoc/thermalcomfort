@@ -31,9 +31,9 @@ pub use adaptive::{
 };
 pub use cooling_effect::{CoolingEffectInputs, CoolingEffectOptions, cooling_effect};
 pub use heat_index_lu::heat_index_lu;
-pub use ireq::{DurationLimitedExposure, IreqOptions, IreqResult, ireq};
+pub use ireq::{DurationLimitedExposure, IreqInputs, IreqOptions, IreqResult, ireq};
 pub use pet::{PetOptions, PetResult, Posture as PetPosture, pet_steady};
-pub use phs::{Iso7933Model, PhsOptions, PhsPosture, PhsResult, phs};
+pub use phs::{Iso7933Model, PhsInputs, PhsOptions, PhsPosture, PhsResult, phs};
 pub use pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions, PmvPpdResult, pmv_a, pmv_athb, pmv_e,
@@ -49,7 +49,7 @@ pub use specialty::{
     ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
 };
 pub use sports_heat_stress_risk::{
-    Sports, SportsHeatStressRisk, SportsValues, sports_heat_stress_risk,
+    Sports, SportsHeatStressRisk, SportsHeatStressRiskInputs, SportsValues, sports_heat_stress_risk,
 };
 pub use thermal_indices::{
     at, discomfort_index, esi, heat_index_rothfusz, heat_index_schoen, humidex, humidex_masterson,

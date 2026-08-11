@@ -7,7 +7,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::utilities::{Posture, p_sat_torr, round_to};
+use crate::utilities::{Posture, p_sat_torr, py_max, py_min, round_to};
 use crate::{ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
@@ -112,16 +112,6 @@ impl Default for GaggeTwoNodesOptions {
     }
 }
 
-#[inline]
-fn fmax(a: f64, b: f64) -> f64 {
-    if a > b { a } else { b }
-}
-
-#[inline]
-fn fmin(a: f64, b: f64) -> f64 {
-    if a < b { a } else { b }
-}
-
 /// Raw (`f64`, Celsius/W-m²) result of the two-node Gagge model, before the public API
 /// wraps each field in its measurement newtype.
 struct GaggeTwoNodesRaw {
@@ -143,6 +133,19 @@ struct GaggeTwoNodesRaw {
     pmv_set: f64,
     disc: f64,
     t_sens: f64,
+}
+
+/// Upstream's `(signal > 0) * signal` idiom, reproduced exactly.
+///
+/// Not `py_max(signal, 0.0)`, which agrees on ordinary values and on NaN but differs on
+/// sign: for a negative signal the mask-multiply yields `-0.0` where a clamp yields `+0.0`,
+/// and that reaches the public result — Python's `two_nodes_gagge(tdb=10, tr=10, v=0.1,
+/// rh=50, met=1.0, clo=1.0)` returns `m_rsw` and `e_rsw` as `-0.0`. It compares equal to
+/// `+0.0`, so no assertion catches it, which is precisely why it is worth writing the
+/// literal expression instead of something that merely behaves like it.
+#[inline]
+fn mask_positive(signal: f64) -> f64 {
+    if signal > 0.0 { signal } else { 0.0 * signal }
 }
 
 /// Calculate the two-node Gagge model of human temperature regulation
@@ -270,7 +273,7 @@ fn gagge_two_nodes_optimized(
     };
 
     // Initial variables as defined in ASHRAE 55-2020
-    let air_speed = fmax(v, 0.1);
+    let air_speed = py_max(v, 0.1);
     let k_clo = 0.25;
     let body_weight = 70.0; // body weight in kg
     let met_factor = 58.2; // met conversion factor
@@ -315,7 +318,7 @@ fn gagge_two_nodes_optimized(
     let mut m = met * met_factor; // metabolic rate
 
     let mut e_comfort = 0.42 * (rm - met_factor); // evaporative heat loss during comfort
-    e_comfort = fmax(e_comfort, 0.0);
+    e_comfort = py_max(e_comfort, 0.0);
 
     let i_cl = if clo > 0.0 {
         0.45 // permeation efficiency of water vapour through clothing
@@ -335,10 +338,10 @@ fn gagge_two_nodes_optimized(
     let mut h_cc = 3.0 * pow(pressure_in_atmospheres, 0.53);
     // h_fc forced convective heat transfer coefficient, W/(m²·°C)
     let h_fc = 8.600001 * pow(air_speed * pressure_in_atmospheres, 0.53);
-    h_cc = fmax(h_cc, h_fc);
+    h_cc = py_max(h_cc, h_fc);
     if !calculate_ce && met > 0.85 {
         let h_c_met = 5.66 * pow(met - 0.85, 0.39);
-        h_cc = fmax(h_cc, h_c_met);
+        h_cc = py_max(h_cc, h_c_met);
     }
 
     let mut h_r = 4.7; // linearized radiative heat transfer coefficient
@@ -404,22 +407,26 @@ fn gagge_two_nodes_optimized(
         t_core += d_t_cr;
         t_body = alfa * t_skin + (1.0 - alfa) * t_core;
 
+        // The five signals below are written upstream as a mask-multiply, not a `max`:
+        // `warm_sk = (sk_sig > 0) * sk_sig` and friends (two_nodes_gagge.py:372-382).
+        // `mask_positive` reproduces that expression exactly rather than approximating it
+        // with a clamp — see its doc comment for the two ways they differ.
         // sk_sig thermoregulatory control signal from the skin
         let sk_sig = t_skin - temp_skin_neutral;
-        let warm_sk = fmax(sk_sig, 0.0); // vasodilation signal
-        let colds = fmax(-sk_sig, 0.0); // vasoconstriction signal
+        let warm_sk = mask_positive(sk_sig); // vasodilation signal
+        let colds = mask_positive(-sk_sig); // vasoconstriction signal
         // c_reg_sig thermoregulatory control signal from the core, °C
         let c_reg_sig = t_core - temp_core_neutral;
-        let c_warm = fmax(c_reg_sig, 0.0); // vasodilation signal
-        let c_cold = fmax(-c_reg_sig, 0.0); // vasoconstriction signal
+        let c_warm = mask_positive(c_reg_sig); // vasodilation signal
+        let c_cold = mask_positive(-c_reg_sig); // vasoconstriction signal
         // bd_sig thermoregulatory control signal from the body
         let bd_sig = t_body - temp_body_neutral;
-        let warm_b = fmax(bd_sig, 0.0);
+        let warm_b = mask_positive(bd_sig);
         m_bl = (skin_blood_flow_neutral + c_dil * c_warm) / (1.0 + c_str * colds);
-        m_bl = fmin(m_bl, max_skin_blood_flow);
-        m_bl = fmax(m_bl, 0.5);
+        m_bl = py_min(m_bl, max_skin_blood_flow);
+        m_bl = py_max(m_bl, 0.5);
         m_rsw = c_sw * warm_b * exp(warm_sk / 10.7); // regulatory sweating
-        m_rsw = fmin(m_rsw, max_sweating);
+        m_rsw = py_min(m_rsw, max_sweating);
         e_rsw = 0.68 * m_rsw; // heat lost by vaporization sweat
         r_ea = 1.0 / (lr * f_a_cl * h_cc); // evaporative resistance air layer
         r_ecl = r_clo / (lr * i_cl);
@@ -463,9 +470,9 @@ fn gagge_two_nodes_optimized(
     let mut h_c_s = 3.0 * pow(pressure_in_atmospheres, 0.53);
     if !calculate_ce && met > 0.85 {
         let h_c_met = 5.66 * pow(met - 0.85, 0.39);
-        h_c_s = fmax(h_c_s, h_c_met);
+        h_c_s = py_max(h_c_s, h_c_met);
     }
-    h_c_s = fmax(h_c_s, 3.0);
+    h_c_s = py_max(h_c_s, 3.0);
 
     let h_t_s = h_c_s + h_r_s; // sum of convective and radiant heat transfer coefficient W/(m²·K)
     let r_clo_s = 1.52 / ((met - wme / met_factor) + 0.6944) - 0.1835; // thermal resistance of clothing, °C·m²/W
@@ -862,7 +869,7 @@ fn gagge_two_nodes_ji_core(
     let evap_sweating_reg_max = 400.0; // W/m²
 
     // Other constants
-    let air_speed = fmax(v, 0.1);
+    let air_speed = py_max(v, 0.1);
     let met_factor = 58.2;
     let sbc = 0.000000056697;
 
@@ -982,16 +989,19 @@ fn gagge_two_nodes_ji_core(
         t_core += d_t_cr;
 
         // Every regulatory trigger below reads the temperatures *after* they advance.
-        let t_cr_dil = fmax(0.0, t_core - t_cr0_dil); // dilation trigger
-        let t_sk_cons = fmax(0.0, t_sk0_cons - t_skin); // constriction trigger
+        // Ji writes these clamps constant-first — `max(0, t_core - t_cr0_dil)`,
+        // `min(max_skin_blood_flow, m_bl)` — so a NaN in the *second* operand loses the
+        // comparison and the constant survives. Keep Python's argument order.
+        let t_cr_dil = py_max(0.0, t_core - t_cr0_dil); // dilation trigger
+        let t_sk_cons = py_max(0.0, t_sk0_cons - t_skin); // constriction trigger
 
         m_bl =
             (skin_blood_flow_neutral + c_de * c_dil * t_cr_dil) / (1.0 + c_ce * c_str * t_sk_cons);
-        m_bl = fmin(max_skin_blood_flow_ji, m_bl);
-        m_bl = fmax(min_skin_blood_flow, m_bl);
+        m_bl = py_min(max_skin_blood_flow_ji, m_bl);
+        m_bl = py_max(min_skin_blood_flow, m_bl);
 
-        let t_sk_sw = fmax(0.0, t_skin - t_sk0_sw); // skin sweating trigger
-        let t_cr_sw = fmax(0.0, t_core - t_cr0_sw); // core sweating trigger
+        let t_sk_sw = py_max(0.0, t_skin - t_sk0_sw); // skin sweating trigger
+        let t_cr_sw = py_max(0.0, t_core - t_cr0_sw); // core sweating trigger
 
         // Updated from the new blood flow, and consumed by the sweat rate immediately
         // below; the thermal capacities above already used the previous value.
@@ -1001,7 +1011,7 @@ fn gagge_two_nodes_ji_core(
             * c_sw
             * ((1.0 - alfa) * t_cr_sw + (alfa + a_cof) * t_sk_sw)
             * exp(t_sk_sw / 10.7);
-        let m_rsw = fmin(m_rsw, m_rsw_max);
+        let m_rsw = py_min(m_rsw, m_rsw_max);
         let mut e_rsw = 0.68 * m_rsw; // heat lost by vaporization of sweat
 
         let r_e_cl = r_clo / (lr * i_cl); // evaporative resistance of clothing
@@ -1016,16 +1026,22 @@ fn gagge_two_nodes_ji_core(
         let he_n = 1.0 / r_total;
         let wettedness_dif = 1.0 / (2.0 + 2.46 * he_n);
         let wp = wettedness_dif + (1.0 - wettedness_dif) * p_rsw;
-        let w = fmin((sqrt(2.0 * wp * wp + 1.0) - 1.0) / wp, w_max);
+        let mut w = py_min((sqrt(2.0 * wp * wp + 1.0) - 1.0) / wp, w_max);
 
-        // Recalculate the evaporative split from the limited wettedness
+        // Recalculate the evaporative split from the limited wettedness. Constant-first
+        // upstream (`max(0, ...)`), so a NaN here is healed to zero rather than kept.
         let p_rsw = (w - wettedness_dif) / (1.0 - wettedness_dif);
-        e_rsw = fmax(0.0, p_rsw * e_max);
-        let mut e_diff = fmax(0.0, w * e_max - e_rsw);
+        e_rsw = py_max(0.0, p_rsw * e_max);
+        let mut e_diff = py_max(0.0, w * e_max - e_rsw);
 
         // Condensation on the skin (RH > 100%, body immersed): the model is not valid
         // here, so sweating is suppressed and condensation latent heat ignored.
         if e_max < 0.0 {
+            // Upstream also zeroes `w` here (two_nodes_gagge_ji.py:433-437). It is inert
+            // in both implementations because `w` is not read again this iteration, but
+            // transcribing it keeps the branch a faithful copy rather than one that
+            // happens to agree.
+            w = 0.0;
             e_diff = 0.0;
             e_rsw = 0.0;
         }
@@ -1033,7 +1049,7 @@ fn gagge_two_nodes_ji_core(
         e_skin = e_rsw + e_diff;
 
         // Shivering recruits extra metabolic heat once core falls below its threshold.
-        let t_cr_sh = fmax(0.0, T_CR0_SH - t_core);
+        let t_cr_sh = py_max(0.0, T_CR0_SH - t_core);
         let met_shivering =
             C_SHE * (COF_SCS * t_cr_sh * t_sk_cons + COF_SC * t_cr_sh + COF_SS * t_sk_cons);
         m = met * met_factor + met_shivering;
@@ -1053,6 +1069,34 @@ fn gagge_two_nodes_ji_core(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Upstream writes the thermoregulatory signals as `(sig > 0) * sig`, which yields
+    /// `-0.0` for a negative signal where a clamp yields `+0.0`. That reaches the public
+    /// result: pythermalcomfort 4.4.0 returns `m_rsw = -0.0` and `e_rsw = -0.0` for this
+    /// input. `assert_eq!` cannot see the difference, so this checks the sign bit.
+    #[test]
+    fn cold_conditions_return_negative_zero_sweating_like_python() {
+        let result = two_nodes_gagge(
+            GaggeTwoNodesInputs {
+                dry_bulb_temp: Temperature::from_celsius(10.0),
+                mean_radiant_temp: Temperature::from_celsius(10.0),
+                air_speed: Speed::from_meters_per_second(0.1),
+                relative_humidity: Humidity::from_percent(50.0),
+                metabolic_rate: MetabolicRate::from_met(1.0),
+                clothing_insulation: ClothingInsulation::from_clo(1.0),
+            },
+            Default::default(),
+        );
+        assert_eq!(result.m_rsw, 0.0, "magnitude");
+        assert!(
+            result.m_rsw.is_sign_negative(),
+            "m_rsw should be -0.0 as upstream returns, got +0.0"
+        );
+        assert!(
+            result.e_rsw.as_watts_per_square_meter().is_sign_negative(),
+            "e_rsw should be -0.0 as upstream returns, got +0.0"
+        );
+    }
 
     fn gagge_inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> GaggeTwoNodesInputs {
         GaggeTwoNodesInputs {

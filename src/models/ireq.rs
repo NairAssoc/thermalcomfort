@@ -64,6 +64,32 @@ impl core::fmt::Display for DurationLimitedExposure {
     }
 }
 
+/// The comfort inputs to [`ireq`]: pythermalcomfort requires all eight (no default).
+///
+/// `tdb`/`tr` and `vr`/`walk_sp` are each a pair of adjacent same-typed values; naming
+/// every field forecloses a silent transposition within either pair.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IreqInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Relative air speed
+    pub vr: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation actually available
+    pub clo: ClothingInsulation,
+    /// Air permeability of clothing
+    pub p: AirPermeability,
+    /// Walking speed
+    pub walk_sp: Speed,
+}
+
 /// Optional parameters for [`ireq`]
 #[derive(Debug, Clone, Copy)]
 pub struct IreqOptions {
@@ -88,14 +114,14 @@ impl Default for IreqOptions {
 /// Result of the ISO 11079 IREQ calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IreqResult {
-    /// Required clothing insulation, minimal criterion [clo]
-    pub ireq_min: f64,
-    /// Required clothing insulation, neutral criterion [clo]
-    pub ireq_neutral: f64,
-    /// Intrinsic clothing insulation, minimal criterion [clo]
-    pub icl_min: f64,
-    /// Intrinsic clothing insulation, neutral criterion [clo]
-    pub icl_neutral: f64,
+    /// Required clothing insulation, minimal criterion
+    pub ireq_min: ClothingInsulation,
+    /// Required clothing insulation, neutral criterion
+    pub ireq_neutral: ClothingInsulation,
+    /// Intrinsic clothing insulation, minimal criterion
+    pub icl_min: ClothingInsulation,
+    /// Intrinsic clothing insulation, neutral criterion
+    pub icl_neutral: ClothingInsulation,
     /// Duration limited exposure, minimal criterion
     pub dle_min: DurationLimitedExposure,
     /// Duration limited exposure, neutral criterion
@@ -106,14 +132,7 @@ pub struct IreqResult {
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature
-/// * `tr` - Mean radiant temperature
-/// * `vr` - Relative air speed
-/// * `rh` - Relative humidity
-/// * `met` - Metabolic rate
-/// * `clo` - Clothing insulation actually available
-/// * `p` - Air permeability of clothing
-/// * `walk_sp` - Walking speed
+/// * `inputs` - Required comfort inputs, see [`IreqInputs`]
 /// * `options` - Optional parameters, see [`IreqOptions`]
 ///
 /// # Returns
@@ -134,41 +153,42 @@ pub struct IreqResult {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::ireq::{ireq, IreqOptions, DurationLimitedExposure};
+/// use thermalcomfort::models::ireq::{ireq, IreqInputs, IreqOptions, DurationLimitedExposure};
 /// use thermalcomfort::{
 ///     AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature,
 /// };
 ///
 /// let result = ireq(
-///     Temperature::from_celsius(-15.0),
-///     Temperature::from_celsius(-15.0),
-///     Speed::from_meters_per_second(2.0),
-///     Humidity::from_percent(55.0),
-///     MetabolicRate::from_met(175.0 / 58.15),
-///     ClothingInsulation::from_clo(2.8),
-///     AirPermeability::from_l_per_m2_s(50.0),
-///     Speed::from_meters_per_second(1.1),
+///     IreqInputs {
+///         tdb: Temperature::from_celsius(-15.0),
+///         tr: Temperature::from_celsius(-15.0),
+///         vr: Speed::from_meters_per_second(2.0),
+///         rh: Humidity::from_percent(55.0),
+///         met: MetabolicRate::from_met(175.0 / 58.15),
+///         clo: ClothingInsulation::from_clo(2.8),
+///         p: AirPermeability::from_l_per_m2_s(50.0),
+///         walk_sp: Speed::from_meters_per_second(1.1),
+///     },
 ///     IreqOptions::default(),
 /// );
-/// assert!((result.ireq_min - 1.6).abs() < 0.05);
+/// assert!((result.ireq_min.as_clo() - 1.6).abs() < 0.05);
 /// assert_eq!(result.dle_min, DurationLimitedExposure::MoreThanEight);
 /// ```
 ///
 /// # References
 ///
 /// - ISO 11079:2007
-#[allow(clippy::too_many_arguments)]
-pub fn ireq(
-    tdb: Temperature,
-    tr: Temperature,
-    vr: Speed,
-    rh: Humidity,
-    met: MetabolicRate,
-    clo: ClothingInsulation,
-    p: AirPermeability,
-    walk_sp: Speed,
-    options: IreqOptions,
-) -> IreqResult {
+pub fn ireq(inputs: IreqInputs, options: IreqOptions) -> IreqResult {
+    let IreqInputs {
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
+        p,
+        walk_sp,
+    } = inputs;
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let vr_ms = vr.as_meters_per_second();
@@ -228,10 +248,10 @@ pub fn ireq(
     }
 
     IreqResult {
-        ireq_min: out[0].0,
-        ireq_neutral: out[1].0,
-        icl_min: out[0].1,
-        icl_neutral: out[1].1,
+        ireq_min: ClothingInsulation::from_clo(out[0].0),
+        ireq_neutral: ClothingInsulation::from_clo(out[1].0),
+        icl_min: ClothingInsulation::from_clo(out[0].1),
+        icl_neutral: ClothingInsulation::from_clo(out[1].1),
         dle_min: out[0].2,
         dle_neutral: out[1].2,
     }
@@ -440,16 +460,32 @@ fn format_dle(dle: f64, round_output: bool) -> DurationLimitedExposure {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
+    fn make_inputs(
+        tdb: f64,
+        tr: f64,
+        vr: f64,
+        rh: f64,
+        met: f64,
+        clo: f64,
+        p: f64,
+        walk_sp: f64,
+    ) -> IreqInputs {
+        IreqInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            p: AirPermeability::from_l_per_m2_s(p),
+            walk_sp: Speed::from_meters_per_second(walk_sp),
+        }
+    }
+
     fn default_case(tdb: f64, clo_val: f64) -> IreqResult {
         ireq(
-            Temperature::from_celsius(tdb),
-            Temperature::from_celsius(tdb),
-            Speed::from_meters_per_second(2.0),
-            Humidity::from_percent(55.0),
-            MetabolicRate::from_met(175.0 / 58.15),
-            ClothingInsulation::from_clo(clo_val),
-            AirPermeability::from_l_per_m2_s(50.0),
-            Speed::from_meters_per_second(1.1),
+            make_inputs(tdb, tdb, 2.0, 55.0, 175.0 / 58.15, clo_val, 50.0, 1.1),
             IreqOptions::default(),
         )
     }
@@ -459,9 +495,9 @@ mod tests {
         // Reference values from pythermalcomfort 4.4.0
         let result = default_case(-15.0, 2.8);
         assert!(
-            (result.ireq_min - 1.6).abs() < 0.05,
+            (result.ireq_min.as_clo() - 1.6).abs() < 0.05,
             "ireq_min = {}",
-            result.ireq_min
+            result.ireq_min.as_clo()
         );
         assert_eq!(result.dle_min, DurationLimitedExposure::MoreThanEight);
     }
@@ -499,21 +535,14 @@ mod tests {
 
         for ((tdb, tr, vr, rh, met, clo, p, walk_sp), expected) in cases {
             let result = ireq(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(rh),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                AirPermeability::from_l_per_m2_s(p),
-                Speed::from_meters_per_second(walk_sp),
+                make_inputs(tdb, tr, vr, rh, met, clo, p, walk_sp),
                 IreqOptions::default(),
             );
             let got = (
-                result.ireq_min,
-                result.ireq_neutral,
-                result.icl_min,
-                result.icl_neutral,
+                result.ireq_min.as_clo(),
+                result.ireq_neutral.as_clo(),
+                result.icl_min.as_clo(),
+                result.icl_neutral.as_clo(),
             );
             for (label, g, e) in [
                 ("ireq_min", got.0, expected.0),
@@ -540,14 +569,7 @@ mod tests {
         );
 
         let limited = ireq(
-            Temperature::from_celsius(-5.0),
-            Temperature::from_celsius(-5.0),
-            Speed::from_meters_per_second(0.5),
-            Humidity::from_percent(80.0),
-            MetabolicRate::from_met(2.0),
-            ClothingInsulation::from_clo(1.5),
-            AirPermeability::from_l_per_m2_s(50.0),
-            Speed::from_meters_per_second(0.5),
+            make_inputs(-5.0, -5.0, 0.5, 80.0, 2.0, 1.5, 50.0, 0.5),
             IreqOptions::default(),
         );
         assert_eq!(limited.dle_min, DurationLimitedExposure::Hours(1.2));
@@ -558,28 +580,21 @@ mod tests {
     fn test_ireq_outside_applicability_is_nan() {
         // tdb above the 10 °C ISO 11079 limit
         let result = default_case(20.0, 2.8);
-        assert!(result.ireq_min.is_nan());
-        assert!(result.ireq_neutral.is_nan());
-        assert!(result.icl_min.is_nan());
+        assert!(result.ireq_min.as_clo().is_nan());
+        assert!(result.ireq_neutral.as_clo().is_nan());
+        assert!(result.icl_min.as_clo().is_nan());
         assert_eq!(result.dle_min, DurationLimitedExposure::NotApplicable);
     }
 
     #[test]
     fn test_ireq_limits_can_be_disabled() {
         let result = ireq(
-            Temperature::from_celsius(20.0),
-            Temperature::from_celsius(20.0),
-            Speed::from_meters_per_second(2.0),
-            Humidity::from_percent(55.0),
-            MetabolicRate::from_met(175.0 / 58.15),
-            ClothingInsulation::from_clo(2.8),
-            AirPermeability::from_l_per_m2_s(50.0),
-            Speed::from_meters_per_second(1.1),
+            make_inputs(20.0, 20.0, 2.0, 55.0, 175.0 / 58.15, 2.8, 50.0, 1.1),
             IreqOptions {
                 limit_inputs: false,
                 ..Default::default()
             },
         );
-        assert!(!result.ireq_min.is_nan());
+        assert!(!result.ireq_min.as_clo().is_nan());
     }
 }
