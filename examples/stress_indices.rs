@@ -27,8 +27,8 @@ fn main() {
     // Heat Index (Rothfusz)
     let hi_result = heat_index_rothfusz(
         HeatIndexRothfuszInputs {
-            dry_bulb_temp: hot_temp,
-            relative_humidity: hot_rh,
+            tdb: hot_temp,
+            rh: hot_rh,
         },
         Default::default(),
     );
@@ -43,8 +43,8 @@ fn main() {
     // Humidex
     let humidex_result = humidex(
         HumidexInputs {
-            dry_bulb_temp: hot_temp,
-            relative_humidity: hot_rh,
+            tdb: hot_temp,
+            rh: hot_rh,
         },
         Default::default(),
     );
@@ -55,8 +55,8 @@ fn main() {
     // Temperature-Humidity Index (THI)
     let thi_val = thi(
         ThiInputs {
-            dry_bulb_temp: hot_temp,
-            relative_humidity: hot_rh,
+            tdb: hot_temp,
+            rh: hot_rh,
         },
         Default::default(),
     );
@@ -74,8 +74,8 @@ fn main() {
 
     // Discomfort Index
     let di_result = discomfort_index(DiscomfortIndexInputs {
-        dry_bulb_temp: hot_temp,
-        relative_humidity: hot_rh,
+        tdb: hot_temp,
+        rh: hot_rh,
     });
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di_result.di);
@@ -85,20 +85,17 @@ fn main() {
     println!("\n\n--- Cold Stress Assessment ---\n");
 
     let cold_temp = Temperature::from_celsius(-10.0);
-    let wind_speed = Speed::from_kilometers_per_hour(20.0);
+    let v = Speed::from_kilometers_per_hour(20.0);
 
     println!(
         "Conditions: {:.0}°C, {:.0} km/h wind\n",
         cold_temp.as_celsius(),
-        wind_speed.as_kilometers_per_hour()
+        v.as_kilometers_per_hour()
     );
 
     // Wind Chill Temperature
     let wct = wind_chill_temperature(
-        WindChillTemperatureInputs {
-            dry_bulb_temp: cold_temp,
-            wind_speed,
-        },
+        WindChillTemperatureInputs { tdb: cold_temp, v },
         Default::default(),
     );
     println!("Wind Chill Temperature:");
@@ -116,13 +113,7 @@ fn main() {
     }
 
     // Wind Chill Index
-    let wci_val = wci(
-        WciInputs {
-            dry_bulb_temp: cold_temp,
-            wind_speed,
-        },
-        Default::default(),
-    );
+    let wci_val = wci(WciInputs { tdb: cold_temp, v }, Default::default());
     println!("\nWind Chill Index:");
     println!("  {:.0} W/m²", wci_val);
     if wci_val < 600.0 {
@@ -145,19 +136,10 @@ fn main() {
     for rh_val in [30.0, 50.0, 70.0, 90.0] {
         let rh = Humidity::from_percent(rh_val);
         let hi = heat_index_rothfusz(
-            HeatIndexRothfuszInputs {
-                dry_bulb_temp: temp_30,
-                relative_humidity: rh,
-            },
+            HeatIndexRothfuszInputs { tdb: temp_30, rh },
             Default::default(),
         );
-        let hum = humidex(
-            HumidexInputs {
-                dry_bulb_temp: temp_30,
-                relative_humidity: rh,
-            },
-            Default::default(),
-        );
+        let hum = humidex(HumidexInputs { tdb: temp_30, rh }, Default::default());
 
         println!(
             "  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",

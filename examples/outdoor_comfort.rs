@@ -32,10 +32,10 @@ fn main() {
     // UTCI calculation
     let utci_result1 = utci(
         UtciInputs {
-            dry_bulb_temp: tdb1,
-            mean_radiant_temp: tr1,
-            wind_speed: v1,
-            relative_humidity: rh1,
+            tdb: tdb1,
+            tr: tr1,
+            v: v1,
+            rh: rh1,
         },
         Default::default(),
     );
@@ -52,13 +52,10 @@ fn main() {
     let tg1 = Temperature::from_celsius(35.0); // globe temperature (elevated by solar radiation)
 
     let wbgt_result1 = wbgt(
-        WbgtInputs {
-            wet_bulb_temp: twb1,
-            globe_temp: tg1,
-        },
+        WbgtInputs { twb: twb1, tg: tg1 },
         WbgtOptions {
-            dry_bulb_temp: Some(tdb1),
-            // Both examples are outdoors in sun, which is what dry_bulb_temp is for:
+            tdb: Some(tdb1),
+            // Both examples are outdoors in sun, which is what tdb is for:
             // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
             with_solar_load: true,
             ..Default::default()
@@ -96,10 +93,10 @@ fn main() {
 
     let utci_result2 = utci(
         UtciInputs {
-            dry_bulb_temp: tdb2,
-            mean_radiant_temp: tr2,
-            wind_speed: v2,
-            relative_humidity: rh2,
+            tdb: tdb2,
+            tr: tr2,
+            v: v2,
+            rh: rh2,
         },
         Default::default(),
     );
@@ -115,13 +112,10 @@ fn main() {
     let tg2 = Temperature::from_celsius(42.0);
 
     let wbgt_result2 = wbgt(
-        WbgtInputs {
-            wet_bulb_temp: twb2,
-            globe_temp: tg2,
-        },
+        WbgtInputs { twb: twb2, tg: tg2 },
         WbgtOptions {
-            dry_bulb_temp: Some(tdb2),
-            // Both examples are outdoors in sun, which is what dry_bulb_temp is for:
+            tdb: Some(tdb2),
+            // Both examples are outdoors in sun, which is what tdb is for:
             // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
             with_solar_load: true,
             ..Default::default()
@@ -158,10 +152,10 @@ fn main() {
 
     let utci_result3 = utci(
         UtciInputs {
-            dry_bulb_temp: tdb3,
-            mean_radiant_temp: tr3,
-            wind_speed: v3,
-            relative_humidity: rh3,
+            tdb: tdb3,
+            tr: tr3,
+            v: v3,
+            rh: rh3,
         },
         Default::default(),
     );

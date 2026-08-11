@@ -93,13 +93,13 @@ impl StressCategory {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UtciInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Wind speed at 10m above ground level
-    pub wind_speed: Speed,
+    pub v: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
 }
 
 /// Options for UTCI calculation
@@ -179,10 +179,10 @@ impl Default for UtciOptions {
 ///
 /// let result = utci(
 ///     UtciInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         wind_speed: Speed::from_meters_per_second(1.0),
-///         relative_humidity: Humidity::from_percent(50.0),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         v: Speed::from_meters_per_second(1.0),
+///         rh: Humidity::from_percent(50.0),
 ///     },
 ///     Default::default()
 /// );
@@ -190,16 +190,11 @@ impl Default for UtciOptions {
 /// println!("Stress: {:?}", result.stress_category);
 /// ```
 pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
-    let UtciInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        wind_speed,
-        relative_humidity,
-    } = inputs;
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
-    let wind_speed_mps = wind_speed.as_meters_per_second();
-    let rh_percent = relative_humidity.as_percent();
+    let UtciInputs { tdb, tr, v, rh } = inputs;
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
+    let wind_speed_mps = v.as_meters_per_second();
+    let rh_percent = rh.as_percent();
 
     // Calculate saturation vapor pressure using exponential formula
     let tk = dry_bulb_celsius + 273.15; // air temp in K
@@ -522,10 +517,10 @@ mod tests {
 
     fn inputs(tdb: f64, tr: f64, v: f64, rh: f64) -> UtciInputs {
         UtciInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            wind_speed: Speed::from_meters_per_second(v),
-            relative_humidity: Humidity::from_percent(rh),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
         }
     }
 

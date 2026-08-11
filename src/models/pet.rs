@@ -163,17 +163,17 @@ pub struct PetOptions {
     /// watts silently got an unphysical energy balance; [`WorkEfficiency`]
     /// rejects anything outside `[0, 1]` at construction instead.
     pub wme: WorkEfficiency,
-    /// Posture
-    pub posture: Posture,
+    /// Body position
+    pub position: Posture,
     /// Use the forced-convection convective coefficient.
     ///
     /// Python's `position` accepts a third value, `"standing, forced convection"`
     /// (`pet_steady.py:329-330`), which uses `hc = 8.6 * v**0.513` instead of either
-    /// posture's still-air formula. It is not a third [`Posture`] variant -- other code
+    /// position's still-air formula. It is not a third [`Posture`] variant -- other code
     /// pattern-matches that enum exhaustively -- so it is exposed as this flag instead,
-    /// combined with `posture` in [`pet_steady`]'s convective-coefficient calculation.
+    /// combined with `position` in [`pet_steady`]'s convective-coefficient calculation.
     ///
-    /// Only takes effect when `posture` is [`Posture::Standing`]: Python has no
+    /// Only takes effect when `position` is [`Posture::Standing`]: Python has no
     /// "sitting, forced convection" position, so that combination is defined here to
     /// fall back to the plain-sitting formula, matching the only sensible reading of an
     /// unreachable upstream state.
@@ -195,7 +195,7 @@ impl Default for PetOptions {
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
-            posture: Posture::Sitting,
+            position: Posture::Sitting,
             forced_convection: false,
         }
     }
@@ -291,7 +291,7 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
         sex_bool,
         options.wme.as_fraction(),
         p_atm_hpa,
-        options.posture,
+        options.position,
         options.forced_convection,
     );
 
@@ -313,7 +313,7 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
             options.age,
             sex_bool,
             p_atm_hpa,
-            options.posture,
+            options.position,
             options.wme.as_fraction(),
             options.forced_convection,
         )
@@ -968,7 +968,7 @@ mod tests {
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
             wme: WorkEfficiency::ZERO,
-            posture: Posture::Sitting,
+            position: Posture::Sitting,
             forced_convection: false,
         };
 
@@ -992,12 +992,12 @@ mod tests {
     fn test_pet_forced_convection_differs_from_plain_standing() {
         let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
         let standing = PetOptions {
-            posture: Posture::Standing,
+            position: Posture::Standing,
             forced_convection: false,
             ..Default::default()
         };
         let standing_forced = PetOptions {
-            posture: Posture::Standing,
+            position: Posture::Standing,
             forced_convection: true,
             ..Default::default()
         };
@@ -1021,12 +1021,12 @@ mod tests {
     fn test_pet_forced_convection_is_noop_for_sitting() {
         let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
         let sitting = PetOptions {
-            posture: Posture::Sitting,
+            position: Posture::Sitting,
             forced_convection: false,
             ..Default::default()
         };
         let sitting_forced = PetOptions {
-            posture: Posture::Sitting,
+            position: Posture::Sitting,
             forced_convection: true,
             ..Default::default()
         };

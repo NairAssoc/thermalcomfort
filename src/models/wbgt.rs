@@ -8,23 +8,23 @@ use measurements::Temperature;
 
 /// The comfort inputs to [`wbgt`].
 ///
-/// `wet_bulb_temp` and `globe_temp` are consecutive [`Temperature`]s; naming every field
+/// `twb` and `tg` are consecutive [`Temperature`]s; naming every field
 /// forecloses a silent transposition between them.
 ///
 /// Deliberately has no `Default`: every field must be given explicitly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WbgtInputs {
     /// Natural (no forced air flow) wet bulb temperature
-    pub wet_bulb_temp: Temperature,
+    pub twb: Temperature,
     /// Globe temperature
-    pub globe_temp: Temperature,
+    pub tg: Temperature,
 }
 
 /// Optional parameters for [`wbgt`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WbgtOptions {
     /// Dry bulb air temperature, required if `with_solar_load` is true
-    pub dry_bulb_temp: Option<Temperature>,
+    pub tdb: Option<Temperature>,
     /// Whether the person is exposed to direct solar radiation
     pub with_solar_load: bool,
     /// Whether to round output to 1 decimal place
@@ -34,7 +34,7 @@ pub struct WbgtOptions {
 impl Default for WbgtOptions {
     fn default() -> Self {
         Self {
-            dry_bulb_temp: None,
+            tdb: None,
             with_solar_load: false,
             round_output: true,
         }
@@ -68,8 +68,8 @@ impl Default for WbgtOptions {
 /// // Indoor environment (no direct solar radiation)
 /// let result = wbgt(
 ///     WbgtInputs {
-///         wet_bulb_temp: Temperature::from_celsius(25.0),
-///         globe_temp: Temperature::from_celsius(32.0),
+///         twb: Temperature::from_celsius(25.0),
+///         tg: Temperature::from_celsius(32.0),
 ///     },
 ///     Default::default(),
 /// );
@@ -77,14 +77,14 @@ impl Default for WbgtOptions {
 ///
 /// // Outdoor environment (with solar load)
 /// let options = WbgtOptions {
-///     dry_bulb_temp: Some(Temperature::from_celsius(20.0)),
+///     tdb: Some(Temperature::from_celsius(20.0)),
 ///     with_solar_load: true,
 ///     round_output: true,
 /// };
 /// let result = wbgt(
 ///     WbgtInputs {
-///         wet_bulb_temp: Temperature::from_celsius(25.0),
-///         globe_temp: Temperature::from_celsius(32.0),
+///         twb: Temperature::from_celsius(25.0),
+///         tg: Temperature::from_celsius(32.0),
 ///     },
 ///     options,
 /// );
@@ -95,13 +95,10 @@ impl Default for WbgtOptions {
 ///
 /// - ISO 7243:2017 - Ergonomics of the thermal environment
 pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> f64 {
-    let WbgtInputs {
-        wet_bulb_temp,
-        globe_temp,
-    } = inputs;
-    let wet_bulb_celsius = wet_bulb_temp.as_celsius();
-    let globe_celsius = globe_temp.as_celsius();
-    let dry_bulb_celsius_opt = options.dry_bulb_temp.map(|t| t.as_celsius());
+    let WbgtInputs { twb, tg } = inputs;
+    let wet_bulb_celsius = twb.as_celsius();
+    let globe_celsius = tg.as_celsius();
+    let dry_bulb_celsius_opt = options.tdb.map(|t| t.as_celsius());
 
     // Validate that tdb is provided when solar load is present
     if options.with_solar_load && dry_bulb_celsius_opt.is_none() {
@@ -134,8 +131,8 @@ mod tests {
 
     fn inputs(twb: f64, tg: f64) -> WbgtInputs {
         WbgtInputs {
-            wet_bulb_temp: Temperature::from_celsius(twb),
-            globe_temp: Temperature::from_celsius(tg),
+            twb: Temperature::from_celsius(twb),
+            tg: Temperature::from_celsius(tg),
         }
     }
 
@@ -150,7 +147,7 @@ mod tests {
     fn test_wbgt_outdoor() {
         // Test with solar load (outdoor environment)
         let options = WbgtOptions {
-            dry_bulb_temp: Some(Temperature::from_celsius(20.0)),
+            tdb: Some(Temperature::from_celsius(20.0)),
             with_solar_load: true,
             round_output: true,
         };
@@ -161,7 +158,7 @@ mod tests {
     #[test]
     fn test_wbgt_no_rounding() {
         let options = WbgtOptions {
-            dry_bulb_temp: None,
+            tdb: None,
             with_solar_load: false,
             round_output: false,
         };
@@ -174,7 +171,7 @@ mod tests {
     fn test_wbgt_missing_tdb() {
         // Should return NaN when solar load is true but tdb is None
         let options = WbgtOptions {
-            dry_bulb_temp: None,
+            tdb: None,
             with_solar_load: true,
             round_output: true,
         };
@@ -190,7 +187,7 @@ mod tests {
         let result = wbgt(
             inputs(30.0, 35.0),
             WbgtOptions {
-                dry_bulb_temp: None,
+                tdb: None,
                 with_solar_load: false,
                 round_output: false,
             },
@@ -201,7 +198,7 @@ mod tests {
         let result = wbgt(
             inputs(30.0, 35.0),
             WbgtOptions {
-                dry_bulb_temp: Some(Temperature::from_celsius(28.0)),
+                tdb: Some(Temperature::from_celsius(28.0)),
                 with_solar_load: true,
                 round_output: false,
             },

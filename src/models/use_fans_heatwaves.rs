@@ -15,17 +15,17 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UseFansHeatwavesInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Air speed
-    pub air_speed: Speed,
+    pub v: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
 }
 
 /// Optional parameters for [`use_fans_heatwaves`], with pythermalcomfort's defaults.
@@ -37,8 +37,8 @@ pub struct UseFansHeatwavesOptions {
     pub body_surface_area: Area,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Body posture
-    pub posture: Posture,
+    /// Body position
+    pub position: Posture,
     /// Maximum blood flow from the core to the skin [kg/h/m²].
     ///
     /// Defaults to **80** here, unlike [`two_nodes_gagge`]'s default of 90 -- this
@@ -59,7 +59,7 @@ impl Default for UseFansHeatwavesOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            posture: Posture::Standing,
+            position: Posture::Standing,
             max_skin_blood_flow: 80.0,
             max_sweating: 500.0,
             limit_inputs: true,
@@ -131,12 +131,12 @@ pub struct UseFansHeatwavesResult {
 ///
 /// let result = use_fans_heatwaves(
 ///     UseFansHeatwavesInputs {
-///         dry_bulb_temp: Temperature::from_celsius(35.0),
-///         mean_radiant_temp: Temperature::from_celsius(35.0),
-///         air_speed: Speed::from_meters_per_second(1.0),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(35.0),
+///         tr: Temperature::from_celsius(35.0),
+///         v: Speed::from_meters_per_second(1.0),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///     },
 ///     Default::default(),
 /// );
@@ -148,18 +148,18 @@ pub fn use_fans_heatwaves(
     options: UseFansHeatwavesOptions,
 ) -> UseFansHeatwavesResult {
     let UseFansHeatwavesInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
     } = inputs;
     let UseFansHeatwavesOptions {
         wme,
         body_surface_area,
         p_atm,
-        posture,
+        position,
         max_skin_blood_flow,
         max_sweating,
         limit_inputs,
@@ -171,7 +171,7 @@ pub fn use_fans_heatwaves(
         wme,
         body_surface_area,
         p_atm,
-        posture,
+        position,
         max_skin_blood_flow,
         max_sweating,
         // Round once, here. Letting the Gagge model round first and rounding again
@@ -184,12 +184,12 @@ pub fn use_fans_heatwaves(
 
     let gagge_result = two_nodes_gagge(
         GaggeTwoNodesInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            v,
+            rh,
+            met,
+            clo,
         },
         gagge_options,
     );
@@ -213,11 +213,11 @@ pub fn use_fans_heatwaves(
     // every output to NaN, and the heat-strain verdicts to false, rather than reporting
     // a fan recommendation the model cannot stand behind.
     let within_limits = !limit_inputs
-        || ((20.0..=50.0).contains(&dry_bulb_temp.as_celsius())
-            && (20.0..=50.0).contains(&mean_radiant_temp.as_celsius())
-            && (0.1..=4.5).contains(&air_speed.as_meters_per_second())
-            && (0.7..=2.0).contains(&metabolic_rate.as_met())
-            && (0.0..=1.0).contains(&clothing_insulation.as_clo()));
+        || ((20.0..=50.0).contains(&tdb.as_celsius())
+            && (20.0..=50.0).contains(&tr.as_celsius())
+            && (0.1..=4.5).contains(&v.as_meters_per_second())
+            && (0.7..=2.0).contains(&met.as_met())
+            && (0.0..=1.0).contains(&clo.as_clo()));
 
     if !within_limits {
         return UseFansHeatwavesResult {
@@ -286,12 +286,12 @@ mod tests {
 
     fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> UseFansHeatwavesInputs {
         UseFansHeatwavesInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            air_speed: Speed::from_meters_per_second(v),
-            relative_humidity: Humidity::from_percent(rh),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
         }
     }
 

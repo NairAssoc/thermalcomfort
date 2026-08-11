@@ -59,12 +59,12 @@ pub fn pmv_ppd_iso_typed(
 ) -> PmvPpdResult {
     pmv_ppd_iso_f64(
         PmvPpdInputs {
-            dry_bulb_temp: tdb,
-            mean_radiant_temp: tr,
-            relative_air_speed: vr,
-            relative_humidity: rh,
-            metabolic_rate: met,
-            clothing_insulation: clo,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         options,
     )
@@ -105,12 +105,12 @@ pub fn pmv_ppd_ashrae_typed(
 ) -> PmvPpdResult {
     pmv_ppd_ashrae_f64(
         PmvPpdInputs {
-            dry_bulb_temp: tdb,
-            mean_radiant_temp: tr,
-            relative_air_speed: vr,
-            relative_humidity: rh,
-            metabolic_rate: met,
-            clothing_insulation: clo,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         options,
     )

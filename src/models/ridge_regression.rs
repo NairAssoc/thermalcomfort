@@ -51,9 +51,9 @@ pub struct RidgeRegressionInputs {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RidgeRegressionOptions {
     /// Initial rectal temperature (None = run baseline simulation)
-    pub t_re_initial: Option<Temperature>,
+    pub t_re: Option<Temperature>,
     /// Initial skin temperature (None = run baseline simulation)
-    pub t_sk_initial: Option<Temperature>,
+    pub t_sk: Option<Temperature>,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output to 2 decimal places
@@ -63,8 +63,8 @@ pub struct RidgeRegressionOptions {
 impl Default for RidgeRegressionOptions {
     fn default() -> Self {
         Self {
-            t_re_initial: None,
-            t_sk_initial: None,
+            t_re: None,
+            t_sk: None,
             limit_inputs: true,
             round_output: true,
         }
@@ -327,7 +327,7 @@ pub fn ridge_regression_predict_t_re_t_sk(
 
     // Determine initial temperatures
     let (initial_t_re, initial_t_sk) =
-        if let (Some(t_re), Some(t_sk)) = (options.t_re_initial, options.t_sk_initial) {
+        if let (Some(t_re), Some(t_sk)) = (options.t_re, options.t_sk) {
             // Use provided initial temperatures
             (t_re.as_celsius(), t_sk.as_celsius())
         } else {
@@ -452,8 +452,8 @@ mod tests {
     #[test]
     fn test_ridge_regression_with_initial_temps() {
         let options = RidgeRegressionOptions {
-            t_re_initial: Some(Temperature::from_celsius(37.0)),
-            t_sk_initial: Some(Temperature::from_celsius(33.0)),
+            t_re: Some(Temperature::from_celsius(37.0)),
+            t_sk: Some(Temperature::from_celsius(33.0)),
             limit_inputs: true,
             round_output: true,
         };

@@ -150,12 +150,12 @@ fn sweep_pmv_ppd_iso() {
 
             let rust = pmv_ppd_iso(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 PmvPpdIsoOptions {
                     wme: MetabolicRate::from_met(wme),
@@ -233,12 +233,12 @@ fn sweep_pmv_ppd_ashrae() {
 
             let rust = pmv_ppd_ashrae(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 PmvPpdAshraeOptions {
                     wme: MetabolicRate::from_met(wme),
@@ -358,18 +358,18 @@ fn sweep_two_nodes_gagge() {
 
             let rust = two_nodes_gagge(
                 GaggeTwoNodesInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 GaggeTwoNodesOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
-                    posture,
+                    position: posture,
                     max_skin_blood_flow: msbf,
                     max_sweating: msw,
                     round_output,
@@ -474,18 +474,18 @@ fn sweep_set_tmp() {
 
             let rust = set_tmp(
                 SetInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 SetOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
-                    posture,
+                    position: posture,
                     limit_inputs,
                     round_output,
                     calculate_ce: false,
@@ -560,10 +560,10 @@ fn sweep_utci() {
 
             let rust = utci(
                 UtciInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    wind_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
                 },
                 UtciOptions {
                     units,
@@ -645,12 +645,12 @@ fn sweep_cooling_effect() {
 
             let rust = cooling_effect(
                 CoolingEffectInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 CoolingEffectOptions {
                     wme: MetabolicRate::from_met(wme),
@@ -770,18 +770,18 @@ fn sweep_use_fans_heatwaves() {
 
             let rust = use_fans_heatwaves(
                 UseFansHeatwavesInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 UseFansHeatwavesOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
-                    posture,
+                    position: posture,
                     max_skin_blood_flow: msbf,
                     max_sweating: msw,
                     limit_inputs: s.flag("limit_inputs"),
@@ -1111,18 +1111,18 @@ fn sweep_two_nodes_gagge_ji() {
 
             let rust = two_nodes_gagge_ji(
                 GaggeTwoNodesJiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     vapor_pressure: Pressure::from_torrs(vapor_pressure),
                 },
                 GaggeTwoNodesJiOptions {
                     wme: MetabolicRate::from_met(wme),
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
-                    posture,
+                    position: posture,
                     acclimatized,
                     body_weight: Mass::from_kilograms(body_weight),
                     length_time_simulation,
@@ -2050,12 +2050,12 @@ fn sweep_pmv_a() {
 
             let rust = pmv_a(
                 PmvAInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     a_coefficient,
                 },
                 PmvAOptions {
@@ -2110,12 +2110,12 @@ fn sweep_pmv_e() {
 
             let rust = pmv_e(
                 PmvEInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     e_coefficient,
                 },
                 PmvEOptions {
@@ -2175,15 +2175,15 @@ fn sweep_pmv_athb() {
 
             let rust = pmv_athb(
                 PmvAthbInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    running_mean_outdoor_temp: Temperature::from_celsius(t_running_mean),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    t_running_mean: Temperature::from_celsius(t_running_mean),
                 },
                 PmvAthbOptions {
-                    clothing_insulation: supply_clo.then(|| ClothingInsulation::from_clo(clo)),
+                    clo: supply_clo.then(|| ClothingInsulation::from_clo(clo)),
                 },
             );
 
@@ -2267,8 +2267,8 @@ fn sweep_heat_index_lu() {
 
             let rust = heat_index_lu(
                 HeatIndexLuInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 HeatIndexLuOptions { round_output },
             );
@@ -2318,8 +2318,8 @@ fn sweep_heat_index_rothfusz() {
 
             let rust = heat_index_rothfusz(
                 HeatIndexRothfuszInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 HeatIndexRothfuszOptions {
                     round_output,
@@ -2363,8 +2363,8 @@ fn sweep_heat_index_schoen() {
 
             let rust = heat_index_schoen(
                 HeatIndexSchoenInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 HeatIndexSchoenOptions { round_output },
             );
@@ -2418,8 +2418,8 @@ fn sweep_humidex() {
 
             let rust = humidex(
                 HumidexInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 HumidexOptions {
                     model,
@@ -2463,8 +2463,8 @@ fn sweep_thi() {
 
             let rust = thi(
                 ThiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 ThiOptions { round_output },
             );
@@ -2496,8 +2496,8 @@ fn sweep_discomfort_index() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = discomfort_index(DiscomfortIndexInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                relative_humidity: Humidity::from_percent(rh),
+                tdb: Temperature::from_celsius(tdb),
+                rh: Humidity::from_percent(rh),
             });
 
             compare_field(&field, rust.di, py_float(&py_result, "di")?)?;
@@ -2541,8 +2541,8 @@ fn sweep_wci() {
 
             let rust = wci(
                 WciInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    v: Speed::from_meters_per_second(v),
                 },
                 WciOptions { round_output },
             );
@@ -2584,8 +2584,8 @@ fn sweep_wind_chill_temperature() {
             // Python documents this input as km/h, unlike `wci` next door which is m/s.
             let rust = wind_chill_temperature(
                 WindChillTemperatureInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    wind_speed: Speed::from_kilometers_per_hour(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    v: Speed::from_kilometers_per_hour(v),
                 },
                 WindChillTemperatureOptions { round_output },
             );
@@ -2627,9 +2627,9 @@ fn sweep_net() {
 
             let rust = net(
                 NetInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
+                    v: Speed::from_meters_per_second(v),
                 },
                 NetOptions { round_output },
             );
@@ -2683,9 +2683,9 @@ fn sweep_at() {
 
             let rust = at(
                 AtInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
+                    v: Speed::from_meters_per_second(v),
                 },
                 AtOptions {
                     q: supply_q.then_some(q),
@@ -2730,8 +2730,8 @@ fn sweep_esi() {
 
             let rust = esi(
                 EsiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                     sol_radiation_global: sol,
                 },
                 EsiOptions { round_output },
@@ -2790,11 +2790,11 @@ fn sweep_wbgt() {
 
             let rust = wbgt(
                 WbgtInputs {
-                    wet_bulb_temp: Temperature::from_celsius(twb),
-                    globe_temp: Temperature::from_celsius(tg),
+                    twb: Temperature::from_celsius(twb),
+                    tg: Temperature::from_celsius(tg),
                 },
                 WbgtOptions {
-                    dry_bulb_temp: with_solar_load.then(|| Temperature::from_celsius(tdb)),
+                    tdb: with_solar_load.then(|| Temperature::from_celsius(tdb)),
                     with_solar_load,
                     round_output,
                 },
@@ -2951,7 +2951,7 @@ def call(args, kwargs):
                     p_atm: Pressure::from_pascals(p_atm),
                     wme: WorkEfficiency::new(wme)
                         .expect("the wme axis is bounded to the valid [0, 1] range"),
-                    posture,
+                    position: posture,
                     forced_convection,
                 },
             );
@@ -3466,13 +3466,13 @@ fn sweep_ankle_draft() {
 
             let (ppd_ad, acceptability) = ankle_draft(
                 AnkleDraftInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    ankle_air_speed: Speed::from_meters_per_second(v_ankle),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    v_ankle: Speed::from_meters_per_second(v_ankle),
                 },
                 AnkleDraftOptions { limit_inputs },
             );
@@ -3534,13 +3534,13 @@ fn sweep_vertical_tmp_grad_ppd() {
 
             let (ppd_vg, acceptability) = vertical_tmp_grad_ppd(
                 VerticalTmpGradPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    vertical_temp_gradient: TemperatureDelta::from_celsius(grad),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
                 },
                 VerticalTmpGradPpdOptions {
                     round_output,
@@ -3968,8 +3968,8 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
         .real("weight", 45.0, 120.0)
         .real("tdb", 15.0, 50.0)
         .real("rh", 0.0, 100.0)
-        .real("t_re_initial", 36.0, 39.0)
-        .real("t_sk_initial", 30.0, 38.0)
+        .real("t_re", 36.0, 39.0)
+        .real("t_sk", 30.0, 38.0)
         .enumerated("duration", 4)
         .enumerated("sex", 2)
         .flag("supply_initials")
@@ -3990,8 +3990,8 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                     s.real("weight"),
                     s.real("tdb"),
                     s.real("rh"),
-                    s.real("t_re_initial"),
-                    s.real("t_sk_initial"),
+                    s.real("t_re"),
+                    s.real("t_sk"),
                 );
                 let duration = [15_usize, 30, 60, 120][s.index("duration")];
                 let (sex, py_sex) = match s.index("sex") {
@@ -4046,8 +4046,8 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                         duration,
                     },
                     RidgeRegressionOptions {
-                        t_re_initial: supply_initials.then(|| Temperature::from_celsius(t_re0)),
-                        t_sk_initial: supply_initials.then(|| Temperature::from_celsius(t_sk0)),
+                        t_re: supply_initials.then(|| Temperature::from_celsius(t_re0)),
+                        t_sk: supply_initials.then(|| Temperature::from_celsius(t_sk0)),
                         limit_inputs,
                         round_output,
                     },
@@ -4173,8 +4173,8 @@ fn sweep_v_relative_and_clo_dynamic() {
                 &FieldCmp::new("clo_dynamic_ashrae", 1e-9),
                 clo_dynamic_ashrae(
                     CloDynamicAshraeInputs {
-                        clothing_insulation: ClothingInsulation::from_clo(clo),
-                        metabolic_rate: MetabolicRate::from_met(met),
+                        clo: ClothingInsulation::from_clo(clo),
+                        met: MetabolicRate::from_met(met),
                     },
                     CloDynamicAshraeOptions {
                         model: ashrae_model,
@@ -4188,12 +4188,12 @@ fn sweep_v_relative_and_clo_dynamic() {
                 &FieldCmp::new("clo_dynamic_iso", 1e-9),
                 clo_dynamic_iso(
                     CloDynamicIsoInputs {
-                        clothing_insulation: ClothingInsulation::from_clo(clo),
-                        metabolic_rate: MetabolicRate::from_met(met),
-                        air_speed: Speed::from_meters_per_second(v),
+                        clo: ClothingInsulation::from_clo(clo),
+                        met: MetabolicRate::from_met(met),
+                        v: Speed::from_meters_per_second(v),
                     },
                     CloDynamicIsoOptions {
-                        boundary_air_layer_insulation: ClothingInsulation::from_clo(i_a),
+                        i_a: ClothingInsulation::from_clo(i_a),
                         model: iso9920_model,
                     },
                 ),

@@ -111,17 +111,17 @@ impl ThermalSensation {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PmvPpdInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
 }
 
 /// Edition selector for [`pmv_ppd_iso`].
@@ -293,12 +293,12 @@ fn check_ashrae55_compliance(
 /// let vr = v_relative(v, met);
 /// let result = pmv_ppd_iso(
 ///     PmvPpdInputs {
-///         dry_bulb_temp: tdb,
-///         mean_radiant_temp: tr,
-///         relative_air_speed: vr,
-///         relative_humidity: rh,
-///         metabolic_rate: met,
-///         clothing_insulation: clo,
+///         tdb: tdb,
+///         tr: tr,
+///         vr: vr,
+///         rh: rh,
+///         met: met,
+///         clo: clo,
 ///     },
 ///     Default::default(),
 /// );
@@ -306,20 +306,20 @@ fn check_ashrae55_compliance(
 /// ```
 pub fn pmv_ppd_iso(inputs: PmvPpdInputs, options: PmvPpdIsoOptions) -> PmvPpdResult {
     let PmvPpdInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
     } = inputs;
     pmv_ppd_iso_celsius(
-        dry_bulb_temp.as_celsius(),
-        mean_radiant_temp.as_celsius(),
-        relative_air_speed.as_meters_per_second(),
-        relative_humidity.as_percent(),
-        metabolic_rate.as_met(),
-        clothing_insulation.as_clo(),
+        tdb.as_celsius(),
+        tr.as_celsius(),
+        vr.as_meters_per_second(),
+        rh.as_percent(),
+        met.as_met(),
+        clo.as_clo(),
         options,
     )
 }
@@ -470,12 +470,12 @@ pub(crate) fn pmv_ppd_iso_celsius(
 ///
 /// let result = pmv_ppd_ashrae(
 ///     PmvPpdInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.4),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.4),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///     },
 ///     Default::default(),
 /// );
@@ -483,12 +483,12 @@ pub(crate) fn pmv_ppd_iso_celsius(
 /// ```
 pub fn pmv_ppd_ashrae(inputs: PmvPpdInputs, options: PmvPpdAshraeOptions) -> PmvPpdResult {
     let PmvPpdInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
     } = inputs;
     let PmvPpdAshraeOptions {
         wme,
@@ -504,12 +504,12 @@ pub fn pmv_ppd_ashrae(inputs: PmvPpdInputs, options: PmvPpdAshraeOptions) -> Pmv
         Ashrae55Model::Ashrae552023 => {}
     }
 
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
-    let air_speed = relative_air_speed.as_meters_per_second();
-    let rh_percent = relative_humidity.as_percent();
-    let met = metabolic_rate.as_met();
-    let clo = clothing_insulation.as_clo();
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
+    let air_speed = vr.as_meters_per_second();
+    let rh_percent = rh.as_percent();
+    let met_val = met.as_met();
+    let clo_val = clo.as_clo();
 
     // Check ASHRAE standard compliance if requested. This runs against the *raw*
     // (pre cooling-effect-adjustment) tdb/tr/vr, matching upstream.
@@ -518,8 +518,8 @@ pub fn pmv_ppd_ashrae(inputs: PmvPpdInputs, options: PmvPpdAshraeOptions) -> Pmv
             dry_bulb_celsius,
             radiant_celsius,
             air_speed,
-            met,
-            clo,
+            met_val,
+            clo_val,
             airspeed_control,
         );
 
@@ -546,12 +546,12 @@ pub fn pmv_ppd_ashrae(inputs: PmvPpdInputs, options: PmvPpdAshraeOptions) -> Pmv
     let (tdb_adj, tr_adj, vr_adj) = if air_speed > 0.1 {
         let ce = crate::models::cooling_effect::cooling_effect(
             crate::models::cooling_effect::CoolingEffectInputs {
-                dry_bulb_temp,
-                mean_radiant_temp,
-                relative_air_speed,
-                relative_humidity,
-                metabolic_rate,
-                clothing_insulation,
+                tdb,
+                tr,
+                vr,
+                rh,
+                met,
+                clo,
             },
             crate::models::cooling_effect::CoolingEffectOptions {
                 wme,
@@ -569,7 +569,15 @@ pub fn pmv_ppd_ashrae(inputs: PmvPpdInputs, options: PmvPpdAshraeOptions) -> Pmv
     };
 
     // Calculate PMV (same algorithm as ISO) on the cooling-effect-adjusted inputs
-    let pmv = pmv_optimized(tdb_adj, tr_adj, vr_adj, rh_percent, met, clo, wme.as_met());
+    let pmv = pmv_optimized(
+        tdb_adj,
+        tr_adj,
+        vr_adj,
+        rh_percent,
+        met_val,
+        clo_val,
+        wme.as_met(),
+    );
 
     // Calculate PPD from PMV
     let ppd = 100.0 - 95.0 * exp(-0.03353 * pow(pmv, 4.0) - 0.2179 * pow(pmv, 2.0));
@@ -737,17 +745,17 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PmvAInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
     /// Adaptive coefficient (λ)
     pub a_coefficient: f64,
 }
@@ -798,12 +806,12 @@ impl Default for PmvAOptions {
 ///
 /// let a_pmv = pmv_a(
 ///     PmvAInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///         a_coefficient: 0.5,
 ///     },
 ///     Default::default(),
@@ -816,24 +824,24 @@ impl Default for PmvAOptions {
 /// - Yao R, Li B, Liu J (2009) Indoor Built Environ 18(5):394-411
 pub fn pmv_a(inputs: PmvAInputs, options: PmvAOptions) -> f64 {
     let PmvAInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
         a_coefficient,
     } = inputs;
     let PmvAOptions { wme, limit_inputs } = options;
 
     let pmv = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         PmvPpdIsoOptions {
             wme,
@@ -856,17 +864,17 @@ pub fn pmv_a(inputs: PmvAInputs, options: PmvAOptions) -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PmvEInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
     /// Expectancy factor
     pub e_coefficient: f64,
 }
@@ -916,12 +924,12 @@ impl Default for PmvEOptions {
 ///
 /// let e_pmv = pmv_e(
 ///     PmvEInputs {
-///         dry_bulb_temp: Temperature::from_celsius(28.0),
-///         mean_radiant_temp: Temperature::from_celsius(28.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.2),
-///         relative_humidity: Humidity::from_percent(60.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(28.0),
+///         tr: Temperature::from_celsius(28.0),
+///         vr: Speed::from_meters_per_second(0.2),
+///         rh: Humidity::from_percent(60.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///         e_coefficient: 0.7,
 ///     },
 ///     Default::default(),
@@ -934,12 +942,12 @@ impl Default for PmvEOptions {
 /// - Fanger PO, Toftum J (2002) Energy Build 34(2):153-9
 pub fn pmv_e(inputs: PmvEInputs, options: PmvEOptions) -> f64 {
     let PmvEInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
         e_coefficient,
     } = inputs;
     let PmvEOptions { wme, limit_inputs } = options;
@@ -956,12 +964,12 @@ pub fn pmv_e(inputs: PmvEInputs, options: PmvEOptions) -> f64 {
     // First PMV calculation
     let pmv1 = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         iso_options,
     )
@@ -969,20 +977,20 @@ pub fn pmv_e(inputs: PmvEInputs, options: PmvEOptions) -> f64 {
 
     // Adjust metabolic rate if warm (PMV > 0)
     let met_adjusted = if pmv1 > 0.0 {
-        MetabolicRate::from_met(metabolic_rate.as_met() * (1.0 + pmv1 * (-0.067)))
+        MetabolicRate::from_met(met.as_met() * (1.0 + pmv1 * (-0.067)))
     } else {
-        metabolic_rate
+        met
     };
 
     // Recalculate PMV with adjusted metabolic rate
     let pmv2 = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate: met_adjusted,
-            clothing_insulation,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met: met_adjusted,
+            clo,
         },
         iso_options,
     )
@@ -1000,17 +1008,17 @@ pub fn pmv_e(inputs: PmvEInputs, options: PmvEOptions) -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PmvAthbInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Running mean outdoor temperature
-    pub running_mean_outdoor_temp: Temperature,
+    pub t_running_mean: Temperature,
 }
 
 /// Optional parameters for [`pmv_athb`], with pythermalcomfort's default.
@@ -1019,7 +1027,7 @@ pub struct PmvAthbOptions {
     /// Clothing insulation. `None` (pythermalcomfort's `clo=False`) derives it from the
     /// running mean outdoor temperature via behavioral adaptation instead of taking a
     /// caller-supplied value.
-    pub clothing_insulation: Option<ClothingInsulation>,
+    pub clo: Option<ClothingInsulation>,
 }
 
 /// Calculate PMV using Adaptive Thermal Heat Balance (ATHB) framework
@@ -1039,15 +1047,15 @@ pub struct PmvAthbOptions {
 ///
 /// let athb_pmv = pmv_athb(
 ///     PmvAthbInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         running_mean_outdoor_temp: Temperature::from_celsius(20.0),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         t_running_mean: Temperature::from_celsius(20.0),
 ///     },
 ///     PmvAthbOptions {
-///         clothing_insulation: Some(ClothingInsulation::from_clo(0.6)),
+///         clo: Some(ClothingInsulation::from_clo(0.6)),
 ///     },
 /// );
 /// // ATHB PMV accounts for physiological and behavioral adaptation
@@ -1058,24 +1066,22 @@ pub struct PmvAthbOptions {
 /// - Schweiker M et al. (2022) Build Environ 216:109017
 pub fn pmv_athb(inputs: PmvAthbInputs, options: PmvAthbOptions) -> f64 {
     let PmvAthbInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        running_mean_outdoor_temp,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        t_running_mean,
     } = inputs;
-    let PmvAthbOptions {
-        clothing_insulation,
-    } = options;
+    let PmvAthbOptions { clo } = options;
 
-    let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
+    let running_mean_celsius = t_running_mean.as_celsius();
 
     // Adapt metabolic rate for psychological adaptation
-    let met_adapted = metabolic_rate.as_met() - (0.234 * running_mean_celsius) / 58.2;
+    let met_adapted = met.as_met() - (0.234 * running_mean_celsius) / 58.2;
 
     // Calculate or use provided clothing insulation
-    let clo_adapted = if let Some(c) = clothing_insulation {
+    let clo_adapted = if let Some(c) = clo {
         c.as_clo()
     } else {
         // Behavioral adaptation: calculate clothing from conditions
@@ -1087,12 +1093,12 @@ pub fn pmv_athb(inputs: PmvAthbInputs, options: PmvAthbOptions) -> f64 {
     // Calculate base PMV with adapted parameters
     let pmv_result = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate: MetabolicRate::from_met(met_adapted),
-            clothing_insulation: ClothingInsulation::from_clo(clo_adapted),
+            tdb,
+            tr,
+            vr,
+            rh,
+            met: MetabolicRate::from_met(met_adapted),
+            clo: ClothingInsulation::from_clo(clo_adapted),
         },
         PmvPpdIsoOptions {
             limit_inputs: false, // ATHB may use values outside standard limits
@@ -1125,12 +1131,12 @@ mod tests {
 
     fn pmv_inputs(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64) -> PmvPpdInputs {
         PmvPpdInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            relative_air_speed: Speed::from_meters_per_second(vr),
-            relative_humidity: Humidity::from_percent(rh),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
         }
     }
 

@@ -12,9 +12,9 @@ use measurements::{Humidity, Temperature};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeatIndexLuInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
 }
 
 /// Optional parameters for [`heat_index_lu`], with pythermalcomfort's defaults.
@@ -49,8 +49,8 @@ impl Default for HeatIndexLuOptions {
 ///
 /// let result = heat_index_lu(
 ///     HeatIndexLuInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         relative_humidity: Humidity::from_percent(50.0),
+///         tdb: Temperature::from_celsius(25.0),
+///         rh: Humidity::from_percent(50.0),
 ///     },
 ///     Default::default(),
 /// );
@@ -62,13 +62,10 @@ impl Default for HeatIndexLuOptions {
 ///
 /// - Lu and Romps (2022)
 pub fn heat_index_lu(inputs: HeatIndexLuInputs, options: HeatIndexLuOptions) -> HeatIndexResult {
-    let HeatIndexLuInputs {
-        dry_bulb_temp,
-        relative_humidity,
-    } = inputs;
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
+    let HeatIndexLuInputs { tdb, rh } = inputs;
+    let dry_bulb_celsius = tdb.as_celsius();
     let tdb_k = dry_bulb_celsius + 273.15;
-    let rh_frac = relative_humidity.as_percent() / 100.0;
+    let rh_frac = rh.as_percent() / 100.0;
 
     let hi_k = lu_heat_index_core(tdb_k, rh_frac);
     let mut hi = hi_k - 273.15;
@@ -393,8 +390,8 @@ mod tests {
     fn test_heat_index_lu() {
         let result = heat_index_lu(
             HeatIndexLuInputs {
-                dry_bulb_temp: Temperature::from_celsius(25.0),
-                relative_humidity: Humidity::from_percent(50.0),
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
             },
             Default::default(),
         );
@@ -407,8 +404,8 @@ mod tests {
     fn test_heat_index_lu_high_temp() {
         let result = heat_index_lu(
             HeatIndexLuInputs {
-                dry_bulb_temp: Temperature::from_celsius(35.0),
-                relative_humidity: Humidity::from_percent(70.0),
+                tdb: Temperature::from_celsius(35.0),
+                rh: Humidity::from_percent(70.0),
             },
             Default::default(),
         );
@@ -421,15 +418,15 @@ mod tests {
     fn test_heat_index_lu_round_output_false() {
         let rounded = heat_index_lu(
             HeatIndexLuInputs {
-                dry_bulb_temp: Temperature::from_celsius(25.0),
-                relative_humidity: Humidity::from_percent(50.0),
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
             },
             Default::default(),
         );
         let unrounded = heat_index_lu(
             HeatIndexLuInputs {
-                dry_bulb_temp: Temperature::from_celsius(25.0),
-                relative_humidity: Humidity::from_percent(50.0),
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
             },
             HeatIndexLuOptions {
                 round_output: false,

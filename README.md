@@ -107,12 +107,12 @@ fn main() {
 
     let result = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp: tdb,
-            mean_radiant_temp: tr,
-            relative_air_speed: vr,
-            relative_humidity: rh,
-            metabolic_rate: met,
-            clothing_insulation: clo,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         Default::default(),
     );
@@ -155,10 +155,10 @@ use thermalcomfort::models::{utci, UtciInputs};
 fn main() {
     let result = utci(
         UtciInputs {
-            dry_bulb_temp: Temperature::from_celsius(25.0),
-            mean_radiant_temp: Temperature::from_celsius(27.0),
-            wind_speed: Speed::from_meters_per_second(1.0),
-            relative_humidity: Humidity::from_percent(50.0),
+            tdb: Temperature::from_celsius(25.0),
+            tr: Temperature::from_celsius(27.0),
+            v: Speed::from_meters_per_second(1.0),
+            rh: Humidity::from_percent(50.0),
         },
         Default::default(),
     );
@@ -275,12 +275,12 @@ fn main() {
     let vr = v_relative(v, met);
     let result = pmv_ppd_iso(
         PmvPpdInputs {
-            dry_bulb_temp: tdb,
-            mean_radiant_temp: tr,
-            relative_air_speed: vr,
-            relative_humidity: rh,
-            metabolic_rate: met,
-            clothing_insulation: clo,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         Default::default(),
     );

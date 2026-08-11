@@ -9,26 +9,26 @@ use measurements::{Angle, Humidity, Length, Speed, Temperature};
 
 /// The comfort inputs to [`ankle_draft`].
 ///
-/// `dry_bulb_temp` and `mean_radiant_temp` are consecutive [`Temperature`]s; naming
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming
 /// every field forecloses a silent transposition between them.
 ///
 /// Deliberately has no `Default`: every field must be given explicitly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnkleDraftInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed (must be < 0.2 m/s for this equation to apply)
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
     /// Air speed at 0.1 m above the floor
-    pub ankle_air_speed: Speed,
+    pub v_ankle: Speed,
 }
 
 /// Optional parameters for [`ankle_draft`], with pythermalcomfort's defaults.
@@ -68,13 +68,13 @@ impl Default for AnkleDraftOptions {
 ///
 /// let (ppd, acceptable) = ankle_draft(
 ///     AnkleDraftInputs {
-///         dry_bulb_temp: Temperature::from_celsius(23.0),
-///         mean_radiant_temp: Temperature::from_celsius(23.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(45.0),
-///         metabolic_rate: MetabolicRate::from_met(1.1),
-///         clothing_insulation: ClothingInsulation::from_clo(0.7),
-///         ankle_air_speed: Speed::from_meters_per_second(0.15),
+///         tdb: Temperature::from_celsius(23.0),
+///         tr: Temperature::from_celsius(23.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(45.0),
+///         met: MetabolicRate::from_met(1.1),
+///         clo: ClothingInsulation::from_clo(0.7),
+///         v_ankle: Speed::from_meters_per_second(0.15),
 ///     },
 ///     Default::default(),
 /// );
@@ -87,13 +87,13 @@ impl Default for AnkleDraftOptions {
 /// - ASHRAE 55-2023
 pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64, bool) {
     let AnkleDraftInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        ankle_air_speed,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
+        v_ankle,
     } = inputs;
     let AnkleDraftOptions { limit_inputs } = options;
 
@@ -102,12 +102,12 @@ pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         PmvPpdAshraeOptions {
             limit_inputs: false,
@@ -116,22 +116,14 @@ pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64
     );
     let pmv = pmv_result.pmv; // Use PMV value directly, not TSV enum
 
-    let ankle_speed = ankle_air_speed.as_meters_per_second();
+    let ankle_speed = v_ankle.as_meters_per_second();
 
     // Calculate PPD for ankle draft using logistic function
     let exponent = -2.58 + 3.05 * ankle_speed - 1.06 * pmv;
     let ppd_ad = (libm::exp(exponent) / (1.0 + libm::exp(exponent))) * 100.0;
     let ppd_ad = crate::utilities::round_half_even(ppd_ad * 10.0) / 10.0;
 
-    if limit_inputs
-        && !ashrae55_ankle_inputs_valid(
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            metabolic_rate,
-            clothing_insulation,
-        )
-    {
+    if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
         return (f64::NAN, false);
     }
 
@@ -141,17 +133,17 @@ pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64
 }
 
 fn ashrae55_ankle_inputs_valid(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    relative_air_speed: Speed,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
+    tdb: Temperature,
+    tr: Temperature,
+    vr: Speed,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
 ) -> bool {
-    let tdb = dry_bulb_temp.as_celsius();
-    let tr = mean_radiant_temp.as_celsius();
-    let vr = relative_air_speed.as_meters_per_second();
-    let met = metabolic_rate.as_met();
-    let clo = clothing_insulation.as_clo();
+    let tdb = tdb.as_celsius();
+    let tr = tr.as_celsius();
+    let vr = vr.as_meters_per_second();
+    let met = met.as_met();
+    let clo = clo.as_clo();
     (10.0..=40.0).contains(&tdb)
         && (10.0..=40.0).contains(&tr)
         && (0.0..=0.2).contains(&vr)
@@ -161,27 +153,27 @@ fn ashrae55_ankle_inputs_valid(
 
 /// The comfort inputs to [`vertical_tmp_grad_ppd`].
 ///
-/// `dry_bulb_temp` and `mean_radiant_temp` are consecutive [`Temperature`]s; naming
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming
 /// every field forecloses a silent transposition between them.
 ///
 /// Deliberately has no `Default`: every field must be given explicitly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VerticalTmpGradPpdInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
     /// Vertical temperature gradient between 1.1 m and 0.1 m (a [`TemperatureDelta`], so
     /// the unit is explicit rather than implied)
-    pub vertical_temp_gradient: TemperatureDelta,
+    pub vertical_tmp_grad: TemperatureDelta,
 }
 
 /// Optional parameters for [`vertical_tmp_grad_ppd`], with pythermalcomfort's defaults.
@@ -224,13 +216,13 @@ impl Default for VerticalTmpGradPpdOptions {
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
 ///     VerticalTmpGradPpdInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
-///         vertical_temp_gradient: TemperatureDelta::from_celsius(2.0),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
+///         vertical_tmp_grad: TemperatureDelta::from_celsius(2.0),
 ///     },
 ///     Default::default(),
 /// );
@@ -246,13 +238,13 @@ pub fn vertical_tmp_grad_ppd(
     options: VerticalTmpGradPpdOptions,
 ) -> (f64, bool) {
     let VerticalTmpGradPpdInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        vertical_temp_gradient,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
+        vertical_tmp_grad,
     } = inputs;
     let VerticalTmpGradPpdOptions {
         round_output,
@@ -264,12 +256,12 @@ pub fn vertical_tmp_grad_ppd(
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
         PmvPpdInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
         },
         PmvPpdAshraeOptions {
             limit_inputs: false,
@@ -277,11 +269,10 @@ pub fn vertical_tmp_grad_ppd(
         },
     );
     let pmv = pmv_result.pmv;
-    let vertical_temp_gradient = vertical_temp_gradient.as_celsius();
+    let vertical_tmp_grad = vertical_tmp_grad.as_celsius();
 
     // PPD calculation for vertical temperature gradient using ASHRAE 55-2023 formula
-    let numerator =
-        libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
+    let numerator = libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_tmp_grad - 1.6);
     let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
     // Acceptability is judged on the unrounded value, then the value is rounded.
     // (ankle_draft rounds first - the port had applied ankle_draft's ordering to both.)
@@ -294,15 +285,7 @@ pub fn vertical_tmp_grad_ppd(
         ppd_vtg
     };
 
-    if limit_inputs
-        && !ashrae55_ankle_inputs_valid(
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            metabolic_rate,
-            clothing_insulation,
-        )
-    {
+    if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
         return (f64::NAN, false);
     }
 
@@ -446,13 +429,13 @@ mod tests {
         v_ankle: f64,
     ) -> AnkleDraftInputs {
         AnkleDraftInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            relative_air_speed: Speed::from_meters_per_second(vr),
-            relative_humidity: Humidity::from_percent(50.0),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
-            ankle_air_speed: Speed::from_meters_per_second(v_ankle),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            v_ankle: Speed::from_meters_per_second(v_ankle),
         }
     }
 
@@ -466,13 +449,13 @@ mod tests {
         grad: f64,
     ) -> VerticalTmpGradPpdInputs {
         VerticalTmpGradPpdInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            relative_air_speed: Speed::from_meters_per_second(vr),
-            relative_humidity: Humidity::from_percent(50.0),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
-            vertical_temp_gradient: TemperatureDelta::from_celsius(grad),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
         }
     }
 

@@ -32,12 +32,12 @@
 //! // Calculate PMV and PPD
 //! let result = pmv_ppd_iso(
 //!     PmvPpdInputs {
-//!         dry_bulb_temp: tdb,
-//!         mean_radiant_temp: tr,
-//!         relative_air_speed: vr,
-//!         relative_humidity: rh,
-//!         metabolic_rate: met,
-//!         clothing_insulation: clo,
+//!         tdb,
+//!         tr,
+//!         vr,
+//!         rh,
+//!         met,
+//!         clo,
 //!     },
 //!     Default::default()
 //! );

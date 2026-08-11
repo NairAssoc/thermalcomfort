@@ -236,12 +236,12 @@ fn test_pmv_ppd_iso_standard_conditions() {
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -323,12 +323,12 @@ fn test_pmv_ppd_iso_extreme_conditions() {
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 options,
             );
@@ -398,12 +398,12 @@ fn test_pmv_ppd_ashrae() {
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_ashrae(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -454,8 +454,8 @@ fn test_compare_heat_index_schoen() {
 
             let rust_result = heat_index_schoen(
                 HeatIndexSchoenInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -873,8 +873,8 @@ fn test_compare_clo_dynamic_ashrae() {
 
             let rust_clo = clo_dynamic_ashrae(
                 CloDynamicAshraeInputs {
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    metabolic_rate: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    met: MetabolicRate::from_met(met),
                 },
                 CloDynamicAshraeOptions::default(),
             );
@@ -1012,12 +1012,12 @@ fn test_compare_use_fans_heatwaves() {
 
             let rust_result = use_fans_heatwaves(
                 UseFansHeatwavesInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -1139,9 +1139,9 @@ fn test_compare_clo_dynamic_iso() {
 
             let rust_clo_dyn = thermalcomfort::utilities::clo_dynamic_iso(
                 CloDynamicIsoInputs {
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    air_speed: Speed::from_meters_per_second(v),
+                    clo: ClothingInsulation::from_clo(clo),
+                    met: MetabolicRate::from_met(met),
+                    v: Speed::from_meters_per_second(v),
                 },
                 CloDynamicIsoOptions::default(),
             );
@@ -1390,12 +1390,12 @@ fn test_pmv_ppd_iso_outside_limits() {
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_iso(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -1440,12 +1440,12 @@ fn test_pmv_sequential_scenarios() {
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let rust_result = pmv_ppd_iso(
                 PmvPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -1511,12 +1511,12 @@ fn test_compare_two_nodes_gagge() {
             // Call Rust function with measurement types
             let rust_result = two_nodes_gagge(
                 GaggeTwoNodesInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -1605,10 +1605,10 @@ fn test_compare_utci() {
             // Call Rust function with measurement types
             let rust_result = utci(
                 UtciInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    wind_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -1656,10 +1656,10 @@ fn test_compare_utci_ip_units() {
 
             let rust_result = utci(
                 UtciInputs {
-                    dry_bulb_temp: Temperature::from_fahrenheit(tdb_f),
-                    mean_radiant_temp: Temperature::from_fahrenheit(tr_f),
-                    wind_speed: Speed::from_meters_per_second(v_fps * 0.3048),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_fahrenheit(tdb_f),
+                    tr: Temperature::from_fahrenheit(tr_f),
+                    v: Speed::from_meters_per_second(v_fps * 0.3048),
+                    rh: Humidity::from_percent(rh),
                 },
                 UtciOptions {
                     units: thermalcomfort::utilities::Units::IP,
@@ -1695,12 +1695,12 @@ fn test_compare_pmv_a() {
 
             let rust_result = pmv_a(
                 PmvAInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     a_coefficient: a_coeff,
                 },
                 PmvAOptions::default(),
@@ -1734,12 +1734,12 @@ fn test_compare_pmv_e() {
 
             let rust_result = pmv_e(
                 PmvEInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     e_coefficient: e_coeff,
                 },
                 PmvEOptions::default(),
@@ -1772,15 +1772,15 @@ fn test_compare_pmv_athb() {
 
             let rust_result = pmv_athb(
                 PmvAthbInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    running_mean_outdoor_temp: Temperature::from_celsius(t_rm),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    t_running_mean: Temperature::from_celsius(t_rm),
                 },
                 PmvAthbOptions {
-                    clothing_insulation: Some(ClothingInsulation::from_clo(clo)),
+                    clo: Some(ClothingInsulation::from_clo(clo)),
                 },
             );
 
@@ -1812,12 +1812,12 @@ fn test_compare_set_tmp() {
 
             let rust_result = set_tmp(
                 SetInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             )
@@ -1850,12 +1850,12 @@ fn test_compare_cooling_effect() {
 
             let rust_result = cooling_effect(
                 CoolingEffectInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                 },
                 Default::default(),
             );
@@ -2323,11 +2323,11 @@ fn test_compare_wbgt() {
 
             let rust_result = wbgt(
                 WbgtInputs {
-                    wet_bulb_temp: Temperature::from_celsius(twb),
-                    globe_temp: Temperature::from_celsius(tg),
+                    twb: Temperature::from_celsius(twb),
+                    tg: Temperature::from_celsius(tg),
                 },
                 WbgtOptions {
-                    dry_bulb_temp: Some(Temperature::from_celsius(tdb)),
+                    tdb: Some(Temperature::from_celsius(tdb)),
                     ..Default::default()
                 },
             );
@@ -2368,8 +2368,8 @@ fn test_compare_heat_index_rothfusz() {
 
             let rust_result = heat_index_rothfusz(
                 HeatIndexRothfuszInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -2405,8 +2405,8 @@ fn test_compare_heat_index_lu() {
 
             let rust_result = heat_index_lu(
                 HeatIndexLuInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -2442,8 +2442,8 @@ fn test_compare_heat_index_lu_round_output() {
 
                 let rust_result = heat_index_lu(
                     HeatIndexLuInputs {
-                        dry_bulb_temp: Temperature::from_celsius(tdb),
-                        relative_humidity: Humidity::from_percent(rh),
+                        tdb: Temperature::from_celsius(tdb),
+                        rh: Humidity::from_percent(rh),
                     },
                     HeatIndexLuOptions { round_output },
                 );
@@ -2484,8 +2484,8 @@ fn test_compare_humidex() {
 
             let rust_result = humidex(
                 HumidexInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -2533,8 +2533,8 @@ fn test_compare_humidex_masterson() {
 
             let rust_result = humidex(
                 HumidexInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 HumidexOptions {
                     model: HumidexModel::Masterson,
@@ -2569,8 +2569,8 @@ fn test_compare_thi() {
 
             let rust_result = thi(
                 ThiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                 },
                 Default::default(),
             );
@@ -2613,8 +2613,8 @@ fn test_compare_discomfort_index() {
                 .unwrap();
 
             let rust_result = discomfort_index(DiscomfortIndexInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                relative_humidity: Humidity::from_percent(rh),
+                tdb: Temperature::from_celsius(tdb),
+                rh: Humidity::from_percent(rh),
             });
 
             assert_abs_diff_eq!(rust_result.di, py_di, epsilon = 0.1);
@@ -2648,9 +2648,9 @@ fn test_compare_at() {
 
             let rust_result = at(
                 AtInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
+                    v: Speed::from_meters_per_second(v),
                 },
                 Default::default(),
             );
@@ -2679,9 +2679,9 @@ fn test_compare_net() {
 
             let rust_result = net(
                 NetInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
+                    v: Speed::from_meters_per_second(v),
                 },
                 Default::default(),
             );
@@ -2710,8 +2710,8 @@ fn test_compare_esi() {
 
             let rust_result = esi(
                 EsiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    relative_humidity: Humidity::from_percent(rh),
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(rh),
                     sol_radiation_global: 0.0,
                 },
                 Default::default(),
@@ -2737,8 +2737,8 @@ fn test_compare_wci() {
 
             let rust_result = wci(
                 WciInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    wind_speed: Speed::from_meters_per_second(v),
+                    tdb: Temperature::from_celsius(tdb),
+                    v: Speed::from_meters_per_second(v),
                 },
                 Default::default(),
             );
@@ -2767,8 +2767,8 @@ fn test_compare_wind_chill_temperature() {
 
             let rust_result = wind_chill_temperature(
                 WindChillTemperatureInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    wind_speed: Speed::from_kilometers_per_hour(v), // Python expects km/h
+                    tdb: Temperature::from_celsius(tdb),
+                    v: Speed::from_kilometers_per_hour(v), // Python expects km/h
                 },
                 Default::default(),
             );
@@ -2922,13 +2922,13 @@ fn test_compare_ankle_draft() {
 
             let (rust_ppd, _) = ankle_draft(
                 AnkleDraftInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    ankle_air_speed: Speed::from_meters_per_second(v_ankle),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    v_ankle: Speed::from_meters_per_second(v_ankle),
                 },
                 AnkleDraftOptions { limit_inputs: true },
             );
@@ -2960,13 +2960,13 @@ fn test_compare_vertical_tmp_grad_ppd() {
 
             let (rust_ppd, _) = vertical_tmp_grad_ppd(
                 VerticalTmpGradPpdInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    relative_air_speed: Speed::from_meters_per_second(vr),
-                    relative_humidity: Humidity::from_percent(rh),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
-                    vertical_temp_gradient: TemperatureDelta::from_celsius(grad),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
                 },
                 VerticalTmpGradPpdOptions {
                     round_output: true,
@@ -3120,12 +3120,12 @@ fn test_readme_example_basic_pmv_ppd() {
         // Rust calculation with measurement types
         let result = pmv_ppd_iso(
             PmvPpdInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                mean_radiant_temp: Temperature::from_celsius(tr),
-                relative_air_speed: vr,
-                relative_humidity: Humidity::from_percent(rh),
-                metabolic_rate: MetabolicRate::from_met(met),
-                clothing_insulation: ClothingInsulation::from_clo(clo),
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                vr,
+                rh: Humidity::from_percent(rh),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
             },
             Default::default(),
         );
@@ -3221,12 +3221,12 @@ fn test_readme_example_custom_pmv_options() {
         // Rust calculation with measurement types
         let result = pmv_ppd_iso(
             PmvPpdInputs {
-                dry_bulb_temp: Temperature::from_celsius(30.0),
-                mean_radiant_temp: Temperature::from_celsius(30.0),
-                relative_air_speed: Speed::from_meters_per_second(0.1),
-                relative_humidity: Humidity::from_percent(50.0),
-                metabolic_rate: MetabolicRate::from_met(1.2),
-                clothing_insulation: ClothingInsulation::from_clo(0.5),
+                tdb: Temperature::from_celsius(30.0),
+                tr: Temperature::from_celsius(30.0),
+                vr: Speed::from_meters_per_second(0.1),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(1.2),
+                clo: ClothingInsulation::from_clo(0.5),
             },
             options,
         );
@@ -3260,12 +3260,12 @@ fn test_readme_example_set() {
         // Rust calculation with measurement types
         let set = set_tmp(
             SetInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                mean_radiant_temp: Temperature::from_celsius(tr),
-                air_speed: Speed::from_meters_per_second(v),
-                relative_humidity: Humidity::from_percent(rh),
-                metabolic_rate: MetabolicRate::from_met(met),
-                clothing_insulation: ClothingInsulation::from_clo(clo),
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                rh: Humidity::from_percent(rh),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
             },
             Default::default(),
         )
@@ -3301,12 +3301,12 @@ fn test_readme_example_cooling_effect() {
         // Rust calculation with measurement types
         let ce = cooling_effect(
             CoolingEffectInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                mean_radiant_temp: Temperature::from_celsius(tr),
-                relative_air_speed: Speed::from_meters_per_second(vr),
-                relative_humidity: Humidity::from_percent(rh),
-                metabolic_rate: MetabolicRate::from_met(met),
-                clothing_insulation: ClothingInsulation::from_clo(clo),
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                vr: Speed::from_meters_per_second(vr),
+                rh: Humidity::from_percent(rh),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
             },
             Default::default(),
         );
@@ -3339,10 +3339,10 @@ fn test_readme_example_utci() {
         // Rust calculation with measurement types
         let result = utci(
             UtciInputs {
-                dry_bulb_temp: Temperature::from_celsius(tdb),
-                mean_radiant_temp: Temperature::from_celsius(tr),
-                wind_speed: Speed::from_meters_per_second(v),
-                relative_humidity: Humidity::from_percent(rh),
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                rh: Humidity::from_percent(rh),
             },
             Default::default(),
         );
@@ -3864,11 +3864,11 @@ fn test_two_nodes_gagge_ji_comparison() {
             // Call Rust function
             let rust_result = two_nodes_gagge_ji(
                 GaggeTwoNodesJiInputs {
-                    dry_bulb_temp: Temperature::from_celsius(tdb),
-                    mean_radiant_temp: Temperature::from_celsius(tr),
-                    air_speed: Speed::from_meters_per_second(v),
-                    metabolic_rate: MetabolicRate::from_met(met),
-                    clothing_insulation: ClothingInsulation::from_clo(clo),
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
                     vapor_pressure: Pressure::from_torrs(vapor_pressure),
                 },
                 Default::default(),
@@ -3999,7 +3999,7 @@ fn test_pet_forced_convection_comparison() {
                     clo: ClothingInsulation::from_clo(clo),
                 },
                 PetOptions {
-                    posture: thermalcomfort::models::pet::Posture::Standing,
+                    position: thermalcomfort::models::pet::Posture::Standing,
                     forced_convection: true,
                     ..Default::default()
                 },

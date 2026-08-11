@@ -19,17 +19,17 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Air speed
-    pub air_speed: Speed,
+    pub v: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
 }
 
 /// Result from the two-node Gagge model
@@ -82,8 +82,8 @@ pub struct GaggeTwoNodesOptions {
     pub body_surface_area: Area,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Body posture
-    pub posture: Posture,
+    /// Body position
+    pub position: Posture,
     /// Maximum skin blood flow [kg/h/m²]
     pub max_skin_blood_flow: f64,
     /// Round output values
@@ -102,7 +102,7 @@ impl Default for GaggeTwoNodesOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            posture: Posture::Standing,
+            position: Posture::Standing,
             max_skin_blood_flow: 90.0,
             round_output: true,
             max_sweating: 500.0,
@@ -167,12 +167,12 @@ fn mask_positive(signal: f64) -> f64 {
 ///
 /// let result = two_nodes_gagge(
 ///     GaggeTwoNodesInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         v: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///     },
 ///     Default::default(),
 /// );
@@ -183,33 +183,33 @@ pub fn two_nodes_gagge(
     options: GaggeTwoNodesOptions,
 ) -> GaggeTwoNodesResult {
     let GaggeTwoNodesInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
     } = inputs;
 
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
-    let speed_mps = air_speed.as_meters_per_second();
-    let rh_percent = relative_humidity.as_percent();
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
+    let speed_mps = v.as_meters_per_second();
+    let rh_percent = rh.as_percent();
 
-    let p_sat_torr_val = p_sat_torr(dry_bulb_temp).as_pascals() / 133.322; // Convert Pa back to torr
+    let p_sat_torr_val = p_sat_torr(tdb).as_pascals() / 133.322; // Convert Pa back to torr
     let vapor_pressure = rh_percent * p_sat_torr_val / 100.0;
 
     let raw = gagge_two_nodes_optimized(
         dry_bulb_celsius,
         radiant_celsius,
         speed_mps,
-        metabolic_rate.as_met(),
-        clothing_insulation.as_clo(),
+        met.as_met(),
+        clo.as_clo(),
         vapor_pressure,
         options.wme.as_met(),
         options.body_surface_area.as_square_meters(),
         options.p_atm.as_pascals(),
-        options.posture,
+        options.position,
         options.calculate_ce,
         options.max_skin_blood_flow,
         options.max_sweating,
@@ -599,7 +599,7 @@ fn gagge_two_nodes_optimized(
 }
 
 /// The comfort inputs to [`two_nodes_gagge_ji`]: pythermalcomfort requires all six (no
-/// default). Note `vapor_pressure` here rather than `relative_humidity` — the Ji model
+/// default). Note `vapor_pressure` here rather than `rh` — the Ji model
 /// takes vapour pressure directly (see [`GaggeTwoNodesJiOptions`] doc for why exposing it
 /// this way is strictly more general).
 ///
@@ -607,15 +607,15 @@ fn gagge_two_nodes_optimized(
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GaggeTwoNodesJiInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Air speed
-    pub air_speed: Speed,
+    pub v: Speed,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
     /// Vapor pressure
     ///
     /// pythermalcomfort's `two_nodes_gagge_ji` takes `vapor_pressure` [torr] directly
@@ -635,8 +635,8 @@ pub struct GaggeTwoNodesJiOptions {
     pub body_surface_area: Area,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Body posture
-    pub posture: Posture,
+    /// Body position
+    pub position: Posture,
     /// Whether the subject is heat-acclimatised
     ///
     /// Acclimatisation raises the maximum regulatory evaporation by 25% and the
@@ -658,7 +658,7 @@ impl Default for GaggeTwoNodesJiOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            posture: Posture::Sitting,
+            position: Posture::Sitting,
             acclimatized: true,
             body_weight: Mass::from_kilograms(70.0),
             length_time_simulation: 120,
@@ -697,11 +697,11 @@ pub struct GaggeTwoNodesJiResult {
 ///
 /// let result = two_nodes_gagge_ji(
 ///     GaggeTwoNodesJiInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         air_speed: Speed::from_meters_per_second(0.1),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         v: Speed::from_meters_per_second(0.1),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///         vapor_pressure: Pressure::from_torrs(12.0),
 ///     },
 ///     Default::default(),
@@ -792,25 +792,25 @@ pub fn two_nodes_gagge_ji(
     options: GaggeTwoNodesJiOptions,
 ) -> GaggeTwoNodesJiResult {
     let GaggeTwoNodesJiInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        v,
+        met,
+        clo,
         vapor_pressure,
     } = inputs;
 
     gagge_two_nodes_ji_core(
-        dry_bulb_temp.as_celsius(),
-        mean_radiant_temp.as_celsius(),
-        air_speed.as_meters_per_second(),
-        metabolic_rate.as_met(),
-        clothing_insulation.as_clo(),
+        tdb.as_celsius(),
+        tr.as_celsius(),
+        v.as_meters_per_second(),
+        met.as_met(),
+        clo.as_clo(),
         vapor_pressure.as_torrs(),
         options.wme.as_met(),
         options.body_surface_area.as_square_meters(),
         options.p_atm.as_pascals(),
-        options.posture,
+        options.position,
         options.acclimatized,
         options.body_weight.as_kilograms(),
         options.length_time_simulation,
@@ -1078,12 +1078,12 @@ mod tests {
     fn cold_conditions_return_negative_zero_sweating_like_python() {
         let result = two_nodes_gagge(
             GaggeTwoNodesInputs {
-                dry_bulb_temp: Temperature::from_celsius(10.0),
-                mean_radiant_temp: Temperature::from_celsius(10.0),
-                air_speed: Speed::from_meters_per_second(0.1),
-                relative_humidity: Humidity::from_percent(50.0),
-                metabolic_rate: MetabolicRate::from_met(1.0),
-                clothing_insulation: ClothingInsulation::from_clo(1.0),
+                tdb: Temperature::from_celsius(10.0),
+                tr: Temperature::from_celsius(10.0),
+                v: Speed::from_meters_per_second(0.1),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(1.0),
+                clo: ClothingInsulation::from_clo(1.0),
             },
             Default::default(),
         );
@@ -1100,12 +1100,12 @@ mod tests {
 
     fn gagge_inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> GaggeTwoNodesInputs {
         GaggeTwoNodesInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            air_speed: Speed::from_meters_per_second(v),
-            relative_humidity: Humidity::from_percent(rh),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
         }
     }
 
@@ -1152,9 +1152,9 @@ mod tests {
     }
 
     /// **REAL BUG**: pythermalcomfort's `calculate_ce=True` path hardcodes the
-    /// "standing" branch regardless of the caller's posture (see the comment in
+    /// "standing" branch regardless of the caller's position (see the comment in
     /// `gagge_two_nodes_optimized`). Before the fix, Rust always honoured
-    /// `options.posture`, so a `calculate_ce: true` call with `Posture::Sitting` would
+    /// `options.position`, so a `calculate_ce: true` call with `Posture::Sitting` would
     /// take the sitting radiative-coefficient branch (0.7) instead of upstream's forced
     /// standing branch (0.73) -- silently diverging from Python whenever a caller other
     /// than `cooling_effect` (which always happens to pass `Standing`) used this flag.
@@ -1165,7 +1165,7 @@ mod tests {
         let sitting = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                posture: Posture::Sitting,
+                position: Posture::Sitting,
                 calculate_ce: true,
                 round_output: false,
                 ..Default::default()
@@ -1174,25 +1174,25 @@ mod tests {
         let standing = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                posture: Posture::Standing,
+                position: Posture::Standing,
                 calculate_ce: true,
                 round_output: false,
                 ..Default::default()
             },
         );
 
-        // Both must match the forced-standing result exactly: posture must not have
+        // Both must match the forced-standing result exactly: position must not have
         // been able to change anything while calculate_ce is set.
         assert_eq!(sitting.set.as_celsius(), standing.set.as_celsius());
         assert_eq!(sitting.t_skin.as_celsius(), standing.t_skin.as_celsius());
         assert_eq!(sitting.t_core.as_celsius(), standing.t_core.as_celsius());
 
-        // Sanity: with calculate_ce off, posture *does* matter for these inputs, so the
-        // test above isn't vacuously true because posture never affects anything here.
+        // Sanity: with calculate_ce off, position *does* matter for these inputs, so the
+        // test above isn't vacuously true because position never affects anything here.
         let sitting_full = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                posture: Posture::Sitting,
+                position: Posture::Sitting,
                 calculate_ce: false,
                 round_output: false,
                 ..Default::default()
@@ -1201,7 +1201,7 @@ mod tests {
         let standing_full = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                posture: Posture::Standing,
+                position: Posture::Standing,
                 calculate_ce: false,
                 round_output: false,
                 ..Default::default()
@@ -1210,7 +1210,7 @@ mod tests {
         assert_ne!(
             sitting_full.set.as_celsius(),
             standing_full.set.as_celsius(),
-            "posture should affect SET when calculate_ce is off, or this test doesn't \
+            "position should affect SET when calculate_ce is off, or this test doesn't \
              prove anything"
         );
     }
@@ -1218,11 +1218,11 @@ mod tests {
     fn ji_inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> GaggeTwoNodesJiInputs {
         let p_sat_torr_val = p_sat_torr(Temperature::from_celsius(tdb)).as_torrs();
         GaggeTwoNodesJiInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            air_speed: Speed::from_meters_per_second(v),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
             vapor_pressure: Pressure::from_torrs(rh * p_sat_torr_val / 100.0),
         }
     }

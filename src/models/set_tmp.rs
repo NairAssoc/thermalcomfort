@@ -14,17 +14,17 @@ use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Air speed
-    pub air_speed: Speed,
+    pub v: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
 }
 
 /// Options for SET calculation
@@ -36,8 +36,8 @@ pub struct SetOptions {
     pub body_surface_area: Area,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Body posture
-    pub posture: Posture,
+    /// Body position
+    pub position: Posture,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output value
@@ -60,7 +60,7 @@ impl Default for SetOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            posture: Posture::Standing,
+            position: Posture::Standing,
             limit_inputs: true,
             round_output: true,
             calculate_ce: false,
@@ -97,12 +97,12 @@ impl Default for SetOptions {
 ///
 /// let set = set_tmp(
 ///     SetInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         air_speed: Speed::from_meters_per_second(0.1),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         v: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///     },
 ///     Default::default(),
 /// );
@@ -110,19 +110,19 @@ impl Default for SetOptions {
 /// ```
 pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
     let SetInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
     } = inputs;
 
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
-    let speed_mps = air_speed.as_meters_per_second();
-    let met = metabolic_rate.as_met();
-    let clo = clothing_insulation.as_clo();
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
+    let speed_mps = v.as_meters_per_second();
+    let met_val = met.as_met();
+    let clo_val = clo.as_clo();
 
     // Check standard compliance if limit_inputs is true
     if options.limit_inputs {
@@ -135,10 +135,10 @@ pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
         if !(0.0..=2.0).contains(&speed_mps) {
             return Temperature::from_celsius(f64::NAN);
         }
-        if !(1.0..=4.0).contains(&met) {
+        if !(1.0..=4.0).contains(&met_val) {
             return Temperature::from_celsius(f64::NAN);
         }
-        if !(0.0..=1.5).contains(&clo) {
+        if !(0.0..=1.5).contains(&clo_val) {
             return Temperature::from_celsius(f64::NAN);
         }
     }
@@ -148,7 +148,7 @@ pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
         wme: options.wme,
         body_surface_area: options.body_surface_area,
         p_atm: options.p_atm,
-        posture: options.posture,
+        position: options.position,
         max_skin_blood_flow: 90.0,
         round_output: false, // Don't round in Gagge, we'll round here if needed
         max_sweating: 500.0,
@@ -158,12 +158,12 @@ pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
 
     let result = two_nodes_gagge(
         GaggeTwoNodesInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            v,
+            rh,
+            met,
+            clo,
         },
         gagge_options,
     );
@@ -182,12 +182,12 @@ mod tests {
 
     fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> SetInputs {
         SetInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            air_speed: Speed::from_meters_per_second(v),
-            relative_humidity: Humidity::from_percent(rh),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
         }
     }
 

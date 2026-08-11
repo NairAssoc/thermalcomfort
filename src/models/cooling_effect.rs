@@ -25,24 +25,24 @@ const POSTURE: Posture = Posture::Standing;
 
 /// The comfort inputs to [`cooling_effect`].
 ///
-/// `dry_bulb_temp` and `mean_radiant_temp` are consecutive [`Temperature`]s; naming
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming
 /// every field forecloses a silent transposition between them.
 ///
 /// Deliberately has no `Default`: every field must be given explicitly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoolingEffectInputs {
     /// Dry bulb air temperature
-    pub dry_bulb_temp: Temperature,
+    pub tdb: Temperature,
     /// Mean radiant temperature
-    pub mean_radiant_temp: Temperature,
+    pub tr: Temperature,
     /// Relative air speed
-    pub relative_air_speed: Speed,
+    pub vr: Speed,
     /// Relative humidity
-    pub relative_humidity: Humidity,
+    pub rh: Humidity,
     /// Metabolic rate
-    pub metabolic_rate: MetabolicRate,
+    pub met: MetabolicRate,
     /// Clothing insulation
-    pub clothing_insulation: ClothingInsulation,
+    pub clo: ClothingInsulation,
 }
 
 /// Optional parameters for [`cooling_effect`], with pythermalcomfort's defaults.
@@ -84,7 +84,7 @@ impl Default for CoolingEffectOptions {
 /// # Returns
 ///
 /// The cooling effect as a [`TemperatureDelta`] — the temperature reduction that
-/// produces equivalent SET at still air conditions. Zero if `relative_air_speed` is at
+/// produces equivalent SET at still air conditions. Zero if `vr` is at
 /// or below the still air threshold.
 ///
 /// # Examples
@@ -98,12 +98,12 @@ impl Default for CoolingEffectOptions {
 /// // Calculate cooling effect with elevated air speed
 /// let ce = cooling_effect(
 ///     CoolingEffectInputs {
-///         dry_bulb_temp: Temperature::from_celsius(25.0),
-///         mean_radiant_temp: Temperature::from_celsius(25.0),
-///         relative_air_speed: Speed::from_meters_per_second(0.5),
-///         relative_humidity: Humidity::from_percent(50.0),
-///         metabolic_rate: MetabolicRate::from_met(1.2),
-///         clothing_insulation: ClothingInsulation::from_clo(0.5),
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.5),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
 ///     },
 ///     Default::default(),
 /// );
@@ -114,15 +114,15 @@ pub fn cooling_effect(
     options: CoolingEffectOptions,
 ) -> TemperatureDelta {
     let CoolingEffectInputs {
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
     } = inputs;
 
-    let air_speed = relative_air_speed.as_meters_per_second();
+    let air_speed = vr.as_meters_per_second();
 
     // No cooling effect if air speed is at or below still air threshold
     if air_speed <= STILL_AIR_THRESHOLD_MS {
@@ -134,7 +134,7 @@ pub fn cooling_effect(
         wme: options.wme,
         body_surface_area: Area::from_square_meters(BODY_SURFACE_AREA_M2),
         p_atm: Pressure::from_pascals(P_ATM_PA),
-        posture: POSTURE,
+        position: POSTURE,
         limit_inputs: false, // Don't limit inputs for cooling effect calculation
         round_output: false, // Need exact values for root finding
         // The reduced SET-only solver path. pythermalcomfort's cooling_effect is the
@@ -144,12 +144,12 @@ pub fn cooling_effect(
 
     let initial_set = set_tmp(
         SetInputs {
-            dry_bulb_temp,
-            mean_radiant_temp,
-            air_speed: relative_air_speed,
-            relative_humidity,
-            metabolic_rate,
-            clothing_insulation,
+            tdb,
+            tr,
+            v: vr,
+            rh,
+            met,
+            clo,
         },
         set_options,
     )
@@ -160,22 +160,20 @@ pub fn cooling_effect(
         return TemperatureDelta::from_celsius(0.0);
     }
 
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
+    let dry_bulb_celsius = tdb.as_celsius();
+    let radiant_celsius = tr.as_celsius();
 
     // Define the function to find the root of:
     // We want to find ce such that SET(tdb-ce, tr-ce, still_air) = SET(tdb, tr, vr)
     let function = |cooling_effect_delta: f64| -> f64 {
         let set_still = set_tmp(
             SetInputs {
-                dry_bulb_temp: Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
-                mean_radiant_temp: Temperature::from_celsius(
-                    radiant_celsius - cooling_effect_delta,
-                ),
-                air_speed: Speed::from_meters_per_second(STILL_AIR_THRESHOLD_MS),
-                relative_humidity,
-                metabolic_rate,
-                clothing_insulation,
+                tdb: Temperature::from_celsius(dry_bulb_celsius - cooling_effect_delta),
+                tr: Temperature::from_celsius(radiant_celsius - cooling_effect_delta),
+                v: Speed::from_meters_per_second(STILL_AIR_THRESHOLD_MS),
+                rh,
+                met,
+                clo,
             },
             set_options,
         )
@@ -211,12 +209,12 @@ mod tests {
 
     fn inputs(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64) -> CoolingEffectInputs {
         CoolingEffectInputs {
-            dry_bulb_temp: Temperature::from_celsius(tdb),
-            mean_radiant_temp: Temperature::from_celsius(tr),
-            relative_air_speed: Speed::from_meters_per_second(vr),
-            relative_humidity: Humidity::from_percent(rh),
-            metabolic_rate: MetabolicRate::from_met(met),
-            clothing_insulation: ClothingInsulation::from_clo(clo),
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
         }
     }
 
