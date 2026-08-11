@@ -16,6 +16,23 @@ pub enum RootFindError {
     NanEncountered,
 }
 
+impl core::fmt::Display for RootFindError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidBounds => {
+                write!(
+                    f,
+                    "function values at the bounds do not have opposite signs"
+                )
+            }
+            Self::MaxIterationsExceeded => write!(f, "maximum iterations exceeded"),
+            Self::NanEncountered => write!(f, "function evaluation returned NaN"),
+        }
+    }
+}
+
+impl core::error::Error for RootFindError {}
+
 /// Find a root of a function using Brent's method
 ///
 /// Brent's method is a root-finding algorithm combining bisection, secant,

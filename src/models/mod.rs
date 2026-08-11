@@ -50,7 +50,8 @@ pub use specialty::{
     VerticalTmpGradPpdOptions, ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
 };
 pub use sports_heat_stress_risk::{
-    Sports, SportsHeatStressRisk, SportsHeatStressRiskInputs, SportsValues, sports_heat_stress_risk,
+    Sports, SportsHeatStressRisk, SportsHeatStressRiskError, SportsHeatStressRiskInputs,
+    SportsValues, sports_heat_stress_risk,
 };
 pub use thermal_indices::{
     AtInputs, AtOptions, DiscomfortCondition, DiscomfortIndexInputs, DiscomfortIndexResult,

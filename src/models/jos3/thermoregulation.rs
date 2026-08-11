@@ -139,6 +139,8 @@ impl core::fmt::Display for ThermoregulationError {
     }
 }
 
+impl core::error::Error for ThermoregulationError {}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

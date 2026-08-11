@@ -62,6 +62,8 @@ impl core::fmt::Display for MismatchedScheduleLengths {
     }
 }
 
+impl core::error::Error for MismatchedScheduleLengths {}
+
 /// Tuning coefficients and initial physiological state for the sleep model.
 ///
 /// These are upstream's `**kwargs`, with upstream's defaults. The last five describe the

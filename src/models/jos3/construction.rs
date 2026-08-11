@@ -102,6 +102,8 @@ impl core::fmt::Display for BodyParameterError {
     }
 }
 
+impl core::error::Error for BodyParameterError {}
+
 /// Validate the body parameters: height, weight, age, and body fat percentage.
 ///
 /// Python: `validate_body_parameters(height, weight, age, body_fat)`.
@@ -157,6 +159,8 @@ impl core::fmt::Display for BodyPartsInputError {
         }
     }
 }
+
+impl core::error::Error for BodyPartsInputError {}
 
 /// Broadcast a single value to all 17 body segments.
 /// Python: `to_array_body_parts(inp)` when `inp` is `int | float`.

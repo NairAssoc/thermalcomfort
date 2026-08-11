@@ -3902,11 +3902,10 @@ fn sweep_sports_heat_stress_risk() {
                 .getattr(name)
                 .map_err(|e| format!("Python has no sport preset {name}: {e}"))?;
 
-            let py_result = models
+            let py_call = models
                 .getattr("sports_heat_stress_risk")
                 .unwrap()
-                .call1((tdb, tr, rh, vr, py_sport))
-                .map_err(|e| format!("python raised: {e}"))?;
+                .call1((tdb, tr, rh, vr, py_sport));
 
             let rust = sports_heat_stress_risk(SportsHeatStressRiskInputs {
                 tdb: Temperature::from_celsius(tdb),
@@ -3915,6 +3914,29 @@ fn sweep_sports_heat_stress_risk() {
                 vr: Speed::from_meters_per_second(vr),
                 sport: sport_at(index),
             });
+
+            let py_result = match py_call {
+                Ok(result) => result,
+                // `_calc_risk_single_value` raises when `risk_level_interpolated` never
+                // leaves its NaN seed (`sports_heat_stress_risk.py:372-373`), mirrored by
+                // `SportsHeatStressRiskError::NanRiskLevel`. Not merely skipped the way
+                // `sweep_two_nodes_gagge_sleep` skips upstream's OverflowError: since Rust
+                // can now fail the same way, a Python raise is only in agreement if Rust
+                // also rejected the sample, and it is a real divergence if Rust produced
+                // an answer where Python declined to.
+                Err(e) if e.is_instance_of::<PyValueError>(py) => {
+                    return match rust {
+                        Err(_) => Ok(()),
+                        Ok(ok) => Err(format!(
+                            "{name}: python raised ValueError but rust returned {ok:?}"
+                        )),
+                    };
+                }
+                Err(e) => return Err(format!("python raised: {e}")),
+            };
+
+            let rust =
+                rust.map_err(|e| format!("{name}: rust rejected a sample python accepted: {e}"))?;
 
             let values = [
                 rust.risk_level_interpolated,

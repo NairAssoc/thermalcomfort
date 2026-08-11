@@ -314,6 +314,16 @@ impl core::fmt::Display for Jos3Error {
     }
 }
 
+impl core::error::Error for Jos3Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Jos3Error::BodyParts(e) => Some(e),
+            Jos3Error::Thermoregulation(e) => Some(e),
+            Jos3Error::SingularSystem | Jos3Error::UnsupportedPosture(_) => None,
+        }
+    }
+}
+
 impl From<BodyPartsInputError> for Jos3Error {
     fn from(e: BodyPartsInputError) -> Self {
         Jos3Error::BodyParts(e)
@@ -360,6 +370,15 @@ impl core::fmt::Display for Jos3BuildError {
         match self {
             Jos3BuildError::Validation(e) => write!(f, "{e}"),
             Jos3BuildError::Simulation(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl core::error::Error for Jos3BuildError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Jos3BuildError::Validation(e) => Some(e),
+            Jos3BuildError::Simulation(e) => Some(e),
         }
     }
 }

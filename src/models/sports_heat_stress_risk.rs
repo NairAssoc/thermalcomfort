@@ -97,7 +97,8 @@ impl SportsValues {
 ///     rh: Humidity::from_percent(40.0),
 ///     vr: Speed::from_meters_per_second(0.1),
 ///     sport: Sports::RUNNING,
-/// });
+/// })
+/// .expect("35°C is a determinate risk level");
 /// // vr=0.1 is clamped to sport minimum (2.0 for running)
 /// assert_eq!(result.risk_level_interpolated, 2.1);
 /// ```
@@ -310,6 +311,33 @@ impl Sports {
     );
 }
 
+/// A [`sports_heat_stress_risk`] calculation could not determine a risk level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SportsHeatStressRiskError {
+    /// Every risk-band comparison against `tdb` was false (in practice because `tdb` was
+    /// NaN, since `t_medium`/`t_high`/`extreme_entry_t` are otherwise finite), so
+    /// `risk_level_interpolated` never left its NaN initial value.
+    /// Python: `sports_heat_stress_risk.py:372-373`,
+    /// `if np.isnan(risk_level_interpolated): raise ValueError("Risk level could not be
+    /// determined due to NaN thresholds.")`.
+    NanRiskLevel,
+}
+
+impl core::fmt::Display for SportsHeatStressRiskError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NanRiskLevel => {
+                write!(
+                    f,
+                    "Risk level could not be determined due to NaN thresholds."
+                )
+            }
+        }
+    }
+}
+
+impl core::error::Error for SportsHeatStressRiskError {}
+
 /// Result of sports heat stress risk calculation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SportsHeatStressRisk {
@@ -428,6 +456,12 @@ fn floor1(x: f64) -> f64 {
 /// - Temperature thresholds for medium, high, and extreme risk
 /// - Recommendation text
 ///
+/// # Errors
+///
+/// Returns [`SportsHeatStressRiskError::NanRiskLevel`] if `tdb` is NaN: every risk-band
+/// comparison against it is then false, so no branch of the risk-level calculation ever
+/// fires. Python: `sports_heat_stress_risk.py:372-373`.
+///
 /// # Examples
 ///
 /// ```
@@ -443,7 +477,8 @@ fn floor1(x: f64) -> f64 {
 ///     rh: Humidity::from_percent(40.0),
 ///     vr: Speed::from_meters_per_second(0.1),
 ///     sport: Sports::RUNNING,
-/// });
+/// })
+/// .expect("35°C is a determinate risk level");
 /// assert_eq!(result.risk_level_interpolated, 2.1);
 /// assert!((result.t_medium.as_celsius() - 34.5).abs() < 1e-9);
 /// assert!((result.t_extreme.as_celsius() - 41.6).abs() < 1e-9);
@@ -456,7 +491,8 @@ fn floor1(x: f64) -> f64 {
 ///     rh: Humidity::from_percent(50.0),
 ///     vr: Speed::from_meters_per_second(0.5),
 ///     sport: Sports::SOCCER,
-/// });
+/// })
+/// .expect("30°C is a determinate risk level");
 /// assert!(result.risk_level_interpolated < 2.0); // Low risk
 /// ```
 ///
@@ -464,7 +500,9 @@ fn floor1(x: f64) -> f64 {
 ///
 /// - Sports Medicine Australia heat policy framework
 /// - ISO 7933 (PHS model used internally for threshold calculation)
-pub fn sports_heat_stress_risk(inputs: SportsHeatStressRiskInputs) -> SportsHeatStressRisk {
+pub fn sports_heat_stress_risk(
+    inputs: SportsHeatStressRiskInputs,
+) -> Result<SportsHeatStressRisk, SportsHeatStressRiskError> {
     let SportsHeatStressRiskInputs {
         tdb,
         tr,
@@ -483,13 +521,13 @@ pub fn sports_heat_stress_risk(inputs: SportsHeatStressRiskInputs) -> SportsHeat
 
     // Early returns for temperatures outside the threshold range
     if tdb_c < MIN_T_MEDIUM {
-        return SportsHeatStressRisk {
+        return Ok(SportsHeatStressRisk {
             risk_level_interpolated: 1.0,
             t_medium: Temperature::from_celsius(MIN_T_MEDIUM),
             t_high: Temperature::from_celsius(MIN_T_HIGH),
             t_extreme: Temperature::from_celsius(MIN_T_EXTREME),
             recommendation: get_recommendation(1.0),
-        };
+        });
     }
 
     // Find t_medium: temperature where sweat loss rate equals threshold
@@ -541,33 +579,53 @@ pub fn sports_heat_stress_risk(inputs: SportsHeatStressRiskInputs) -> SportsHeat
     // `MAX_T_HIGH` instead, manufacturing a finite risk level for an unsolved threshold.
     let extreme_entry_t = py_min(round_to_exact_decimal(t_extreme, 1), MAX_T_HIGH);
 
-    // Calculate interpolated risk level (1.0-4.9 scale)
-    let risk_level = if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
-        1.0 + (tdb_c - MIN_T_MEDIUM) / (t_medium - MIN_T_MEDIUM)
+    // Calculate interpolated risk level (1.0-4.9 scale).
+    //
+    // `sports_heat_stress_risk.py:357-370` seeds `risk_level_interpolated = np.nan` and
+    // then only ever assigns it inside one of four `if`/`elif` branches -- there is no
+    // trailing `else`. For finite tdb, t_medium, t_high and extreme_entry_t the four
+    // conditions are exhaustive (`MIN_T_LOW <= tdb_c` always holds here: the early return
+    // above already handles `tdb_c < MIN_T_MEDIUM`, and `MIN_T_MEDIUM > MIN_T_LOW`), so
+    // this reproduces the same branch selection as an unconditional final `else` would --
+    // except when `tdb_c` (or a threshold) is NaN, where every comparison is false and
+    // `risk_level` deliberately stays NaN, exactly as Python's does. Rewriting the last
+    // branch as an unconditional `else` (as an earlier version of this function did) would
+    // silently manufacture a finite risk level here instead of surfacing the same
+    // `ValueError` Python raises just below.
+    let mut risk_level = f64::NAN;
+    if MIN_T_LOW <= tdb_c && tdb_c < t_medium {
+        risk_level = 1.0 + (tdb_c - MIN_T_MEDIUM) / (t_medium - MIN_T_MEDIUM);
     } else if t_medium <= tdb_c && tdb_c < t_high {
-        2.0 + (tdb_c - t_medium) / (t_high - t_medium)
+        risk_level = 2.0 + (tdb_c - t_medium) / (t_high - t_medium);
     } else if t_high <= tdb_c && tdb_c < extreme_entry_t {
-        3.0 + (tdb_c - t_high) / (extreme_entry_t - t_high)
-    } else {
-        // tdb >= extreme_entry_t. Scale to [4.0, 4.9] so risk reaches 4.9 exactly at
+        risk_level = 3.0 + (tdb_c - t_high) / (extreme_entry_t - t_high);
+    } else if tdb_c >= extreme_entry_t {
+        // Scale to [4.0, 4.9] so risk reaches 4.9 exactly at
         // extreme_entry_t + T_UPPER_EXTREME_DELTA. Without the 0.9 factor the formula
         // would hit 4.9 already at +4.5°C, leaving the last 0.5°C of the range dead.
-        4.0 + (tdb_c - extreme_entry_t) / T_UPPER_EXTREME_DELTA * 0.9
-    };
+        risk_level = 4.0 + (tdb_c - extreme_entry_t) / T_UPPER_EXTREME_DELTA * 0.9;
+    }
+
+    // `sports_heat_stress_risk.py:372-373`: `if np.isnan(risk_level_interpolated): raise
+    // ValueError(...)`. Checked here, after the branch chain above and nowhere earlier,
+    // to mirror exactly where Python gives up rather than reporting a confident-looking
+    // answer built from missing data.
+    if risk_level.is_nan() {
+        return Err(SportsHeatStressRiskError::NanRiskLevel);
+    }
 
     // Floor-truncate to one decimal place. The 1e-9 epsilon guards against the float
     // representation of 4.9 (e.g. 4.8999…) flooring to 4.8.
-    // `sports_heat_stress_risk.py:377`: builtin `min(np.floor(...) / 10.0, 4.9)`, which
-    // keeps a NaN risk level rather than reporting a confident 4.9.
+    // `sports_heat_stress_risk.py:377`: builtin `min(np.floor(...) / 10.0, 4.9)`.
     let risk_level_floor = py_min(floor1(risk_level + 1e-9), 4.9);
 
-    SportsHeatStressRisk {
+    Ok(SportsHeatStressRisk {
         risk_level_interpolated: risk_level_floor,
         t_medium: Temperature::from_celsius(round_to_exact_decimal(t_medium, 1)),
         t_high: Temperature::from_celsius(round_to_exact_decimal(t_high, 1)),
         t_extreme: Temperature::from_celsius(round_to_exact_decimal(t_extreme, 1)),
         recommendation: get_recommendation(risk_level_floor),
-    }
+    })
 }
 
 /// Find temperature threshold for water loss (medium risk boundary).
@@ -645,7 +703,8 @@ mod tests {
     #[test]
     fn test_running_vr_clamped() {
         // vr=0.1 is clamped to sport minimum (2.0 for running)
-        let result = sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::RUNNING));
+        let result =
+            sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::RUNNING)).unwrap();
         assert_eq!(result.risk_level_interpolated, 2.1);
         assert_temp_eq(result.t_medium, 34.5);
         assert_temp_eq(result.t_high, 39.0);
@@ -658,7 +717,8 @@ mod tests {
 
     #[test]
     fn test_soccer_low_risk() {
-        let result = sports_heat_stress_risk(inputs(30.0, 30.0, 50.0, 0.5, Sports::SOCCER));
+        let result =
+            sports_heat_stress_risk(inputs(30.0, 30.0, 50.0, 0.5, Sports::SOCCER)).unwrap();
         assert_eq!(result.risk_level_interpolated, 1.6);
         assert_temp_eq(result.t_medium, 34.5);
         assert_temp_eq(result.t_high, 38.2);
@@ -671,7 +731,8 @@ mod tests {
 
     #[test]
     fn test_low_temperature() {
-        let result = sports_heat_stress_risk(inputs(20.0, 20.0, 50.0, 0.5, Sports::WALKING));
+        let result =
+            sports_heat_stress_risk(inputs(20.0, 20.0, 50.0, 0.5, Sports::WALKING)).unwrap();
         assert_eq!(result.risk_level_interpolated, 1.0);
         assert_temp_eq(result.t_medium, 23.0);
         assert_temp_eq(result.t_high, 25.0);
@@ -684,7 +745,8 @@ mod tests {
 
     #[test]
     fn test_very_high_temperature() {
-        let result = sports_heat_stress_risk(inputs(45.0, 45.0, 30.0, 0.5, Sports::CYCLING));
+        let result =
+            sports_heat_stress_risk(inputs(45.0, 45.0, 30.0, 0.5, Sports::CYCLING)).unwrap();
         // 45°C is 1.5°C above t_extreme (43.5), so risk ramps into the extreme band:
         // 4.0 + 1.5/5.0*0.9 = 4.27 -> floored to 4.2
         assert_eq!(result.risk_level_interpolated, 4.2);
@@ -696,7 +758,8 @@ mod tests {
 
     #[test]
     fn test_tennis_high_radiant() {
-        let result = sports_heat_stress_risk(inputs(33.0, 70.0, 60.0, 0.1, Sports::TENNIS));
+        let result =
+            sports_heat_stress_risk(inputs(33.0, 70.0, 60.0, 0.1, Sports::TENNIS)).unwrap();
         // 33°C is 3.5°C above t_extreme (29.5): 4.0 + 3.5/5.0*0.9 = 4.63 -> floored to 4.6
         assert_eq!(result.risk_level_interpolated, 4.6);
         assert_temp_eq(result.t_medium, 23.0);
@@ -707,7 +770,8 @@ mod tests {
 
     #[test]
     fn test_croquet_preset() {
-        let result = sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::CROQUET));
+        let result =
+            sports_heat_stress_risk(inputs(35.0, 35.0, 40.0, 0.1, Sports::CROQUET)).unwrap();
         assert_eq!(result.risk_level_interpolated, 2.1);
         assert_temp_eq(result.t_medium, 34.5);
         assert_temp_eq(result.t_high, 39.0);
@@ -717,7 +781,8 @@ mod tests {
     #[test]
     fn test_extreme_band_caps_at_4_9() {
         // Far above t_extreme the risk level must clamp at 4.9, not grow without bound.
-        let result = sports_heat_stress_risk(inputs(70.0, 70.0, 30.0, 0.5, Sports::CYCLING));
+        let result =
+            sports_heat_stress_risk(inputs(70.0, 70.0, 30.0, 0.5, Sports::CYCLING)).unwrap();
         assert_eq!(result.risk_level_interpolated, 4.9);
     }
 
@@ -727,5 +792,15 @@ mod tests {
         assert_eq!(Sports::RUNNING.met.as_met(), 7.5);
         assert_eq!(Sports::RUNNING.vr, 2.0);
         assert_eq!(Sports::RUNNING.duration, 60);
+    }
+
+    /// A NaN `tdb` makes every risk-band comparison false, so `risk_level_interpolated`
+    /// never leaves its NaN initial value -- Python raises `ValueError` at exactly this
+    /// point (`sports_heat_stress_risk.py:372-373`) rather than reporting a confident
+    /// recommendation built from missing data.
+    #[test]
+    fn test_nan_tdb_is_rejected() {
+        let result = sports_heat_stress_risk(inputs(f64::NAN, 35.0, 40.0, 0.1, Sports::RUNNING));
+        assert_eq!(result, Err(SportsHeatStressRiskError::NanRiskLevel));
     }
 }

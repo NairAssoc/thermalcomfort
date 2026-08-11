@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference, with two documented exceptions (see [Coverage](#coverage)).
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,13 +12,14 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **Near-complete coverage**: every pythermalcomfort v4.4.0 model except `JOS3`, with two documented gaps (see [Coverage](#coverage))
+- **Complete coverage**: every pythermalcomfort v4.4.0 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
-- **Rigorously Validated**: 302 tests (110 unit + 74 Python comparison + 65 doctests +
-  46 differential sweeps + 7 harness self-tests). Every public function with a
-  pythermalcomfort counterpart has a cross-library parity test, and all but one are also
-  driven through the randomised sweep.
+- **Rigorously Validated**: 418 tests (200 unit + 83 Python comparison + 81 doctests +
+  47 differential sweeps + 7 harness self-tests). Every public function with a
+  pythermalcomfort counterpart has a cross-library parity test *and* is driven through the
+  randomised differential sweep. The examples on this page are compiled by
+  `cargo test --doc`, so they cannot drift from the API.
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
@@ -46,10 +47,24 @@ Defined in this crate:
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
 
-Physical quantities are newtypes on **inputs**; result structs return plain `f64`. Four input
-parameters remain untyped because no suitable type exists yet: solar angles (`solar_gain`,
-`transpose_sharp_altitude` — `measurements::Angle` is not re-exported), irradiance in W/m²
-(`esi`, `solar_gain`), and the blood-flow and sweating caps in `use_fans_heatwaves`.
+Also defined here and used on **results**, not just inputs:
+- `HeatFluxDensity` - a density of heat flow rate (W/m²), distinct from `Power` over the
+  whole body
+- `CardiacIndex`, `ActivityRatio`, `BodyFat`, `BmrEquation` - JOS3's body parameters
+- `Angle` - re-exported from `measurements` for solar geometry
+
+Physical quantities are newtypes on inputs **and** outputs: an absolute temperature comes
+back as `Temperature`, a temperature *difference* as `TemperatureDelta`, a heat flow as
+`HeatFluxDensity`. Genuinely dimensionless results (PMV, PPD, and indices such as WBGT and
+UTCI that are expressed in temperature-like units without being thermodynamic temperatures)
+stay `f64`.
+
+Every model takes a named `XInputs` struct for the parameters upstream requires, plus a
+defaulted `XOptions` for the ones it defaults — mirroring pythermalcomfort's own split, so a
+call transfers between the two libraries by reading. `XInputs` deliberately has no `Default`,
+so every required field must be named at the call site: the models take long runs of
+same-typed arguments (`solar_gain` has seven consecutive `f64`, five of them fractions) and
+no type system distinguishes those from one another.
 
 ### The `std` feature (deprecated no-op)
 
@@ -112,16 +127,19 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+use thermalcomfort::models::sports_heat_stress_risk::{
+    Sports, SportsHeatStressRiskInputs, sports_heat_stress_risk,
+};
 
 fn main() {
-    let result = sports_heat_stress_risk(
-        Temperature::from_celsius(35.0),
-        Temperature::from_celsius(35.0),
-        Humidity::from_percent(40.0),
-        Speed::from_meters_per_second(0.1),
-        Sports::RUNNING,
-    );
+    let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+        tdb: Temperature::from_celsius(35.0),
+        tr: Temperature::from_celsius(35.0),
+        rh: Humidity::from_percent(40.0),
+        vr: Speed::from_meters_per_second(0.1),
+        sport: Sports::RUNNING,
+    })
+    .expect("35°C is a determinate risk level");
 
     println!("Risk level: {:.1}", result.risk_level_interpolated); // 2.1 (Moderate)
     println!("Recommendation: {}", result.recommendation);
@@ -132,18 +150,24 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::utci;
+use thermalcomfort::models::{utci, UtciInputs};
 
 fn main() {
     let result = utci(
-        Temperature::from_celsius(25.0),
-        Temperature::from_celsius(27.0),
-        Speed::from_meters_per_second(1.0),
-        Humidity::from_percent(50.0),
-        Default::default()
+        UtciInputs {
+            dry_bulb_temp: Temperature::from_celsius(25.0),
+            mean_radiant_temp: Temperature::from_celsius(27.0),
+            wind_speed: Speed::from_meters_per_second(1.0),
+            relative_humidity: Humidity::from_percent(50.0),
+        },
+        Default::default(),
     );
     println!("UTCI: {:.1}°C", result.utci);
-    println!("Stress: {}", result.stress_category.as_str());
+    match result.stress_category {
+        Some(c) => println!("Stress: {}", c.as_str()),
+        // `None` where the index falls outside the categorised range
+        None => println!("Stress: uncategorised"),
+    }
 }
 ```
 
@@ -151,17 +175,19 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::pet_steady;
+use thermalcomfort::models::{pet_steady, PetInputs};
 
 fn main() {
     let result = pet_steady(
-        Temperature::from_celsius(25.0),
-        Temperature::from_celsius(27.0),
-        Speed::from_meters_per_second(1.0),
-        Humidity::from_percent(50.0),
-        MetabolicRate::from_met(1.5),
-        ClothingInsulation::from_clo(1.0),
-        Default::default()
+        PetInputs {
+            tdb: Temperature::from_celsius(25.0),
+            tr: Temperature::from_celsius(27.0),
+            v: Speed::from_meters_per_second(1.0),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(1.5),
+            clo: ClothingInsulation::from_clo(1.0),
+        },
+        Default::default(),
     );
     println!("PET: {:.1}°C", result.pet);
 }
@@ -171,23 +197,25 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::{phs, PhsPosture, PhsOptions};
+use thermalcomfort::models::{phs, PhsInputs, PhsPosture};
 
 fn main() {
     let result = phs(
-        Temperature::from_celsius(40.0),
-        Temperature::from_celsius(40.0),
-        Speed::from_meters_per_second(0.3),
-        Humidity::from_percent(33.85),
-        MetabolicRate::from_met(2.5),
-        ClothingInsulation::from_clo(0.5),
-        PhsPosture::Standing,
-        PhsOptions::default()
+        PhsInputs {
+            tdb: Temperature::from_celsius(40.0),
+            tr: Temperature::from_celsius(40.0),
+            v: Speed::from_meters_per_second(0.3),
+            rh: Humidity::from_percent(33.85),
+            met: MetabolicRate::from_met(2.5),
+            clo: ClothingInsulation::from_clo(0.5),
+            posture: PhsPosture::Standing,
+        },
+        Default::default(),
     );
 
-    println!("Rectal temperature: {:.1}°C", result.t_re);
+    println!("Rectal temperature: {:.1}°C", result.t_re.as_celsius());
     println!("Max exposure (50%): {:.0} min", result.d_lim_loss_50);
-    println!("Sweat loss: {:.0} g", result.sweat_loss_g);
+    println!("Sweat loss: {:.0} g", result.sweat_loss_g.as_grams());
 }
 ```
 
@@ -199,23 +227,25 @@ long exposure can last when the clothing available is not enough.
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 use thermalcomfort::AirPermeability;
-use thermalcomfort::models::{ireq, IreqOptions, DurationLimitedExposure};
+use thermalcomfort::models::{ireq, IreqInputs, DurationLimitedExposure};
 
 fn main() {
     let result = ireq(
-        Temperature::from_celsius(-15.0),
-        Temperature::from_celsius(-15.0),
-        Speed::from_meters_per_second(2.0),
-        Humidity::from_percent(55.0),
-        MetabolicRate::from_met(175.0 / 58.15),
-        ClothingInsulation::from_clo(2.8),
-        AirPermeability::from_l_per_m2_s(50.0),
-        Speed::from_meters_per_second(1.1),
-        IreqOptions::default()
+        IreqInputs {
+            tdb: Temperature::from_celsius(-15.0),
+            tr: Temperature::from_celsius(-15.0),
+            vr: Speed::from_meters_per_second(2.0),
+            rh: Humidity::from_percent(55.0),
+            met: MetabolicRate::from_met(175.0 / 58.15),
+            clo: ClothingInsulation::from_clo(2.8),
+            p: AirPermeability::from_l_per_m2_s(50.0),
+            walk_sp: Speed::from_meters_per_second(1.1),
+        },
+        Default::default(),
     );
 
-    println!("Required insulation (minimal): {:.1} clo", result.ireq_min);
-    println!("Required insulation (neutral): {:.1} clo", result.ireq_neutral);
+    println!("Required insulation (minimal): {:.1} clo", result.ireq_min.as_clo());
+    println!("Required insulation (neutral): {:.1} clo", result.ireq_neutral.as_clo());
 
     match result.dle_min {
         DurationLimitedExposure::Hours(h) => println!("Exposure limit: {h:.1} h"),
@@ -261,7 +291,7 @@ fn main() {
 ### Clothing Insulation Lookups
 
 ```rust
-use thermalcomfort::{clo_typical_ensemble, clo_individual_garment};
+use thermalcomfort::{clo_typical_ensemble, clo_individual_garment, ClothingInsulation};
 use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
 
 fn main() {
@@ -272,7 +302,7 @@ fn main() {
     let pants = clo_individual_garment("Thick trousers").unwrap();
     let underwear = clo_individual_garment("Men's underwear").unwrap();
 
-    let garments = [shirt, pants, underwear];
+    let garments = [shirt, pants, underwear].map(ClothingInsulation::from_clo);
     let total_clo = clo_intrinsic_insulation_ensemble(&garments);
     println!("Total ensemble: {:.2} clo", total_clo); // ~0.60 clo
 }
@@ -288,15 +318,19 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce identical results to pythermalcomfort v4.4.0, in the one build
-configuration the crate has. There is no accuracy trade-off to choose between.
+All models produce results identical to pythermalcomfort v4.4.0 across the swept input
+space, in the one build configuration the crate has. There is no accuracy trade-off to
+choose between. The four edge-case divergences that remain are listed under
+[Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
 
 Verification is a randomised differential sweep (see [Testing](#testing)) that drives
 every model through pseudo-random input vectors covering its optional parameters, not
 just its physical inputs, and compares every output field against Python. Divergences
-found this way are fixed in the port; tolerances are only widened where the difference is
-demonstrably float-representation noise, and the two places that needed a documented
-exclusion say so in the test.
+found this way are fixed in the port rather than tolerated: a tolerance is widened only
+where the residue is demonstrably float-representation noise, and each such place says so
+in the test and states what resolution was given up. Where a model rounds its own outputs
+upstream, the sweep cannot see drift below that rounding step — which is why run lengths
+are chosen so accumulated drift would exceed it.
 
 Earlier releases shipped a second, hand-written PET solver for `no_std` and documented it
 as less accurate in extreme cold+wind. Both the second solver and the caveat are gone: the
@@ -306,21 +340,28 @@ measured, so the duplicate was deleted rather than kept as a choice.
 ## Coverage
 
 Every public function is checked against pythermalcomfort by `make parity-coverage`, and
-every one except `two_nodes_gagge_sleep` is additionally driven through the randomised
-differential sweep. One gap is known:
+every one is driven through the randomised differential sweep. The checker runs in both
+directions, so an upstream release growing a model this port lacks fails the build.
 
-| Gap | Status |
-|-----|--------|
-| `JOS3` | **Port in progress.** pythermalcomfort's 17-segment whole-body thermoregulation model; see `docs/worklist/parity/`. |
+Four divergences are known and deliberate. Each is a case where the two libraries disagree
+about an input at the edge of what the model can answer; none affects ordinary results.
 
-`two_nodes_gagge_sleep` is now a faithful port of the Yan et al. (2022) model: it simulates
-the night minute by minute and takes a per-minute schedule for each driving variable, as
-upstream does. It previously delegated to the standard Gagge model at a fixed 0.7 met, so
+| Divergence | Detail |
+|---|---|
+| `pet_steady` returns `NaN` where scipy returns a number | Rust's 3-node Newton demands a 1e-5 residual. scipy's `fsolve` stops on step size and accepts points whose energy balance is still ~0.3 W/m² out. Where no root meets the stricter bar this port reports `NaN` rather than a wrong number. |
+| `two_nodes_gagge_sleep` returns infinity where Python raises `OverflowError` | Hot, humid and heavily quilted, the model's own exponentials overflow. Confined to inputs upstream declines to answer at all. |
+| `JOS3` drift below one rounding step is invisible to the sweep | Upstream rounds its own outputs (2 dp for most fields), so there is no unrounded reference to compare against. |
+| One `JOS3` sample in 3000 is skipped as ill-conditioned | The chest segment can sit exactly on the wettedness saturation clip, where the answer stops being a function of the inputs at any resolution the sweep can see. Skipped only after re-running Python against itself with the input moved one ULP confirms upstream's own answer has already moved. |
+
+`two_nodes_gagge_sleep` is a faithful port of the Yan et al. (2022) model: it simulates the
+night minute by minute and takes a per-minute schedule for each driving variable, as upstream
+does. It previously delegated to the standard Gagge model at a fixed 0.7 met, so
 `quilt_thickness` had no effect at all. All ten output trajectories are compared against
-pythermalcomfort to 1e-9 in `tests/python_comparison.rs`.
+pythermalcomfort to 1e-9.
 
-Outstanding work is tracked in `docs/worklist/parity/` and
-`docs/superpowers/plans/outstanding-parity-work.md`.
+`JOS3` is ported in full — all 17 body segments, the 85-node thermal network and the
+per-timestep dense solve — with every output field compared against upstream and driven
+through the sweep.
 
 ## Testing
 

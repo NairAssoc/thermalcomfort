@@ -6,6 +6,7 @@
 use approx::assert_abs_diff_eq;
 use core::time::Duration;
 use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -4316,7 +4317,8 @@ fn test_sports_heat_stress_risk_comparison() {
                 rh: Humidity::from_percent(*rh),
                 vr: Speed::from_meters_per_second(*vr),
                 sport: *rust_sport,
-            });
+            })
+            .expect("none of the fixed test cases have a NaN tdb");
 
             println!(
                 "  Python - risk: {}, t_med: {}, t_high: {}, t_ext: {}",
@@ -4345,6 +4347,53 @@ fn test_sports_heat_stress_risk_comparison() {
             );
             assert_eq!(rust_result.recommendation, py_recommendation.as_str());
         }
+    });
+}
+
+/// A NaN `tdb` leaves every risk-band comparison false on both sides: Python raises
+/// `ValueError("Risk level could not be determined due to NaN thresholds.")`
+/// (`sports_heat_stress_risk.py:372-373`) and Rust must return
+/// `Err(SportsHeatStressRiskError::NanRiskLevel)` at the same point, rather than the two
+/// disagreeing about whether the inputs are even determinate.
+#[test]
+fn test_sports_heat_stress_risk_nan_tdb_matches_python_raise() {
+    use thermalcomfort::models::sports_heat_stress_risk::{
+        Sports, SportsHeatStressRiskError, sports_heat_stress_risk,
+    };
+
+    Python::with_gil(|py| {
+        let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
+            .expect("Failed to import sports_heat_stress_risk module");
+        let py_sports_class = sports_mod
+            .getattr("Sports")
+            .expect("Failed to get Sports class");
+        let py_func = sports_mod
+            .getattr("sports_heat_stress_risk")
+            .expect("Failed to get sports_heat_stress_risk function");
+        let py_sport = py_sports_class.getattr("RUNNING").unwrap();
+
+        let kwargs = pyo3::types::PyDict::new(py);
+        kwargs.set_item("tdb", f64::NAN).unwrap();
+        kwargs.set_item("tr", 35.0).unwrap();
+        kwargs.set_item("rh", 40.0).unwrap();
+        kwargs.set_item("vr", 0.1).unwrap();
+        kwargs.set_item("sport", py_sport).unwrap();
+        let py_call = py_func.call((), Some(&kwargs));
+
+        match py_call {
+            Err(e) if e.is_instance_of::<PyValueError>(py) => {}
+            Err(e) => panic!("python raised an unexpected error: {e}"),
+            Ok(result) => panic!("python did not raise for a NaN tdb: {result:?}"),
+        }
+
+        let rust_result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+            tdb: Temperature::from_celsius(f64::NAN),
+            tr: Temperature::from_celsius(35.0),
+            rh: Humidity::from_percent(40.0),
+            vr: Speed::from_meters_per_second(0.1),
+            sport: Sports::RUNNING,
+        });
+        assert_eq!(rust_result, Err(SportsHeatStressRiskError::NanRiskLevel));
     });
 }
 
