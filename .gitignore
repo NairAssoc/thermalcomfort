@@ -1,3 +1,7 @@
 /target
 Cargo.lock
 /.parity-venv
+
+# Python bytecode from scripts/ and the parity venv
+__pycache__/
+*.py[cod]
