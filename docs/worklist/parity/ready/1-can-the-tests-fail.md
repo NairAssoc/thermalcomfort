@@ -33,7 +33,7 @@ Done, no action needed:
   `tests/support/sweep.rs` fails the sweep if the excluded share exceeds a documented
   ceiling, and each ceiling carries its measured rate.
 
-## Gap 1 — CLOSED 2026-08-26, but not the way this item expected
+## Gap 1 — closed, but not the way this item expected
 
 Both fields are now compared in `sweep_pmv_ppd_iso` and `sweep_pmv_ppd_ashrae`, via
 `compare_category` and a new `compare_optional_bool`/`py_optional_bool` pair.
@@ -115,22 +115,6 @@ exact-equality caps rather than on a rounded output:
 - `IreqResult.dle_min`/`dle_neutral` — `Hours` vs `MoreThanEight` at `dle == 0.0` and
   `dle == 8.0`.
 
-## Original text of Gap 1 — `tsv` and `compliance` are never swept
-
-`PmvPpdResult` has four fields. `pmv` and `ppd` are swept; `tsv` (thermal sensation
-category) and `compliance` are **not** — 0 occurrences in `tests/differential_sweep.rs`.
-They appear only in `tests/python_comparison.rs`, at a handful of fixed points.
-
-This is the highest-value gap on the list because `tsv` is a **band categorisation**, and
-band edges on this branch have already produced two bugs: `b88bbc0` (the ISO and ASHRAE
-sensation bands were conflated) and `18bf5ff` (UTCI's stress-category edges, plus it should
-have been an `Option`). A discrete output driven by a float is precisely where a 1e-14
-difference becomes a wrong answer — the JOS3 boundary bug (`28adfa8`) was the same mechanism.
-
-Add both to `sweep_pmv_ppd_iso` and `sweep_pmv_ppd_ashrae`, comparing the categorical value
-against Python's. `UtciResult.stress_category` is already swept and shows how to compare an
-`Option<enum>` against a Python string.
-
 ## Gap 2 — nobody has shown the other sweeps can fail
 
 Two guards have been fault-injection tested, both ad hoc:
@@ -185,7 +169,18 @@ is the obvious place to start this gap.
 ## What "confident" can honestly mean here
 
 Not "there are no bugs". The reachable claim is: *every public function is compared against
-upstream over a randomised domain at 1e-9, every output field is compared, and every guard
-that can exclude a sample has been shown to fail when it should.* The first is true today,
-the second is true except for `tsv`/`compliance`, and the third is true for two guards out of
-roughly fifty. Gaps 1 and 2 are what close it.
+upstream over a randomised domain, every output field is compared, every discrete output is
+compared at its band edges, and every guard that can exclude a sample has been shown to fail
+when it should.*
+
+As of 2026-08-26: the first is true, but at each sweep's own tolerance, not a uniform 1e-9
+(see the correction above). The second is true. The third is true for `tsv`, `compliance`,
+the four banded indices and the adaptive acceptability flags, and false for the four sites
+still listed under "Still open". The fourth is true for two guards out of roughly fifty.
+
+Gap 2 is the bulk of what remains, and the edge work above has changed what it should be.
+A uniform 1e-6 perturbation per model is the right probe for a *continuous* output and the
+wrong one for a discrete one — a 1e-6 shift in a float that feeds a band comparison changes
+nothing unless the sample happens to sit within 1e-6 of an edge, which is exactly why the
+sweep missed six of the eight faults injected above. Split Gap 2 in two: perturbation for
+continuous fields, edge fixtures for discrete ones.
