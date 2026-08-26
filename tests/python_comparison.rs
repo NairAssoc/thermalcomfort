@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
-use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
+use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions, PmvPpdInputs,
     PmvPpdIsoOptions,
@@ -4905,10 +4905,14 @@ fn test_jos3_constructor_variation_comparison() {
 
 /// Posture variation: every posture string upstream's setter actually recognizes
 /// (`models/jos3.py:1471-1491`) -- `standing`; `sitting`/`sedentary`; `lying`/`supine`.
-/// `Reclining`/`Crouching` are not among them: upstream's setter silently leaves the
-/// previous posture in place for an unrecognized string rather than raising (a defect,
-/// not behaviour -- see `Jos3Error::UnsupportedPosture`, which refuses those two instead
-/// of reproducing the silent no-op), so they are deliberately not swept here.
+/// `reclining`/`crouching` are not among them, and upstream's setter silently leaves the
+/// previous posture in place for an unrecognized string rather than raising; `Jos3Posture`
+/// has no variant for either, so there is nothing to sweep.
+///
+/// All five strings are driven against three Rust variants on purpose. `Jos3Posture`
+/// collapses `sedentary` into `Sitting` and `supine` into `Lying` on the claim that
+/// upstream treats them as aliases; driving Python with the alias string and Rust with
+/// the collapsed variant is what keeps that claim under test.
 #[test]
 fn test_jos3_posture_variants_comparison() {
     Python::with_gil(|py| {
@@ -4916,11 +4920,11 @@ fn test_jos3_posture_variants_comparison() {
             .expect("Failed to import pythermalcomfort.models");
 
         let postures = [
-            (Posture::Standing, "standing"),
-            (Posture::Sitting, "sitting"),
-            (Posture::Sedentary, "sedentary"),
-            (Posture::Lying, "lying"),
-            (Posture::Supine, "supine"),
+            (Jos3Posture::Standing, "standing"),
+            (Jos3Posture::Sitting, "sitting"),
+            (Jos3Posture::Sitting, "sedentary"),
+            (Jos3Posture::Lying, "lying"),
+            (Jos3Posture::Lying, "supine"),
         ];
 
         for (posture, posture_str) in postures {
@@ -5094,7 +5098,7 @@ fn test_jos3_multiphase_run_comparison() {
             conditions.v = PerBodyPart::BySegment(v2);
             conditions.clo = PerBodyPart::BySegment(clo2);
             conditions.par = ActivityRatio::from_ratio(1.5);
-            conditions.posture = Posture::Sitting;
+            conditions.posture = Jos3Posture::Sitting;
             rust_model
                 .advance(&conditions, 4, Duration::from_secs_f64(37.5))
                 .unwrap_or_else(|e| panic!("{}: phase 2 advance failed: {e}", subject.label));
@@ -5124,7 +5128,7 @@ fn test_jos3_multiphase_run_comparison() {
             conditions.rh = PerBodyPart::BySegment(rh3);
             conditions.v = PerBodyPart::Uniform(0.15);
             conditions.clo = PerBodyPart::Uniform(0.8);
-            conditions.posture = Posture::Lying;
+            conditions.posture = Jos3Posture::Lying;
             conditions.to = Some(PerBodyPart::ByName(&by_name));
             rust_model
                 .advance(&conditions, 3, Duration::from_secs(90))

@@ -42,3 +42,8 @@ pub use parameters::{ClothingEnsemble, LOCAL_CLO_TYPICAL_ENSEMBLES};
 // part of the error surface actually nameable from outside the crate.
 pub use construction::{BodyParameterError, BodyPartsInputError};
 pub use thermoregulation::ThermoregulationError;
+// `Jos3Conditions::posture`'s type. Named `Posture` inside `thermoregulation` (where it
+// keys the convective/radiative coefficient tables) and re-exported under the
+// model-qualified name the rest of the crate uses for a per-model posture enum, beside
+// `models::pet::Posture` and `models::phs::PhsPosture`.
+pub use thermoregulation::Posture as Jos3Posture;

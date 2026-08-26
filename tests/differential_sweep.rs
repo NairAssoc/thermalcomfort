@@ -18,7 +18,7 @@ use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::sweep::{import_reference, report_skipped, run_sweep};
-use thermalcomfort::models::jos3::{Jos3Builder, Jos3Results, PerBodyPart};
+use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
@@ -2061,12 +2061,17 @@ fn sweep_jos3() {
             let v = s.real("v");
             let clo = s.real("clo");
             let par = s.real("par");
+            // Five Python strings, three Rust variants: `Jos3Posture` collapses the
+            // pairs upstream's setter maps to one coefficient table. The axis keeps all
+            // five rather than narrowing to three, so a sample driving Python with
+            // "sedentary"/"supine" against Rust's Sitting/Lying still has to agree --
+            // that alias claim is the reason the collapse is safe, so it stays tested.
             let (posture, py_posture) = match s.index("posture") {
-                0 => (Posture::Standing, "standing"),
-                1 => (Posture::Sitting, "sitting"),
-                2 => (Posture::Sedentary, "sedentary"),
-                3 => (Posture::Lying, "lying"),
-                _ => (Posture::Supine, "supine"),
+                0 => (Jos3Posture::Standing, "standing"),
+                1 => (Jos3Posture::Sitting, "sitting"),
+                2 => (Jos3Posture::Sitting, "sedentary"),
+                3 => (Jos3Posture::Lying, "lying"),
+                _ => (Jos3Posture::Lying, "supine"),
             };
             let dtime = s.real("dtime");
             // At least "a few hundred steps" per the brief; see the comment above the
