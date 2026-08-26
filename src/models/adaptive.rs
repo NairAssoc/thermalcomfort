@@ -3,9 +3,7 @@
 //! Adaptive models relate indoor design temperatures to outdoor climate parameters.
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
-use crate::psychrometrics::{
-    OperativeTemperatureInputs, OperativeTemperatureOptions, operative_temperature,
-};
+use crate::psychrometrics::operative_temperature_celsius;
 use crate::utilities::{Units, round_to};
 use measurements::{Speed, Temperature};
 
@@ -197,13 +195,14 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
     let running_mean_celsius = t_running_mean.as_celsius();
     let speed_mps = v.as_meters_per_second();
 
-    // Calculate operative temperature (use_ashrae=true for adaptive models)
-    let to = operative_temperature(
-        OperativeTemperatureInputs { tdb, tr, v },
-        OperativeTemperatureOptions { use_ashrae: true },
-    );
+    // Calculate operative temperature (use_ashrae=true for adaptive models).
+    // The plain-f64 core, NOT `operative_temperature`: `to` is compared against the
+    // comfort bounds below, and a `Temperature` round-trip through kelvin shifts it by
+    // ~2e-14, which flips `acceptability_*` for a `to` sitting exactly on a bound.
+    let to_celsius =
+        operative_temperature_celsius(dry_bulb_celsius, radiant_celsius, speed_mps, true);
 
-    let ce = adaptive_cooling_effect(speed_mps, to.as_celsius());
+    let ce = adaptive_cooling_effect(speed_mps, to_celsius);
 
     // Comfort temperature based on running mean outdoor temperature
     // ASHRAE 55-2023 adaptive comfort equation:
@@ -241,7 +240,6 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
 
     // Check acceptability against the SI values (unaffected by the `units` output
     // rescale below)
-    let to_celsius = to.as_celsius();
     let acceptability_80 =
         !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
     let acceptability_90 =
@@ -311,13 +309,12 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     let running_mean_celsius = t_running_mean.as_celsius();
     let speed_mps = v.as_meters_per_second();
 
-    // EN 16798 uses the ISO operative temperature formulation, unlike adaptive_ashrae
-    let to = operative_temperature(
-        OperativeTemperatureInputs { tdb, tr, v },
-        OperativeTemperatureOptions { use_ashrae: false },
-    );
+    // EN 16798 uses the ISO operative temperature formulation, unlike adaptive_ashrae.
+    // Plain-f64 core for the same reason as adaptive_ashrae above.
+    let to_celsius =
+        operative_temperature_celsius(tdb.as_celsius(), tr.as_celsius(), speed_mps, false);
 
-    let ce = adaptive_cooling_effect(speed_mps, to.as_celsius());
+    let ce = adaptive_cooling_effect(speed_mps, to_celsius);
 
     // Comfort temperature based on running mean outdoor temperature
     // EN 16798-1:2019 adaptive comfort equation:
@@ -345,7 +342,6 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     let tmp_cmf_cat_iii_up = t_cmf + 4.0 + ce;
 
     // Acceptability is evaluated against the unrounded SI bounds
-    let to_celsius = to.as_celsius();
     let acceptability_cat_i = to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
     let acceptability_cat_ii = to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
     let acceptability_cat_iii =

@@ -2047,6 +2047,220 @@ fn test_banded_indices_at_exact_edges() {
     });
 }
 
+/// Weaker sibling of [`assert_is_really_the_edge`] for a bound that cannot be probed on
+/// the edge itself: require only that Python's verdict differs a millidegree either side,
+/// which still proves the edge lies between the two probes.
+fn assert_brackets_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label: &str) {
+    let [below, _, above] = verdicts;
+    let (inside, outside) = if is_lower {
+        (above, below)
+    } else {
+        (below, above)
+    };
+    assert_eq!(
+        inside,
+        Some(true),
+        "{label}: Python rejects a millidegree inside the bound, so the bound is wrong"
+    );
+    assert_eq!(
+        outside,
+        Some(false),
+        "{label}: Python still accepts a millidegree outside the bound, so this case does \
+         not bracket the edge and proves nothing"
+    );
+}
+
+/// Prove a reported band bound really is the edge: Python's own verdict must flip across
+/// it. `is_lower` picks which side is expected to be outside the band.
+fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label: &str) {
+    let [below, at, above] = verdicts;
+    assert_eq!(
+        at,
+        Some(true),
+        "{label}: Python does not accept the bound itself, so it is not the edge"
+    );
+    let outside = if is_lower { below } else { above };
+    assert_eq!(
+        outside,
+        Some(false),
+        "{label}: Python still accepts a millidegree outside the bound, so the reported \
+         (rounded) bound is not the true (unrounded) edge and this case proves nothing"
+    );
+}
+
+/// The adaptive acceptability flags exactly on their band bounds.
+///
+/// `acceptability_80`/`_90` and `acceptability_cat_i`/`_ii`/`_iii` are `low <= to <= up`
+/// against bounds the model reports itself, so unlike the fixed-literal indices the edge
+/// *moves with the input*. That makes them unreachable by the scan used in
+/// [`test_banded_indices_at_exact_edges`], and the differential sweep never lands on them
+/// either -- randomised reals do not hit a computed bound.
+///
+/// The technique: ask Python for the bounds, then feed each one back as `tdb = tr = bound`
+/// so the operative temperature *is* the bound exactly, and require Rust to agree with
+/// Python at the bound and a millidegree either side. The test asserts agreement rather
+/// than a hardcoded verdict, so it stays correct if upstream changes the inclusivity --
+/// it is a parity test, not a transcription of the rule.
+///
+/// **The catch this guards against:** acceptability is evaluated against the *unrounded*
+/// bounds, while the reported `tmp_cmf_*` fields are rounded. Feeding a reported bound
+/// back only probes the true edge where the two coincide. `t_running_mean = 20` is chosen
+/// because `0.31 * 20 + 17.8` is exactly 24.0, so every bound is exact -- and
+/// `assert_is_really_the_edge` below proves it rather than trusting it, by requiring
+/// Python's own verdict to flip across the bound. Without that guard this test would
+/// quietly degrade into an interior-point check if the arithmetic ever stopped landing
+/// exactly, which is the failure mode this whole worklist item exists to prevent.
+#[test]
+fn test_adaptive_acceptability_at_band_bounds() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let t_running_mean = 20.0;
+        let v = 0.1;
+
+        // ASHRAE: (bound field, acceptability field)
+        let ashrae_bounds = [
+            ("tmp_cmf_80_low", "acceptability_80"),
+            ("tmp_cmf_80_up", "acceptability_80"),
+            ("tmp_cmf_90_low", "acceptability_90"),
+            ("tmp_cmf_90_up", "acceptability_90"),
+        ];
+
+        let seed = models
+            .getattr("adaptive_ashrae")
+            .unwrap()
+            .call1((25.0, 25.0, t_running_mean, v))
+            .expect("adaptive_ashrae raised");
+
+        for (bound_field, acc_field) in ashrae_bounds {
+            let bound: f64 = seed.getattr(bound_field).unwrap().extract().unwrap();
+            let mut verdicts = [None; 3];
+
+            for (slot, offset) in [-0.001, 0.0, 0.001].into_iter().enumerate() {
+                let to = bound + offset;
+                let label = format!("adaptive_ashrae {bound_field}={bound} offset={offset}");
+
+                let py_result = models
+                    .getattr("adaptive_ashrae")
+                    .unwrap()
+                    .call1((to, to, t_running_mean, v))
+                    .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+                let py_acc = extract_optional_bool(&py_result.getattr(acc_field).unwrap());
+
+                let rust = adaptive_ashrae(
+                    AdaptiveInputs {
+                        tdb: Temperature::from_celsius(to),
+                        tr: Temperature::from_celsius(to),
+                        t_running_mean: Temperature::from_celsius(t_running_mean),
+                        v: Speed::from_meters_per_second(v),
+                    },
+                    Default::default(),
+                );
+                let rust_acc = if acc_field == "acceptability_80" {
+                    rust.acceptability_80
+                } else {
+                    rust.acceptability_90
+                };
+
+                assert_eq!(
+                    Some(rust_acc),
+                    py_acc,
+                    "{label}: Rust {rust_acc}, Python {py_acc:?}"
+                );
+                verdicts[slot] = py_acc;
+            }
+            assert_is_really_the_edge(
+                verdicts,
+                bound_field.ends_with("_low"),
+                &format!("adaptive_ashrae {bound_field}"),
+            );
+        }
+
+        // EN: three nested category bands.
+        //
+        // Two things differ from the ASHRAE half. First, `t_running_mean = 10.0`: EN
+        // converts each bound to the output unit and only then rounds it
+        // (`adaptive_en.py:140-162`), so at t_rm = 20 the reported bounds are *not* the
+        // unrounded ones acceptability is evaluated against, and every case would have
+        // degenerated into an interior-point check. `assert_is_really_the_edge` caught
+        // that.
+        //
+        // Second, EN is probed a millidegree either side of each bound and NOT on the
+        // bound itself, because its bounds are not binary-representable. ASHRAE's are
+        // (t_cmf is rounded before the +/-3.5 and +/-2.5 offsets, giving values like
+        // 20.5 and 27.5, which survive `Temperature`'s kelvin round-trip exactly), so
+        // that half can sit on the edge. EN's cat_i_up at t_rm = 10 is 24.1, and
+        // `Temperature::from_celsius(24.1).as_celsius()` is 24.100000000000023 -- above
+        // the bound. Probing there would measure the newtype's representation, not the
+        // banding rule this test is for. See the worklist item for that divergence,
+        // which is real and separate.
+        let t_running_mean = 10.0;
+        let en_bounds = [
+            ("tmp_cmf_cat_i_low", "acceptability_cat_i"),
+            ("tmp_cmf_cat_i_up", "acceptability_cat_i"),
+            ("tmp_cmf_cat_ii_low", "acceptability_cat_ii"),
+            ("tmp_cmf_cat_ii_up", "acceptability_cat_ii"),
+            ("tmp_cmf_cat_iii_low", "acceptability_cat_iii"),
+            ("tmp_cmf_cat_iii_up", "acceptability_cat_iii"),
+        ];
+
+        let seed = models
+            .getattr("adaptive_en")
+            .unwrap()
+            .call1((25.0, 25.0, t_running_mean, v))
+            .expect("adaptive_en raised");
+
+        for (bound_field, acc_field) in en_bounds {
+            let bound: f64 = seed.getattr(bound_field).unwrap().extract().unwrap();
+            let mut verdicts = [None; 3];
+
+            for (slot, offset) in [-0.001, f64::NAN, 0.001].into_iter().enumerate() {
+                if offset.is_nan() {
+                    // The on-the-bound probe, skipped for EN: see the comment above.
+                    continue;
+                }
+                let to = bound + offset;
+                let label = format!("adaptive_en {bound_field}={bound} offset={offset}");
+
+                let py_result = models
+                    .getattr("adaptive_en")
+                    .unwrap()
+                    .call1((to, to, t_running_mean, v))
+                    .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+                let py_acc = extract_optional_bool(&py_result.getattr(acc_field).unwrap());
+
+                let rust = adaptive_en(
+                    AdaptiveInputs {
+                        tdb: Temperature::from_celsius(to),
+                        tr: Temperature::from_celsius(to),
+                        t_running_mean: Temperature::from_celsius(t_running_mean),
+                        v: Speed::from_meters_per_second(v),
+                    },
+                    Default::default(),
+                );
+                let rust_acc = match acc_field {
+                    "acceptability_cat_i" => rust.acceptability_cat_i,
+                    "acceptability_cat_ii" => rust.acceptability_cat_ii,
+                    _ => rust.acceptability_cat_iii,
+                };
+
+                assert_eq!(
+                    Some(rust_acc),
+                    py_acc,
+                    "{label}: Rust {rust_acc}, Python {py_acc:?}"
+                );
+                verdicts[slot] = py_acc;
+            }
+            assert_brackets_the_edge(
+                verdicts,
+                bound_field.ends_with("_low"),
+                &format!("adaptive_en {bound_field}"),
+            );
+        }
+    });
+}
+
 /// `discomfort_index` bands the *unrounded* DI and rounds only the reported value --
 /// the opposite order from `utci`, `humidex` and `heat_index_rothfusz`, which round
 /// first and band the rounded value.

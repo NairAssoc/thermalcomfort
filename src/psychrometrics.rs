@@ -365,11 +365,30 @@ pub fn operative_temperature(
     options: OperativeTemperatureOptions,
 ) -> Temperature {
     let OperativeTemperatureInputs { tdb, tr, v } = inputs;
-    let tdb_celsius = tdb.as_celsius();
-    let tr_celsius = tr.as_celsius();
-    let v_ms = v.as_meters_per_second();
+    Temperature::from_celsius(operative_temperature_celsius(
+        tdb.as_celsius(),
+        tr.as_celsius(),
+        v.as_meters_per_second(),
+        options.use_ashrae,
+    ))
+}
 
-    let to_celsius = if options.use_ashrae {
+/// Plain-`f64` core of [`operative_temperature`], in °C throughout.
+///
+/// In-crate callers must use this rather than [`operative_temperature`]. `Temperature`
+/// stores kelvin, so `from_celsius(x).as_celsius()` is not the identity -- 24.1 comes
+/// back as 24.100000000000023. That is harmless for a reported value and *not* harmless
+/// where the result feeds a comparison against a band edge: it made `adaptive_ashrae` and
+/// `adaptive_en` disagree with pythermalcomfort on `acceptability_*` for an operative
+/// temperature sitting exactly on a comfort bound, the same mechanism as the JOS3
+/// ISO-7730-limit bug fixed in 28adfa8.
+pub(crate) fn operative_temperature_celsius(
+    tdb_celsius: f64,
+    tr_celsius: f64,
+    v_ms: f64,
+    use_ashrae: bool,
+) -> f64 {
+    if use_ashrae {
         // ASHRAE 55 method with speed-dependent weighting factor
         // Thresholds and weights:
         // v < 0.2 m/s: a = 0.5 (equal weighting of air and radiant temp)
@@ -387,8 +406,7 @@ pub fn operative_temperature(
         // ISO 7730 method
         // 10.0 = velocity scaling factor for convective heat transfer
         (tdb_celsius * sqrt(10.0 * v_ms) + tr_celsius) / (1.0 + sqrt(10.0 * v_ms))
-    };
-    Temperature::from_celsius(to_celsius)
+    }
 }
 
 #[cfg(test)]

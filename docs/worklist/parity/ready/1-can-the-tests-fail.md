@@ -97,8 +97,16 @@ like a bug.
 **Still open**, and needing a different technique because their edges are on inputs or on
 exact-equality caps rather than on a rounded output:
 
-- `AdaptiveAshraeResult.acceptability_80`/`_90` and `AdaptiveEnResult.acceptability_cat_i`
-  /`_ii`/`_iii` — the bound is `t_cmf ± offset`, so the edge moves with the input.
+- ~~`AdaptiveAshraeResult.acceptability_80`/`_90` and `AdaptiveEnResult.
+  acceptability_cat_i`/`_ii`/`_iii`~~ — DONE 2026-08-26,
+  `test_adaptive_acceptability_at_band_bounds`. Technique: ask Python for the bounds and
+  feed each back as `tdb = tr = bound`. Two things came out of it. The guard
+  (`assert_is_really_the_edge`, requiring Python's own verdict to flip across the bound)
+  fired immediately on EN and revealed that half the test was vacuous — EN rounds each
+  bound *after* unit conversion, so the reported bound is not the one acceptability is
+  evaluated against. And probing EN on the bound surfaced a real divergence from
+  upstream that is nothing to do with banding: see
+  `2-temperature-newtype-is-lossy-at-the-boundary.md`, which needs a decision.
 - `SportsHeatStressRisk.recommendation` — edges at risk level 2.0/3.0/4.0, but the value
   is a brentq root, so landing on one exactly needs solving rather than scanning.
 - `UseFansHeatwavesResult.heat_strain*` — driven by exact `==` against the caps
