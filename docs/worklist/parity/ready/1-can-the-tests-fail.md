@@ -58,13 +58,54 @@ is exactly an edge, where ISO and ASHRAE are one band apart) and
 `test_pmv_compliance_band_edges` (four inputs either side of ±0.5, run with
 `round_output` both ways).
 
-**Generalise this before doing Gap 2.** Every other discrete output in the crate has the
-same shape and the same likely hole: `UtciResult.stress_category`,
-`heat_index_lu`/`heat_index_rothfusz` stress categories, the adaptive acceptability flags,
-`sports_heat_stress_risk`'s risk bands, and `set_tmp`'s heat-strain verdicts. Being *in*
-the sweep is not evidence its edges are tested. One documented non-goal: swapping strict
-for inclusive comparisons on `compliance` is untestable, because the criterion runs on the
-unrounded PMV and no input lands exactly on ±0.5.
+One documented non-goal: swapping strict for inclusive comparisons on `compliance` is
+untestable, because the criterion runs on the unrounded PMV and no input lands exactly
+on ±0.5.
+
+### The generalisation — half done
+
+Every discrete output in the crate has the same shape. Being *in* the sweep is not
+evidence its edges are tested. Done on 2026-08-26 for the four banded indices
+(`test_banded_indices_at_exact_edges`, `test_discomfort_index_bands_before_rounding`):
+
+- `UtciResult.stress_category` — 9 edges
+- `HumidexResult.discomfort` — 5 edges
+- `HeatIndexResult.stress_category` (`heat_index_rothfusz`) — 4 edges
+- `DiscomfortIndexResult.discomfort_condition` — the band-before-round order
+
+Measured contrast, which is the reason these were worth adding:
+
+| fault | Rust-only unit test | sweep | cross-library edge test |
+| --- | --- | --- | --- |
+| UTCI right-inclusive → right-open | caught | **missed** | caught |
+| humidex right-inclusive → right-open | caught | — | caught |
+| DI bands rounded not unrounded | **missed** | caught | caught |
+
+The pre-existing `#[cfg(test)]` edge tests are *not* useless — they catch a later
+regression in a rule. What they cannot catch is a rule that was wrong when transcribed,
+since the expectation was written from the same reading as the code. `b88bbc0` was
+exactly that, self-consistently wrong. Only a comparison against pythermalcomfort closes
+it.
+
+**Two facts found while doing it, both worth not rediscovering:** the round-then-band
+order is *not* uniform — UTCI, humidex and `heat_index_rothfusz` round to 1 dp and then
+band, while `discomfort_index` bands the unrounded value and rounds only what it reports
+(Rust matches Python on all four). And UTCI categorises `utci_si`, not the possibly-IP-
+rescaled `utci_approx` it returns; the port handles this and comments it, but it reads
+like a bug.
+
+**Still open**, and needing a different technique because their edges are on inputs or on
+exact-equality caps rather than on a rounded output:
+
+- `AdaptiveAshraeResult.acceptability_80`/`_90` and `AdaptiveEnResult.acceptability_cat_i`
+  /`_ii`/`_iii` — the bound is `t_cmf ± offset`, so the edge moves with the input.
+- `SportsHeatStressRisk.recommendation` — edges at risk level 2.0/3.0/4.0, but the value
+  is a brentq root, so landing on one exactly needs solving rather than scanning.
+- `UseFansHeatwavesResult.heat_strain*` — driven by exact `==` against the caps
+  (`m_bl == max_skin_blood_flow`, `w == w_max`, `m_rsw == max_sweating`), not a literal
+  band edge.
+- `IreqResult.dle_min`/`dle_neutral` — `Hours` vs `MoreThanEight` at `dle == 0.0` and
+  `dle == 8.0`.
 
 ## Original text of Gap 1 — `tsv` and `compliance` are never swept
 

@@ -1874,6 +1874,241 @@ fn test_compare_utci() {
     });
 }
 
+/// Every banded index compared against Python at its exact band edges.
+///
+/// The crate already has exact-edge tests for `StressCategory`, `HeatIndexStress`,
+/// `HumidexDiscomfort` and `DiscomfortCondition`, and they are not useless: flipping
+/// UTCI's bands from right-inclusive to right-open does fail
+/// `models::utci::tests::test_stress_categories`. But they are `#[cfg(test)]` unit tests
+/// that call the banding function with a literal and compare against a **transcribed
+/// constant**, so they can only catch a later *regression* in a rule -- never a rule that
+/// was wrong when it was transcribed, because the expectation was written from the same
+/// reading of the standard as the code. That is exactly what `b88bbc0` was: ISO's
+/// right-open bands conflated with ASHRAE's right-closed ones, self-consistently.
+/// Comparing against pythermalcomfort is the only thing that can catch that class.
+///
+/// The differential sweep does not cover it either: with UTCI banded right-open instead
+/// of right-inclusive, `sweep_utci` still passes (verified), because a randomised real
+/// never lands exactly on an edge.
+///
+/// So these drive the public function end to end and compare the category against
+/// Python's, at inputs whose index value lands exactly on each edge. The inputs were
+/// found by scanning; each case asserts the index value is still the edge, so an upstream
+/// formula change fails loudly rather than silently moving to an interior point.
+///
+/// Every band here is right-inclusive: the value on the edge belongs to the *lower* band.
+#[test]
+fn test_banded_indices_at_exact_edges() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, the index value it produces, the category on that edge)
+        let utci_cases = [
+            (-39.320, -40.0, "extreme cold stress"),
+            (-25.654, -27.0, "very strong cold stress"),
+            (-11.208, -13.0, "strong cold stress"),
+            (0.694, 0.0, "moderate cold stress"),
+            (9.284, 9.0, "slight cold stress"),
+            (26.188, 26.0, "no thermal stress"),
+            (31.332, 32.0, "moderate heat stress"),
+            (36.054, 38.0, "strong heat stress"),
+            (41.312, 46.0, "very strong heat stress"),
+        ];
+        for (tdb, edge, expected) in utci_cases {
+            let label = format!("utci edge {edge}");
+            let kwargs = [("limit_inputs", PyBool::new(py, false).to_owned().into_any())]
+                .into_py_dict(py)
+                .unwrap();
+            let py_result = models
+                .getattr("utci")
+                .unwrap()
+                .call((tdb, tdb, 1.0, 50.0), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_value: f64 = py_result.getattr("utci").unwrap().extract().unwrap();
+            let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+            let rust = utci(
+                UtciInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tdb),
+                    v: Speed::from_meters_per_second(1.0),
+                    rh: Humidity::from_percent(50.0),
+                },
+                UtciOptions {
+                    limit_inputs: false,
+                    ..Default::default()
+                },
+            );
+
+            assert_eq!(
+                py_value, edge,
+                "{label}: tdb={tdb} no longer lands on the edge (got {py_value}); rescan"
+            );
+            assert_eq!(
+                py_category.as_deref(),
+                Some(expected),
+                "{label}: upstream's category on the edge changed"
+            );
+            assert_eq!(
+                rust.stress_category.map(|c| c.as_str()),
+                py_category.as_deref(),
+                "{label}: Rust category differs from Python's"
+            );
+        }
+
+        // Humidex bands the *rounded* value, so these edges are exactly reachable.
+        let humidex_cases = [
+            (26.1205, 30.0, "Little or no discomfort"),
+            (29.2455, 35.0, "Noticeable discomfort"),
+            (32.1895, 40.0, "Evident discomfort"),
+            (34.9620, 45.0, "Intense discomfort; avoid exertion"),
+            (39.5570, 54.0, "Dangerous discomfort"),
+        ];
+        for (tdb, edge, expected) in humidex_cases {
+            let label = format!("humidex edge {edge}");
+            let py_result = models
+                .getattr("humidex")
+                .unwrap()
+                .call1((tdb, 50.0))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_value: f64 = py_result.getattr("humidex").unwrap().extract().unwrap();
+            let py_category = extract_category(&py_result.getattr("discomfort").unwrap());
+
+            let rust = humidex(
+                HumidexInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(50.0),
+                },
+                HumidexOptions::default(),
+            );
+
+            assert_eq!(
+                py_value, edge,
+                "{label}: tdb={tdb} no longer lands on the edge (got {py_value}); rescan"
+            );
+            assert_eq!(
+                py_category.as_deref(),
+                Some(expected),
+                "{label}: upstream changed"
+            );
+            assert_eq!(
+                Some(rust.discomfort.as_str()),
+                py_category.as_deref(),
+                "{label}: Rust category differs from Python's"
+            );
+        }
+
+        let hi_cases = [
+            (26.4790, 27.0, "no risk"),
+            (30.5885, 32.0, "caution"),
+            (35.1155, 41.0, "extreme caution"),
+            (39.7480, 54.0, "danger"),
+        ];
+        for (tdb, edge, expected) in hi_cases {
+            let label = format!("heat_index_rothfusz edge {edge}");
+            let kwargs = [("limit_inputs", PyBool::new(py, false).to_owned().into_any())]
+                .into_py_dict(py)
+                .unwrap();
+            let py_result = models
+                .getattr("heat_index_rothfusz")
+                .unwrap()
+                .call((tdb, 50.0), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_value: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+            let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+            let rust = heat_index_rothfusz(
+                HeatIndexRothfuszInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    rh: Humidity::from_percent(50.0),
+                },
+                thermalcomfort::models::HeatIndexRothfuszOptions {
+                    limit_inputs: false,
+                    ..Default::default()
+                },
+            );
+
+            assert_eq!(
+                py_value, edge,
+                "{label}: tdb={tdb} no longer lands on the edge (got {py_value}); rescan"
+            );
+            assert_eq!(
+                py_category.as_deref(),
+                Some(expected),
+                "{label}: upstream changed"
+            );
+            assert_eq!(
+                rust.stress_category.map(|c| c.as_str()),
+                py_category.as_deref(),
+                "{label}: Rust category differs from Python's"
+            );
+        }
+    });
+}
+
+/// `discomfort_index` bands the *unrounded* DI and rounds only the reported value --
+/// the opposite order from `utci`, `humidex` and `heat_index_rothfusz`, which round
+/// first and band the rounded value.
+///
+/// Both inputs below report `di = 21.0` and yet fall in **different** bands, because
+/// their unrounded DI straddles 21.0. A port that banded the rounded value would give
+/// both the same category, and this test fails on it.
+///
+/// Unlike the inclusivity flips in [`test_banded_indices_at_exact_edges`], `sweep_di`
+/// *does* catch this one -- round-before-band changes the category for every sample
+/// within 0.05 of an edge, which is a wide enough target for randomised reals to hit.
+/// The unit tests in `thermal_indices.rs` do not (verified: they pass with the order
+/// swapped). This test is kept anyway because the sweep catches it by sampling luck
+/// while these two inputs pin it deterministically, and because it is the only place the
+/// band-before-round order -- which is the opposite of the other three indices -- is
+/// written down as intentional rather than incidental.
+#[test]
+fn test_discomfort_index_bands_before_rounding() {
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, expected category) -- both report di = 21.0
+        let cases = [
+            (23.41036, "No discomfort"),
+            (23.46552, "Less than 50% feels discomfort"),
+        ];
+
+        for (tdb, expected) in cases {
+            let label = format!("discomfort_index tdb={tdb}");
+            let py_result = models
+                .getattr("discomfort_index")
+                .unwrap()
+                .call1((tdb, 50.0))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
+            let py_category = extract_category(&py_result.getattr("discomfort_condition").unwrap());
+
+            let rust = discomfort_index(DiscomfortIndexInputs {
+                tdb: Temperature::from_celsius(tdb),
+                rh: Humidity::from_percent(50.0),
+            });
+
+            assert_eq!(
+                py_di, 21.0,
+                "{label}: no longer reports di=21.0 (got {py_di}); the two cases must \
+                 share a rounded DI for this test to mean anything"
+            );
+            assert_eq!(
+                py_category.as_deref(),
+                Some(expected),
+                "{label}: upstream changed"
+            );
+            assert_eq!(
+                Some(rust.discomfort_condition.as_str()),
+                py_category.as_deref(),
+                "{label}: Rust category differs from Python's"
+            );
+        }
+    });
+}
+
 /// UTCI's `units` (SI/IP) rounds in the OUTPUT unit, not by converting an
 /// already-rounded SI value -- cover the IP path against pythermalcomfort directly.
 ///
