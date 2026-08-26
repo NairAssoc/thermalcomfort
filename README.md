@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.0) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.2) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,7 +12,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **Complete coverage**: every pythermalcomfort v4.4.0 model, `JOS3` included
+- **Complete coverage**: every pythermalcomfort v4.4.2 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: 413 tests (197 unit + 83 Python comparison + 79 doctests +
@@ -84,7 +84,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "4.4.0"
+thermalcomfort = "4.4.2"
 ```
 
 ## Usage
@@ -318,7 +318,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce results identical to pythermalcomfort v4.4.0 across the swept input
+All models produce results identical to pythermalcomfort v4.4.2 across the swept input
 space, in the one build configuration the crate has. There is no accuracy trade-off to
 choose between. The four edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
@@ -443,7 +443,7 @@ When bumping to a new pythermalcomfort release, change the version in `Cargo.tom
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.4.0), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.4.2), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

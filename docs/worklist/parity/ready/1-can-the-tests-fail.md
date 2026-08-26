@@ -22,6 +22,12 @@ Done, no action needed:
   but no sweep. So the ~70 parity assertions at `epsilon >= 0.1` (11 at 1.0, 2 at 2.0) are
   belt-and-braces — the sweep compares the same functions at 1e-9. Tightening them is
   cosmetic; do not spend time on it before the items below.
+
+  **Correction (2026-08-26): "the sweep compares at 1e-9" is not true crate-wide.**
+  `sweep_phs` compares at 0.06 absolute on the temperatures, 0.6 on the exposure limits
+  and 1.1 on `sweat_loss_g`. Before relying on the 1e-9 figure for any given model, read
+  that sweep's own `FieldCmp` list. Auditing which sweeps are actually loose, and why
+  each one is, belongs with Gap 2.
 - **Every result field is swept, except two** (see below).
 - **Skip counts are now bounded and asserted**, not printed. `report_skipped` in
   `tests/support/sweep.rs` fails the sweep if the excluded share exceeds a documented
@@ -77,6 +83,22 @@ For each sweep, check that every parameter of the model appears as a domain axis
 enumerated axes cover every variant rather than the first two. `PET_MEASURE`-style coverage
 counters, or simply asserting that each branch of a `match` is hit at least once across a
 run, would make this checkable rather than eyeballed.
+
+**This class produced a live miss on 2026-08-26, which is the argument for doing the audit
+properly rather than by inspection.** Porting upstream 4.4.1's ISO 7933:2023 Annex E
+minute-1 skin-temperature special case, every existing PHS test — the two 480-minute
+comparisons and the 60-minute one — passed with the ported code *deleted*. The special
+case perturbs `t_sk` on minute 1 only and the `exp(-1/3)` lag decays that difference to
+~6e-10 °C by minute 60, so nothing running to 480 minutes could see it. Root cause:
+`sweep_phs` never varied `duration` — it took the 480-minute default, so no sample was
+short enough. Fixed by adding a 5-value `duration` axis (1/2/5/60/480), which now catches
+the deletion, plus `test_phs_minute_one_skin_temperature_special_case` as a direct pin.
+
+The general lesson: a parameter left at its default is not merely untested, it can hide a
+whole time-domain of behaviour. `sweep_phs` still leaves `limit_inputs`, `f_r`, the `t_sk`/
+`t_cr`/`t_re`/`t_cr_eq` initial conditions, `t_sk_t_cr_wg`, `sweat_rate_watt` and
+`evap_load_wm2_min` at their defaults; PHS has the largest option surface in the crate and
+is the obvious place to start this gap.
 
 ## What "confident" can honestly mean here
 

@@ -268,10 +268,12 @@ fn phs_required_sweat_rate(mut e_req: f64, mut e_max: f64, sw_max: f64) -> (f64,
 ///
 /// # Standard Applicability Limits (ISO 7933)
 ///
-/// When `limit_inputs` is true:
-/// - Temperature: 15-50°C (tdb), 0-60°C (tr)
+/// When `limit_inputs` is true (Annex A, Table A.1):
+/// - Temperature: 15-50°C (tdb), 0-60°C on the difference `tr - tdb` (not on `tr`)
 /// - Air speed: 0-3 m/s
-/// - Metabolic rate: 1.7-7.5 met
+/// - Metabolic rate, standard-specific: 1.7-7.5 met (100-450 W/m²) for
+///   [`Iso7933Model::Iso2004`], 0.96-4.3 met (56-250 W/m²) for
+///   [`Iso7933Model::Iso2023`]
 /// - Clothing: 0.1-1.0 clo
 ///
 /// # Examples
@@ -333,12 +335,21 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         Iso7933Model::Iso2004 => 0.0,
     };
 
-    // Input validation
+    // ISO 7933 Annex A, Table A.1 metabolic rate range, in W/m². Standard-specific:
+    // the 2023 revision widens the range downward and narrows it at the top.
+    let met_range = match options.model {
+        Iso7933Model::Iso2023 => 56.0..=250.0,
+        Iso7933Model::Iso2004 => 100.0..=450.0,
+    };
+
+    // Input validation. Table A.1 bounds the air-to-radiant *difference*, not `tr`
+    // alone; an earlier version of this port checked raw `tr` against (0, 60), as
+    // pythermalcomfort itself did before 4.4.1.
     if options.limit_inputs
         && (!(15.0..=50.0).contains(&tdb)
-            || !(0.0..=60.0).contains(&tr)
+            || !(0.0..=60.0).contains(&(tr - tdb))
             || !(0.0..=3.0).contains(&v)
-            || !(100.0..=450.0).contains(&(met * MET_TO_W_M2))
+            || !met_range.contains(&(met * MET_TO_W_M2))
             || !(0.1..=1.0).contains(&clo)
             || !(p_a_lower..=4.5).contains(&p_a))
     {
@@ -596,6 +607,12 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         };
 
         t_sk = t_sk0 * CONST_T_SK + t_sk_eq * (1.0 - CONST_T_SK);
+        if time == 1 && options.model == Iso7933Model::Iso2023 {
+            // ISO 7933:2023 Annex E forces the skin temperature to its equilibrium
+            // value on the first minute, removing the exponential lag for that step.
+            // This special case is not present in the 2004 Annex E reference code.
+            t_sk = t_sk_eq;
+        }
 
         // Clothing surface temperature (iterative)
         let p_sk = 0.6105 * exp(17.27 * t_sk / (t_sk + 237.3));

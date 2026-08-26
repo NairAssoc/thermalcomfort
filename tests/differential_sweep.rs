@@ -854,6 +854,13 @@ fn sweep_phs() {
         .real("theta", 0.0, 180.0)
         .enumerated("posture", 3)
         .enumerated("model", 2)
+        // `duration` was left at its 480-minute default until 2026-08-26, so no sweep
+        // could see any behaviour confined to the first few minutes. The ISO 7933:2023
+        // Annex E minute-1 skin-temperature case is exactly that: it perturbs `t_sk` on
+        // minute 1 only, and the `exp(-1/3)` lag decays the difference to ~6e-10 °C by
+        // minute 60, so a 480-minute-only sweep passes with the case deleted. The short
+        // values here are the point of the axis; 480 keeps the old coverage.
+        .enumerated("duration", 5)
         .flag("drink")
         .flag("acclimatized")
         .flag("round_output");
@@ -900,6 +907,13 @@ fn sweep_phs() {
                 0 => (Iso7933Model::Iso2004, "7933-2004"),
                 _ => (Iso7933Model::Iso2023, "7933-2023"),
             };
+            let duration: i32 = match s.index("duration") {
+                0 => 1,
+                1 => 2,
+                2 => 5,
+                3 => 60,
+                _ => 480,
+            };
             let drink = s.flag("drink");
             let acclimatized = s.flag("acclimatized");
             let round_output = s.flag("round_output");
@@ -924,6 +938,7 @@ fn sweep_phs() {
                 ("height", height.into_pyobject(py).unwrap().into_any()),
                 ("walk_sp", walk_sp.into_pyobject(py).unwrap().into_any()),
                 ("theta", theta.into_pyobject(py).unwrap().into_any()),
+                ("duration", duration.into_pyobject(py).unwrap().into_any()),
                 (
                     "acclimatized",
                     (if acclimatized { 100_i64 } else { 0 })
@@ -963,6 +978,7 @@ fn sweep_phs() {
                     walk_sp: Speed::from_meters_per_second(walk_sp),
                     theta,
                     acclimatized,
+                    duration,
                     ..Default::default()
                 },
             );

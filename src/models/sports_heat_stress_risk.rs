@@ -721,8 +721,12 @@ mod tests {
             sports_heat_stress_risk(inputs(30.0, 30.0, 50.0, 0.5, Sports::SOCCER)).unwrap();
         assert_eq!(result.risk_level_interpolated, 1.6);
         assert_temp_eq(result.t_medium, 34.5);
-        assert_temp_eq(result.t_high, 38.2);
-        assert_temp_eq(result.t_extreme, 39.9);
+        // t_high/t_extreme moved by 0.1 in upstream 4.4.1: this model brentq-solves
+        // over `phs`, so ISO 7933:2023's Annex E minute-1 skin-temperature case shifts
+        // the accumulated sweat loss enough to cross a 0.1 °C rounding boundary. Values
+        // taken from pythermalcomfort 4.4.2, not from this port's own output.
+        assert_temp_eq(result.t_high, 38.3);
+        assert_temp_eq(result.t_extreme, 39.8);
         assert_eq!(
             result.recommendation,
             "Increase hydration & modify clothing"
@@ -760,11 +764,12 @@ mod tests {
     fn test_tennis_high_radiant() {
         let result =
             sports_heat_stress_risk(inputs(33.0, 70.0, 60.0, 0.1, Sports::TENNIS)).unwrap();
-        // 33°C is 3.5°C above t_extreme (29.5): 4.0 + 3.5/5.0*0.9 = 4.63 -> floored to 4.6
+        // 33°C is 3.6°C above t_extreme (29.4): 4.0 + 3.6/5.0*0.9 = 4.65 -> floored to 4.6
         assert_eq!(result.risk_level_interpolated, 4.6);
         assert_temp_eq(result.t_medium, 23.0);
         assert_temp_eq(result.t_high, 25.0);
-        assert_temp_eq(result.t_extreme, 29.5);
+        // 29.5 before upstream 4.4.1; see `test_soccer_low_risk` for why it moved.
+        assert_temp_eq(result.t_extreme, 29.4);
         assert_eq!(result.recommendation, "Consider suspending play");
     }
 
@@ -775,7 +780,8 @@ mod tests {
         assert_eq!(result.risk_level_interpolated, 2.1);
         assert_temp_eq(result.t_medium, 34.5);
         assert_temp_eq(result.t_high, 39.0);
-        assert_temp_eq(result.t_extreme, 43.3);
+        // 43.3 before upstream 4.4.1; see `test_soccer_low_risk` for why it moved.
+        assert_temp_eq(result.t_extreme, 43.2);
     }
 
     #[test]

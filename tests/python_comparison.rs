@@ -4252,6 +4252,98 @@ fn test_phs_short_duration() {
     });
 }
 
+/// The ISO 7933:2023 Annex E minute-1 skin-temperature special case (added upstream in
+/// 4.4.1): `t_sk` is forced to its equilibrium value on the first minute rather than
+/// exponentially lagging from `t_sk0`. The 2004 edition has no such case.
+///
+/// This needs its own test because **no other PHS test can detect it.** The special case
+/// perturbs `t_sk` only on minute 1, and the lag constant is `exp(-1/3)`, so the
+/// difference decays by ~0.717 per minute: it is ~0.57 °C at minute 1 but ~6e-10 °C by
+/// minute 60. `test_phs_short_duration` (60 min) and the two 480-minute comparisons all
+/// pass unchanged with the special case deleted -- verified by deleting it. Only a
+/// simulation of a few minutes is short enough to see it.
+///
+/// `round_output` is off and the tolerance is 1e-9, so this also pins that the special
+/// case fires on minute 1 exactly, not minute 0 or 2.
+#[test]
+fn test_phs_minute_one_skin_temperature_special_case() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let (tdb, tr, v, rh, met, clo) = (40.0, 40.0, 0.3, 33.85, 2.5, 0.5);
+
+        for (model, py_model) in [
+            (Iso7933Model::Iso2023, "7933-2023"),
+            (Iso7933Model::Iso2004, "7933-2004"),
+        ] {
+            for duration in [1_i32, 2, 3] {
+                let label = format!("{py_model} duration={duration}");
+
+                let kwargs = [
+                    ("duration", duration.into_pyobject(py).unwrap().into_any()),
+                    ("model", py_model.into_pyobject(py).unwrap().into_any()),
+                    (
+                        "round_output",
+                        false.into_pyobject(py).unwrap().to_owned().into_any(),
+                    ),
+                ]
+                .into_py_dict(py)
+                .unwrap();
+                let py_result = pythermal
+                    .getattr("phs")
+                    .unwrap()
+                    .call((tdb, tr, v, rh, met, clo, "standing"), Some(&kwargs))
+                    .unwrap_or_else(|e| panic!("{label}: phs raised: {e}"));
+
+                let py_t_sk: f64 = py_result.getattr("t_sk").unwrap().extract().unwrap();
+                let py_t_re: f64 = py_result.getattr("t_re").unwrap().extract().unwrap();
+                let py_sweat_loss_g: f64 = py_result
+                    .getattr("sweat_loss_g")
+                    .unwrap()
+                    .extract()
+                    .unwrap();
+
+                let rust_result = phs(
+                    PhsInputs {
+                        tdb: Temperature::from_celsius(tdb),
+                        tr: Temperature::from_celsius(tr),
+                        v: Speed::from_meters_per_second(v),
+                        rh: Humidity::from_percent(rh),
+                        met: MetabolicRate::from_met(met),
+                        clo: ClothingInsulation::from_clo(clo),
+                        posture: PhsPosture::Standing,
+                    },
+                    PhsOptions {
+                        duration,
+                        model,
+                        round_output: false,
+                        ..Default::default()
+                    },
+                );
+
+                // Plain `assert!` rather than `assert_abs_diff_eq!` so the failure names
+                // the model and duration that diverged.
+                assert!(
+                    (rust_result.t_sk.as_celsius() - py_t_sk).abs() < 1e-9,
+                    "{label}: t_sk {} != {py_t_sk}",
+                    rust_result.t_sk.as_celsius()
+                );
+                assert!(
+                    (rust_result.t_re.as_celsius() - py_t_re).abs() < 1e-9,
+                    "{label}: t_re {} != {py_t_re}",
+                    rust_result.t_re.as_celsius()
+                );
+                assert!(
+                    (rust_result.sweat_loss_g.as_grams() - py_sweat_loss_g).abs() < 1e-9,
+                    "{label}: sweat_loss_g {} != {py_sweat_loss_g}",
+                    rust_result.sweat_loss_g.as_grams()
+                );
+            }
+        }
+    });
+}
+
 /// Test sports_heat_stress_risk against Python pythermalcomfort
 #[test]
 fn test_sports_heat_stress_risk_comparison() {
