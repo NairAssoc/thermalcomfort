@@ -33,7 +33,40 @@ Done, no action needed:
   `tests/support/sweep.rs` fails the sweep if the excluded share exceeds a documented
   ceiling, and each ceiling carries its measured rate.
 
-## Gap 1 — `tsv` and `compliance` are never swept
+## Gap 1 — CLOSED 2026-08-26, but not the way this item expected
+
+Both fields are now compared in `sweep_pmv_ppd_iso` and `sweep_pmv_ppd_ashrae`, via
+`compare_category` and a new `compare_optional_bool`/`py_optional_bool` pair.
+
+**Adding them to the sweep was necessary and not sufficient, which is the finding.** Fault
+injection showed the sweep catches a *mislabelled* band and an *inverted* compliance flag,
+but not the faults that actually matter here:
+
+| injection | sweep | fixture test |
+| --- | --- | --- |
+| mislabel `SlightlyWarm` as `"Warm"` | caught | caught |
+| give ISO ASHRAE's right-closed bands (i.e. bug `b88bbc0`) | **missed** | caught |
+| shift one band edge by 1e-9 | **missed** | caught |
+| invert `compliance` | caught | caught |
+| widen the comfort band by 0.01 | **missed** | caught |
+| evaluate compliance on the rounded PMV | **missed** | caught |
+
+The reason is uniform: a discrete output changes only within a window a few thousandths
+wide around its edge, and randomised reals do not reliably land there. Closed by two
+fixture tests — `test_pmv_tsv_band_edges_iso_versus_ashrae` (six inputs whose rounded PMV
+is exactly an edge, where ISO and ASHRAE are one band apart) and
+`test_pmv_compliance_band_edges` (four inputs either side of ±0.5, run with
+`round_output` both ways).
+
+**Generalise this before doing Gap 2.** Every other discrete output in the crate has the
+same shape and the same likely hole: `UtciResult.stress_category`,
+`heat_index_lu`/`heat_index_rothfusz` stress categories, the adaptive acceptability flags,
+`sports_heat_stress_risk`'s risk bands, and `set_tmp`'s heat-strain verdicts. Being *in*
+the sweep is not evidence its edges are tested. One documented non-goal: swapping strict
+for inclusive comparisons on `compliance` is untestable, because the criterion runs on the
+unrounded PMV and no input lands exactly on ±0.5.
+
+## Original text of Gap 1 — `tsv` and `compliance` are never swept
 
 `PmvPpdResult` has four fields. `pmv` and `ppd` are swept; `tsv` (thermal sensation
 category) and `compliance` are **not** — 0 occurrences in `tests/differential_sweep.rs`.

@@ -169,7 +169,20 @@ fn sweep_pmv_ppd_iso() {
             for (field, rust_value) in fields.iter().zip([rust.pmv, rust.ppd]) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
-            Ok(())
+            // `tsv` is a band categorisation driven by a float, which is where a
+            // last-digit difference stops being cosmetic and becomes a wrong answer.
+            // ISO maps with `right=False`, so a PMV sitting exactly on an edge (common,
+            // since PMV is rounded to two decimals first) lands in a different band than
+            // it would under ASHRAE -- comparing the categories is what pins that.
+            compare_category(
+                "tsv",
+                rust.tsv.map(|c| c.as_str()),
+                py_category(&py_result, "tsv")?,
+            )?;
+            // `pmv_ppd_iso` has no `compliance` attribute at all: the ASHRAE 55 comfort
+            // criterion is meaningful only for the ASHRAE model, so there is nothing to
+            // compare against and the invariant to hold is that Rust leaves it unset.
+            compare_optional_bool("compliance", rust.compliance, None)
         });
     });
 }
@@ -253,7 +266,22 @@ fn sweep_pmv_ppd_ashrae() {
             for (field, rust_value) in fields.iter().zip([rust.pmv, rust.ppd]) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
-            Ok(())
+            // ASHRAE bands are right-closed where ISO's are not, so this sweep and
+            // `sweep_pmv_ppd_iso` together pin that the two models disagree on an exact
+            // edge in the direction they are each supposed to. Conflating the two band
+            // sets was a real bug here (b88bbc0).
+            compare_category(
+                "tsv",
+                rust.tsv.map(|c| c.as_str()),
+                py_category(&py_result, "tsv")?,
+            )?;
+            // Unlike ISO, ASHRAE does report `compliance` -- a second discrete output
+            // driven by the same float, with its own edges at -0.5 and 0.5.
+            compare_optional_bool(
+                "compliance",
+                rust.compliance,
+                py_optional_bool(&py_result, "compliance")?,
+            )
         });
     });
 }
@@ -2476,6 +2504,40 @@ fn py_category(obj: &Bound<'_, PyAny>, field: &str) -> Result<Option<String>, St
         .and_then(|i| i.extract::<String>())
         .map(Some)
         .map_err(|e| format!("{field}: could not read as a string: {e}"))
+}
+
+/// Read an optional boolean field from a Python result.
+///
+/// `pmv_ppd_ashrae`'s `compliance` is a plain `bool` in range, but out of applicability
+/// range Python masks it to NaN, where the Rust port uses `None` -- the same "not
+/// applicable" the [`py_category`] NaN branch handles for `tsv`.
+fn py_optional_bool(obj: &Bound<'_, PyAny>, field: &str) -> Result<Option<bool>, String> {
+    let attr = obj
+        .getattr(field)
+        .map_err(|e| format!("{field}: missing on Python result: {e}"))?;
+    if attr.is_none() {
+        return Ok(None);
+    }
+    if let Ok(b) = attr.extract::<bool>() {
+        return Ok(Some(b));
+    }
+    if attr.extract::<f64>().is_ok_and(f64::is_nan) {
+        return Ok(None);
+    }
+    // A numpy scalar rather than a Python bool.
+    attr.call_method0("item")
+        .and_then(|i| i.extract::<bool>())
+        .map(Some)
+        .map_err(|e| format!("{field}: could not read as a bool: {e}"))
+}
+
+/// Compare two optional booleans.
+fn compare_optional_bool(name: &str, rust: Option<bool>, py: Option<bool>) -> Result<(), String> {
+    if rust == py {
+        Ok(())
+    } else {
+        Err(format!("{name}: Rust {rust:?}, Python {py:?}"))
+    }
 }
 
 /// Compare a Rust category against Python's, both optional.

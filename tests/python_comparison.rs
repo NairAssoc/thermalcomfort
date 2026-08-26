@@ -8,13 +8,13 @@ use core::time::Duration;
 use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAnyMethods};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
 use std::sync::atomic::{AtomicBool, Ordering};
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
-    PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions, PmvPpdInputs,
-    PmvPpdIsoOptions,
+    PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
+    PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
     AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
@@ -168,6 +168,37 @@ fn extract_category(obj: &Bound<'_, PyAny>) -> Option<String> {
          If this is a number, the Rust side likely produced a non-numeric variant where \
          Python produced a value (or vice versa) - compare the two directly rather than \
          loosening this helper, which would swallow real mismatches."
+    );
+}
+
+/// Read an optional boolean pythermalcomfort field, in every shape it comes back as.
+///
+/// `pmv_ppd_ashrae`'s `compliance` is a plain `bool` for a scalar call with the default
+/// `limit_inputs`, a 0-d numpy object array wrapping `np.True_` when `limit_inputs` is
+/// off, and a float NaN when the inputs left the applicability range (where the Rust port
+/// uses `None`). A bare `extract::<bool>().ok()` silently yields `None` for the numpy
+/// shape, which turns a real comparison into a vacuous one -- exactly the failure mode
+/// this suite keeps finding, so the extraction panics on anything it does not recognise
+/// rather than degrading to `None`.
+fn extract_optional_bool(obj: &Bound<'_, PyAny>) -> Option<bool> {
+    if let Ok(b) = obj.extract::<bool>() {
+        return Some(b);
+    }
+    if let Ok(item) = obj.call_method0("item") {
+        if let Ok(b) = item.extract::<bool>() {
+            return Some(b);
+        }
+        if item.extract::<f64>().is_ok_and(f64::is_nan) {
+            return None;
+        }
+    }
+    if obj.extract::<f64>().is_ok_and(f64::is_nan) {
+        return None;
+    }
+    panic!(
+        "could not interpret optional-bool field: {obj:?}.\n\
+         Do not loosen this to return None on an unknown shape - that is how a compliance \
+         comparison becomes vacuous."
     );
 }
 
@@ -392,10 +423,7 @@ fn test_pmv_ppd_ashrae() {
 
             let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
             let py_ppd: f64 = py_result.getattr("ppd").unwrap().extract().unwrap();
-            // `compliance` is bool or NaN; extract via Option<bool> so the NaN
-            // sentinel falls through to None.
-            let py_compliance: Option<bool> =
-                py_result.getattr("compliance").unwrap().extract().ok();
+            let py_compliance = extract_optional_bool(&py_result.getattr("compliance").unwrap());
 
             // Call Rust function with measurement types
             let rust_result = pmv_ppd_ashrae(
@@ -1412,6 +1440,226 @@ fn test_pmv_ppd_iso_outside_limits() {
                 "Mismatch in NaN behavior for {}",
                 description
             );
+        }
+    });
+}
+
+/// `tsv` on the band edges, where ISO and ASHRAE are supposed to disagree.
+///
+/// ISO 7730 maps PMV to a sensation band with `right=False` and ASHRAE 55 with
+/// `right=True`, so a PMV sitting *exactly* on an edge lands one band apart between the
+/// two models. Conflating the two band sets was a real bug here (`b88bbc0`).
+///
+/// **The differential sweep cannot cover this**, which is why it needs a fixture test.
+/// Adding `tsv` to `sweep_pmv_ppd_iso`/`sweep_pmv_ppd_ashrae` catches a mislabelled band
+/// (verified by mislabelling one), but *not* swapping ISO onto ASHRAE's right-closed
+/// bands: the closure direction only changes an answer when PMV equals an edge exactly,
+/// and the sweep's random reals never land there. Giving ISO `right=True` leaves both
+/// sweeps green -- verified by doing it.
+///
+/// The `tdb` values below were found by scanning for inputs whose rounded PMV is exactly
+/// an edge. They are fixtures, not magic: each case asserts Python still returns that
+/// exact PMV, so if an upstream formula change moves them this fails loudly rather than
+/// quietly testing an interior point.
+#[test]
+fn test_pmv_tsv_band_edges_iso_versus_ashrae() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, the exact PMV it produces, ISO's band, ASHRAE's band)
+        let cases = [
+            (16.551, -2.5, "Cool", "Cold"),
+            (19.772, -1.5, "Slightly Cool", "Cool"),
+            (23.013, -0.5, "Neutral", "Slightly Cool"),
+            (26.369, 0.5, "Slightly Warm", "Neutral"),
+            (29.641, 1.5, "Warm", "Slightly Warm"),
+            (32.827, 2.5, "Hot", "Warm"),
+        ];
+
+        for (tdb, edge, iso_band, ashrae_band) in cases {
+            let (tr, vr, rh, met, clo) = (tdb, 0.1, 50.0, 1.2, 0.5);
+            let kwargs = [("limit_inputs", PyBool::new(py, false).to_owned().into_any())]
+                .into_py_dict(py)
+                .unwrap();
+
+            for (py_fn, expected_band) in
+                [("pmv_ppd_iso", iso_band), ("pmv_ppd_ashrae", ashrae_band)]
+            {
+                let label = format!("{py_fn} at pmv={edge}");
+                let py_result = pythermal
+                    .getattr(py_fn)
+                    .unwrap()
+                    .call((tdb, tr, vr, rh, met, clo), Some(&kwargs))
+                    .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+
+                let py_pmv: f64 = py_result.getattr("pmv").unwrap().extract().unwrap();
+                let py_tsv: String = py_result.getattr("tsv").unwrap().extract().unwrap();
+
+                // The fixture guard: if this trips, the inputs no longer sit on the edge
+                // and the rest of the case proves nothing.
+                assert_eq!(
+                    py_pmv, edge,
+                    "{label}: tdb={tdb} no longer lands on the band edge (got {py_pmv}); \
+                     rescan for a tdb whose PMV is exactly {edge}"
+                );
+                assert_eq!(
+                    py_tsv, expected_band,
+                    "{label}: upstream's band for an exact edge changed"
+                );
+
+                let inputs = PmvPpdInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                };
+                let rust_tsv = if py_fn == "pmv_ppd_iso" {
+                    pmv_ppd_iso(
+                        inputs,
+                        PmvPpdIsoOptions {
+                            limit_inputs: false,
+                            ..Default::default()
+                        },
+                    )
+                    .tsv
+                } else {
+                    pmv_ppd_ashrae(
+                        inputs,
+                        PmvPpdAshraeOptions {
+                            limit_inputs: false,
+                            ..Default::default()
+                        },
+                    )
+                    .tsv
+                };
+
+                assert_eq!(
+                    rust_tsv.map(|c| c.as_str()),
+                    Some(expected_band),
+                    "{label}: Rust band differs from Python's"
+                );
+            }
+        }
+    });
+}
+
+/// `compliance` either side of ASHRAE 55's -0.5 < PMV < 0.5 comfort band.
+///
+/// Like `tsv`, this is a discrete output driven by a float, and like `tsv` the
+/// differential sweep cannot pin its edges: `sweep_pmv_ppd_ashrae` catches an *inverted*
+/// compliance flag but not a band widened by 0.01, nor evaluating the criterion on the
+/// rounded PMV instead of the unrounded one -- both verified by injecting them. Each
+/// needs a PMV inside a window a few thousandths wide, which uniform random sampling
+/// does not reliably visit.
+///
+/// The `round_output = true` half is what pins the rounded-vs-unrounded distinction:
+/// upstream evaluates the criterion on the unrounded PMV, so an input whose PMV is
+/// 0.4961 is compliant even though the reported PMV rounds to 0.5, which the criterion
+/// would reject. Two of the cases below sit in exactly that gap.
+///
+/// As in [`test_pmv_tsv_band_edges_iso_versus_ashrae`], the `tdb` values are fixtures and
+/// each case asserts Python's PMV still falls in the intended window.
+///
+/// What this deliberately does **not** cover: swapping the strict `<`/`>` for `<=`/`>=`.
+/// That changes an answer only when the *unrounded* PMV is exactly ±0.5, and no input
+/// produces that -- the criterion runs before rounding, so the exact-edge case `tsv` has
+/// (where `round_to(pmv, 2)` lands on 0.5 constantly) does not arise here. The
+/// substitution is untestable rather than untested; do not add a case chasing it.
+#[test]
+fn test_pmv_compliance_band_edges() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, the PMV window it must land in, expected compliance)
+        let cases = [
+            // Rounds to 0.5 but is below it: compliant only on the unrounded value.
+            (26.3725, (0.4950, 0.4999), true),
+            // Just outside the band, and inside a 0.01-widened one.
+            (26.3860, (0.5001, 0.5099), false),
+            // Rounds to -0.5 but is above it: the negative-side mirror.
+            (23.0295, (-0.4999, -0.4950), true),
+            (23.0155, (-0.5099, -0.5001), false),
+        ];
+
+        for (tdb, (lo, hi), expected) in cases {
+            let (tr, vr, rh, met, clo) = (tdb, 0.1, 50.0, 1.2, 0.5);
+
+            for round_output in [false, true] {
+                let label = format!("tdb={tdb} round_output={round_output}");
+                let kwargs = [
+                    ("limit_inputs", PyBool::new(py, false).to_owned().into_any()),
+                    (
+                        "round_output",
+                        PyBool::new(py, round_output).to_owned().into_any(),
+                    ),
+                ]
+                .into_py_dict(py)
+                .unwrap();
+
+                let py_result = pythermal
+                    .getattr("pmv_ppd_ashrae")
+                    .unwrap()
+                    .call((tdb, tr, vr, rh, met, clo), Some(&kwargs))
+                    .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+
+                let py_compliance =
+                    extract_optional_bool(&py_result.getattr("compliance").unwrap());
+
+                let rust_result = pmv_ppd_ashrae(
+                    PmvPpdInputs {
+                        tdb: Temperature::from_celsius(tdb),
+                        tr: Temperature::from_celsius(tr),
+                        vr: Speed::from_meters_per_second(vr),
+                        rh: Humidity::from_percent(rh),
+                        met: MetabolicRate::from_met(met),
+                        clo: ClothingInsulation::from_clo(clo),
+                    },
+                    PmvPpdAshraeOptions {
+                        limit_inputs: false,
+                        round_output,
+                        ..Default::default()
+                    },
+                );
+
+                // The fixture guard: read the unrounded PMV so the window check means
+                // the same thing on both passes. If this trips, `tdb` has drifted out of
+                // the window and the case no longer probes the edge it was chosen for.
+                let unrounded = pmv_ppd_ashrae(
+                    PmvPpdInputs {
+                        tdb: Temperature::from_celsius(tdb),
+                        tr: Temperature::from_celsius(tr),
+                        vr: Speed::from_meters_per_second(vr),
+                        rh: Humidity::from_percent(rh),
+                        met: MetabolicRate::from_met(met),
+                        clo: ClothingInsulation::from_clo(clo),
+                    },
+                    PmvPpdAshraeOptions {
+                        limit_inputs: false,
+                        round_output: false,
+                        ..Default::default()
+                    },
+                )
+                .pmv;
+                assert!(
+                    (lo..=hi).contains(&unrounded),
+                    "{label}: PMV {unrounded} left the ({lo}, {hi}) window this case \
+                     exists to probe; rescan for a tdb inside it"
+                );
+
+                assert_eq!(
+                    py_compliance,
+                    Some(expected),
+                    "{label}: upstream's compliance for this window changed"
+                );
+                assert_eq!(
+                    rust_result.compliance, py_compliance,
+                    "{label}: Rust compliance differs from Python's"
+                );
+            }
         }
     });
 }
