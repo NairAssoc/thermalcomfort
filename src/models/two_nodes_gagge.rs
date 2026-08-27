@@ -272,6 +272,23 @@ fn gagge_two_nodes_optimized(
         posture
     };
 
+    // That same wrapper drops three more parameters, for the same reason: its signature is
+    // `(tdb, tr, v, met, clo, vapor_pressure, wme, body_surface_area, p_atm, position)` and
+    // nothing else, so `max_skin_blood_flow`, `max_sweating` and `w_max` never reach the
+    // kernel and fall back to its defaults of 90, 500 and "compute from air speed"
+    // (`two_nodes_gagge.py:580-604` calling `:215-223`). A caller's values are silently
+    // discarded on this path. Mirror that rather than the docstring.
+    //
+    // This is invisible until a cap actually binds. Below saturation the two agree to ~1e-9;
+    // the sweep sample that exposed it has met=3.05, where `m_bl` reaches 90 upstream and
+    // was being held at the caller's 82.37 here — a 0.077 °C error in SET. Found on
+    // 2026-08-26, when `calculate_ce` was first added as a sweep axis.
+    let (max_skin_blood_flow, max_sweating, w_max_opt) = if calculate_ce {
+        (90.0, 500.0, None)
+    } else {
+        (max_skin_blood_flow, max_sweating, w_max_opt)
+    };
+
     // Initial variables as defined in ASHRAE 55-2020
     let air_speed = py_max(v, 0.1);
     let k_clo = 0.25;
@@ -574,7 +591,19 @@ fn gagge_two_nodes_optimized(
         t_sens,
     };
 
-    if round_output {
+    // `calculate_ce` suppresses rounding, matching upstream's control flow rather than
+    // its docstring: `two_nodes_gagge.py:129-142` takes the `if calculate_ce:` branch and
+    // `return SET(set=result)` *before* reaching the `if round_output:` block at line 201,
+    // so that path is never rounded whatever `round_output` says. Only `set` is meaningful
+    // there -- upstream returns a bare `SET` rather than the full result.
+    //
+    // This does not disturb `set_tmp`, which calls this kernel with `round_output: false`
+    // on both paths and applies its own 1-decimal rounding afterwards, mirroring
+    // `set_tmp.py:129,155`.
+    //
+    // Found on 2026-08-26 by adding `calculate_ce` as a sweep axis: the flag had been
+    // left at its default, so this entire upstream entry point was unexercised.
+    if round_output && !calculate_ce {
         result.set = round_to(result.set, 2);
         result.e_skin = round_to(result.e_skin, 2);
         result.e_rsw = round_to(result.e_rsw, 2);

@@ -331,6 +331,13 @@ fn sweep_two_nodes_gagge() {
         .real("max_skin_blood_flow", 40.0, 110.0)
         .real("max_sweating", 200.0, 700.0)
         .enumerated("posture", 2)
+        // `w_max` and `calculate_ce` were left at `..Default::default()` until
+        // 2026-08-26. `calculate_ce` in particular selects a different upstream code
+        // path entirely (and forces Standing, see the note in two_nodes_gagge.rs), so
+        // leaving it false meant half this model was never swept.
+        .flag("use_w_max")
+        .real("w_max", 0.2, 1.0)
+        .flag("calculate_ce")
         .flag("round_output");
 
     Python::with_gil(|py| {
@@ -357,6 +364,10 @@ fn sweep_two_nodes_gagge() {
                 _ => (Posture::Sitting, "sitting"),
             };
             let round_output = s.flag("round_output");
+            let calculate_ce = s.flag("calculate_ce");
+            // Upstream's `w_max` is the sentinel-typed `float | False`: `False` means
+            // "no cap". Sweep both the sentinel and a real cap.
+            let w_max = s.flag("use_w_max").then(|| s.real("w_max"));
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
@@ -371,6 +382,17 @@ fn sweep_two_nodes_gagge() {
                     msbf.into_pyobject(py).unwrap().into_any(),
                 ),
                 ("max_sweating", msw.into_pyobject(py).unwrap().into_any()),
+                (
+                    "w_max",
+                    match w_max {
+                        Some(w) => w.into_pyobject(py).unwrap().into_any(),
+                        None => PyBool::new(py, false).to_owned().into_any(),
+                    },
+                ),
+                (
+                    "calculate_ce",
+                    PyBool::new(py, calculate_ce).to_owned().into_any(),
+                ),
                 (
                     "round_output",
                     PyBool::new(py, round_output).to_owned().into_any(),
@@ -402,7 +424,8 @@ fn sweep_two_nodes_gagge() {
                     max_skin_blood_flow: msbf,
                     max_sweating: msw,
                     round_output,
-                    ..Default::default()
+                    w_max,
+                    calculate_ce,
                 },
             );
 
@@ -427,6 +450,23 @@ fn sweep_two_nodes_gagge() {
                 rust.t_sens,
             ];
 
+            // `calculate_ce=True` is a different upstream entry point with a different
+            // return type: it hands back a bare `SET`, not a `GaggeTwoNodes`, so `set` is
+            // the only field that exists to compare. That is exactly why this flag had
+            // never been swept -- turning it on breaks the shape the loop below assumes.
+            if calculate_ce {
+                let set_field = fields
+                    .iter()
+                    .find(|f| f.name == "set")
+                    .expect("gagge_fields must carry `set`");
+                compare_field(
+                    set_field,
+                    rust.set.as_celsius(),
+                    py_float(&py_result, "set")?,
+                )?;
+                return Ok(());
+            }
+
             for (field, rust_value) in fields.iter().zip(rust_values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
@@ -449,6 +489,12 @@ fn sweep_set_tmp() {
         .real("p_atm", 80_000.0, 105_000.0)
         .enumerated("posture", 2)
         .flag("limit_inputs")
+        // Hardcoded to `false` at the call site until 2026-08-26, so half of upstream's
+        // control flow here was never swept. Unlike `two_nodes_gagge`, `set_tmp` already
+        // passes the kernel defaults for the three parameters that path silently drops,
+        // and rounds to 1 dp itself, so neither bug found in `two_nodes_gagge` can arise
+        // here -- this axis is what proves that rather than assuming it.
+        .flag("calculate_ce")
         .flag("round_output");
 
     Python::with_gil(|py| {
@@ -474,6 +520,7 @@ fn sweep_set_tmp() {
             };
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let calculate_ce = s.flag("calculate_ce");
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
@@ -486,6 +533,10 @@ fn sweep_set_tmp() {
                 (
                     "limit_inputs",
                     PyBool::new(py, limit_inputs).to_owned().into_any(),
+                ),
+                (
+                    "calculate_ce",
+                    PyBool::new(py, calculate_ce).to_owned().into_any(),
                 ),
                 (
                     "round_output",
@@ -517,7 +568,7 @@ fn sweep_set_tmp() {
                     position: posture,
                     limit_inputs,
                     round_output,
-                    calculate_ce: false,
+                    calculate_ce,
                 },
             )
             .as_celsius();
@@ -1413,7 +1464,25 @@ fn sweep_two_nodes_gagge_sleep() {
         .real("thickness_drift", -0.12, 0.12)
         .real("wme", 0.0, 0.5)
         .real("p_atm", 80_000.0, 105_000.0)
-        .enumerated("duration", 4);
+        .enumerated("duration", 4)
+        // Every remaining `GaggeTwoNodesSleepOptions` field. They were left at
+        // `..Default::default()` until 2026-08-26, which is the same shape of hole that
+        // let `thickness_quilt` have no effect at all for the life of the port: a
+        // parameter nothing varies is a parameter nothing can prove is wired up.
+        // `temp_core_neutral` is documented as inert in both implementations -- sweeping
+        // it is what turns that from a claim into a tested one.
+        .enumerated("ltime", 3)
+        .real("height", 140.0, 200.0)
+        .real("weight", 40.0, 120.0)
+        .real("c_sw", 100.0, 250.0)
+        .real("c_dil", 80.0, 200.0)
+        .real("c_str", 0.1, 1.0)
+        .real("temp_skin_neutral", 30.0, 36.0)
+        .real("temp_core_neutral", 35.0, 38.0)
+        .real("e_skin", 0.0, 0.5)
+        .real("alfa", 0.05, 0.3)
+        .real("skin_blood_flow", 3.0, 12.0)
+        .real("met_shivering", 0.0, 20.0);
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
@@ -1431,6 +1500,18 @@ fn sweep_two_nodes_gagge_sleep() {
                 _ => 120,
             };
             let (wme, p_atm) = (s.real("wme"), s.real("p_atm"));
+            let ltime = (s.index("ltime") + 1) as u32;
+            let height = s.real("height");
+            let weight = s.real("weight");
+            let c_sw = s.real("c_sw");
+            let c_dil = s.real("c_dil");
+            let c_str = s.real("c_str");
+            let temp_skin_neutral = s.real("temp_skin_neutral");
+            let temp_core_neutral = s.real("temp_core_neutral");
+            let e_skin = s.real("e_skin");
+            let alfa = s.real("alfa");
+            let skin_blood_flow = s.real("skin_blood_flow");
+            let met_shivering = s.real("met_shivering");
 
             // Clamped to the ranges pythermalcomfort's validator accepts, so a drift never
             // walks an input out of bounds and turns a parity check into an exception.
@@ -1450,6 +1531,30 @@ fn sweep_two_nodes_gagge_sleep() {
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
                 ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
+                ("ltime", ltime.into_pyobject(py).unwrap().into_any()),
+                ("height", height.into_pyobject(py).unwrap().into_any()),
+                ("weight", weight.into_pyobject(py).unwrap().into_any()),
+                ("c_sw", c_sw.into_pyobject(py).unwrap().into_any()),
+                ("c_dil", c_dil.into_pyobject(py).unwrap().into_any()),
+                ("c_str", c_str.into_pyobject(py).unwrap().into_any()),
+                (
+                    "temp_skin_neutral",
+                    temp_skin_neutral.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "temp_core_neutral",
+                    temp_core_neutral.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("e_skin", e_skin.into_pyobject(py).unwrap().into_any()),
+                ("alfa", alfa.into_pyobject(py).unwrap().into_any()),
+                (
+                    "skin_blood_flow",
+                    skin_blood_flow.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "met_shivering",
+                    met_shivering.into_pyobject(py).unwrap().into_any(),
+                ),
             ]
             .into_py_dict(py)
             .unwrap();
@@ -1518,7 +1623,18 @@ fn sweep_two_nodes_gagge_sleep() {
                 GaggeTwoNodesSleepOptions {
                     wme: MetabolicRate::from_met(wme),
                     p_atm: Pressure::from_pascals(p_atm),
-                    ..Default::default()
+                    ltime,
+                    height: Length::from_centimeters(height),
+                    weight: Mass::from_kilograms(weight),
+                    c_sw,
+                    c_dil,
+                    c_str,
+                    temp_skin_neutral: Temperature::from_celsius(temp_skin_neutral),
+                    temp_core_neutral: Temperature::from_celsius(temp_core_neutral),
+                    e_skin: HeatFluxDensity::from_watts_per_square_meter(e_skin),
+                    alfa,
+                    skin_blood_flow,
+                    met_shivering: HeatFluxDensity::from_watts_per_square_meter(met_shivering),
                 },
             )
             .map_err(|e| format!("rust rejected the schedule: {e}"))?;

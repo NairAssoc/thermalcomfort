@@ -103,7 +103,16 @@ pub struct GaggeTwoNodesSleepOptions {
     pub alfa: f64,
     /// Initial skin blood flow [L/(h·m²)]
     pub skin_blood_flow: f64,
-    /// Initial shivering thermogenesis
+    /// Initial shivering thermogenesis.
+    ///
+    /// Like [`temp_core_neutral`](Self::temp_core_neutral), setting this has no effect in
+    /// either implementation: it seeds `SleepState::met_shivering`, but every minute
+    /// recomputes `met_shivering = 19.4 * cold_s * cold_c` before first use, so the seed
+    /// never reaches an output. Kept so the two APIs take the same arguments.
+    ///
+    /// Measured, not assumed: `sweep_two_nodes_gagge_sleep` varies it over 0-20 W/m² and
+    /// agrees with upstream, and forcing this port to ignore it entirely leaves that
+    /// sweep green — which is what says upstream ignores it too.
     pub met_shivering: HeatFluxDensity,
 }
 

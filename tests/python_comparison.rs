@@ -2088,6 +2088,109 @@ fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label:
     );
 }
 
+/// `two_nodes_gagge`'s `calculate_ce=True` path, which upstream reaches through a wrapper
+/// that silently drops most of its arguments.
+///
+/// `_gagge_two_nodes_optimized_return_set` (`two_nodes_gagge.py:580-604`) takes only
+/// `(tdb, tr, v, met, clo, vapor_pressure, wme, body_surface_area, p_atm, position)`. Four
+/// things follow, none of them in the docstring:
+///
+/// 1. `max_skin_blood_flow`, `max_sweating` and `w_max` never reach the kernel and fall
+///    back to its defaults of 90, 500 and "compute from air speed" (`:215-223`). Whatever
+///    the caller passed is discarded.
+/// 2. `position` is passed as the literal `1`, which the kernel compares against the
+///    *string* `Postures.sitting.value`, so the branch is always "standing".
+/// 3. The branch `return SET(set=result)`s at `:142`, before the `if round_output:` block
+///    at `:201`, so this path is never rounded.
+/// 4. Only `set` exists on the result; it is a `SET`, not a `GaggeTwoNodes`.
+///
+/// This port got (1) and (3) wrong until 2026-08-26 and nothing noticed, because
+/// `calculate_ce` had never been swept -- it sat at its `false` default, so an entire
+/// upstream entry point was unexercised. Both bugs are invisible until a cap binds: below
+/// saturation the two agree to ~1e-9. The case below has met=3.05, where `m_bl` reaches 90
+/// upstream while this port was holding it at the caller's 82.37.
+#[test]
+fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
+    use measurements::{Area, Pressure};
+    use thermalcomfort::models::GaggeTwoNodesOptions;
+    use thermalcomfort::utilities::Posture;
+
+    Python::with_gil(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let (tdb, tr, v, rh, met, clo): (f64, f64, f64, f64, f64, f64) =
+            (11.31472, 28.428285, 0.157185, 63.277979, 3.048367, 1.977141);
+        // Deliberately *not* the kernel defaults, so passing them through would show.
+        let (msbf, msw): (f64, f64) = (82.3708, 346.446716);
+
+        for round_output in [false, true] {
+            let label = format!("calculate_ce round_output={round_output}");
+            let kwargs = [
+                ("wme", 0.221401_f64.into_pyobject(py).unwrap().into_any()),
+                (
+                    "body_surface_area",
+                    1.512569_f64.into_pyobject(py).unwrap().into_any(),
+                ),
+                (
+                    "p_atm",
+                    80765.553751_f64.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("position", "sitting".into_pyobject(py).unwrap().into_any()),
+                (
+                    "max_skin_blood_flow",
+                    msbf.into_pyobject(py).unwrap().into_any(),
+                ),
+                ("max_sweating", msw.into_pyobject(py).unwrap().into_any()),
+                ("calculate_ce", PyBool::new(py, true).to_owned().into_any()),
+                (
+                    "round_output",
+                    PyBool::new(py, round_output).to_owned().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+
+            let py_result = models
+                .getattr("two_nodes_gagge")
+                .unwrap()
+                .call((tdb, tr, v, rh, met, clo), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_set: f64 = py_result.getattr("set").unwrap().extract().unwrap();
+
+            let rust = two_nodes_gagge(
+                GaggeTwoNodesInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                },
+                GaggeTwoNodesOptions {
+                    wme: MetabolicRate::from_met(0.221401),
+                    body_surface_area: Area::from_square_meters(1.512569),
+                    p_atm: Pressure::from_pascals(80765.553751),
+                    position: Posture::Sitting,
+                    max_skin_blood_flow: msbf,
+                    max_sweating: msw,
+                    round_output,
+                    w_max: Some(0.4),
+                    calculate_ce: true,
+                },
+            );
+
+            // The fixture guard: if a cap stops binding, the case stops testing (1).
+            assert!(
+                py_set > 36.0,
+                "{label}: upstream returned {py_set}; these inputs no longer saturate, so \
+                 the dropped-caps behaviour is not being exercised"
+            );
+            assert_abs_diff_eq!(rust.set.as_celsius(), py_set, epsilon = 1e-9);
+        }
+    });
+}
+
 /// `sports_heat_stress_risk`'s floor-with-nudge and its 4.9 ceiling.
 ///
 /// `risk_level_interpolated` is `min(floor((risk + 1e-9) * 10) / 10, 4.9)`, and the
