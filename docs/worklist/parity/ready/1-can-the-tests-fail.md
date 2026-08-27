@@ -176,33 +176,36 @@ whole matrix in one run. Delete the hook when the audit is done — do not ship 
 Suggested perturbation: 1e-6 absolute. Large enough to clear every documented tolerance,
 small enough to be physically meaningless.
 
-## Gap 3 — sweep domains may not reach every branch
+## Gap 3 — closed 2026-08-26
 
-A sweep only tests what its domain generates. `quilt_thickness` had no effect for as long as
-it did partly because nothing varied it meaningfully; `two_nodes_gagge_ji`'s
-`length_time_simulation` was hardcoded, so no sweep could vary it. Both are fixed, but the
-class is not audited.
+All 47 sweeps cross-referenced against their models' `Inputs`/`Options` fields. 43 were
+complete; four left parameters at defaults, all now swept:
+`two_nodes_gagge_sleep` (12), `phs` (`duration`, done earlier), `two_nodes_gagge`
+(`w_max`, `calculate_ce`), `set_tmp` (`calculate_ce`).
 
-For each sweep, check that every parameter of the model appears as a domain axis, and that
-enumerated axes cover every variant rather than the first two. `PET_MEASURE`-style coverage
-counters, or simply asserting that each branch of a `match` is hit at least once across a
-run, would make this checkable rather than eyeballed.
+**It found two real port bugs**, both in `two_nodes_gagge`'s `calculate_ce` path — an
+upstream entry point that was unexercised because the flag sat at its `false` default.
+Upstream reaches it via `_gagge_two_nodes_optimized_return_set`, whose signature stops at
+`position`, so `max_skin_blood_flow`/`max_sweating`/`w_max` never arrive and fall back to
+kernel defaults (90/500/computed); and the branch returns before the `if round_output:`
+block, so it is never rounded. This port did the opposite on both counts. Invisible until
+a cap binds — 0.077 °C of SET error at met=3.05. Pinned by
+`test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding`.
 
-**This class produced a live miss on 2026-08-26, which is the argument for doing the audit
-properly rather than by inspection.** Porting upstream 4.4.1's ISO 7933:2023 Annex E
-minute-1 skin-temperature special case, every existing PHS test — the two 480-minute
-comparisons and the 60-minute one — passed with the ported code *deleted*. The special
-case perturbs `t_sk` on minute 1 only and the `exp(-1/3)` lag decays that difference to
-~6e-10 °C by minute 60, so nothing running to 480 minutes could see it. Root cause:
-`sweep_phs` never varied `duration` — it took the 480-minute default, so no sample was
-short enough. Fixed by adding a 5-value `duration` axis (1/2/5/60/480), which now catches
-the deletion, plus `test_phs_minute_one_skin_temperature_special_case` as a direct pin.
+**The generalisable lesson**, which is now three-for-three on this branch
+(`quilt_thickness`, `duration`, `calculate_ce`): *a boolean option left at its default
+does not merely go untested — it can hide an entire alternate code path, and in this crate
+those paths reach different upstream functions with different signatures.* When adding a
+sweep axis for a flag, check what upstream does on the other branch before assuming the
+two are the same calculation with one value changed.
 
-The general lesson: a parameter left at its default is not merely untested, it can hide a
-whole time-domain of behaviour. `sweep_phs` still leaves `limit_inputs`, `f_r`, the `t_sk`/
-`t_cr`/`t_re`/`t_cr_eq` initial conditions, `t_sk_t_cr_wg`, `sweat_rate_watt` and
-`evap_load_wm2_min` at their defaults; PHS has the largest option surface in the crate and
-is the obvious place to start this gap.
+**Not a finding, recorded so it is not re-raised:** the `posture` axes in `set_tmp`,
+`two_nodes_gagge` and `use_fans_heatwaves` cover 2 of `Posture`'s 7 variants. Upstream
+raises `ValueError` on the other five, so they cannot be swept. That does surface a
+separate issue — this crate *accepts* `Posture::Sedentary` and returns a number where
+upstream refuses, the same shape as the JOS3 posture problem fixed in 8592d90. It is an
+API change, so it is not done here; see the note in
+`3-postures-wider-than-their-models.md`.
 
 ## What "confident" can honestly mean here
 
