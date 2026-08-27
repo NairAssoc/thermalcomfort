@@ -14,6 +14,18 @@ branch kept finding?* Three of them shared one shape — **a check that could no
 Each looked exactly like a passing test. **Green is not evidence a test can detect anything.**
 The only way to know is to break the thing deliberately and confirm the test notices.
 
+## Priority (user, 2026-08-26)
+
+**Gap 2, Gap 3 and the remaining band-edge sites all land before any new functionality.**
+No new models, no new ports, no API work until these three are done.
+
+Order, and the reason for it: remaining band edges first (in flight, and the technique is
+established), then Gap 3, then Gap 2. **Gap 3 must precede Gap 2.** A sweep whose domain
+never reaches a branch cannot fail when that branch is perturbed, so fault-injecting an
+unaudited domain measures the domain, not the guard — and returns a clean bill of health
+for code the sweep never executed. That is the same false-confidence shape this whole item
+exists to eliminate.
+
 ## What has been measured (2026-08-12)
 
 Done, no action needed:
