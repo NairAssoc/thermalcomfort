@@ -199,8 +199,14 @@ pub fn use_fans_heatwaves(
     // Exact equality, not a tolerance, matching pythermalcomfort. That is sound because
     // each quantity is *clamped* to its cap inside the two-node model, so a saturated
     // value is bit-identical to the cap. A tolerance instead reports strain for values
-    // merely near the cap: at tdb=38.1, tr=43.7, v=2.16 the previous 1e-3 window called
-    // heat_strain_w true where Python reports false.
+    // merely near the cap.
+    //
+    // Pinned by `test_use_fans_heatwaves_strain_flags_at_the_caps`, which pairs a
+    // saturating input with one whose `w` sits 4.7e-05 below `w_max`. Re-deriving that
+    // pair is the point: this comment used to cite tdb=38.1, tr=43.7, v=2.16 as the case
+    // a 1e-3 window got wrong, and by 4.4.2 those inputs put `w` 0.032 from the cap --
+    // nowhere near any window, so the example had quietly stopped demonstrating the bug
+    // it was recorded for. Cite a test, not a tuple.
     #[allow(clippy::float_cmp)]
     let heat_strain_blood_flow = gagge_result.m_bl == max_skin_blood_flow;
     #[allow(clippy::float_cmp)]

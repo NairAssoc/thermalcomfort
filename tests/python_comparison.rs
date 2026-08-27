@@ -26,15 +26,15 @@ use thermalcomfort::models::{
     HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs, HumidexModel, HumidexOptions,
     IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs, PetOptions, PhsInputs, PhsOptions,
     PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs, SolarGainInputs, SolarGainOptions,
-    SportsHeatStressRiskInputs, ThiInputs, UseFansHeatwavesInputs, UtciInputs, UtciOptions,
-    WbgtInputs, WbgtOptions, WciInputs, WindChillTemperatureInputs, WorkCapacityIntensityOptions,
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
-    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    SportsHeatStressRiskInputs, ThiInputs, UseFansHeatwavesInputs, UseFansHeatwavesOptions,
+    UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs, WindChillTemperatureInputs,
+    WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at,
+    cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen,
+    humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
+    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, transpose_sharp_altitude,
+    two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, use_fans_heatwaves, utci,
+    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
+    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
     MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
@@ -2086,6 +2086,106 @@ fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label:
         "{label}: Python still accepts a millidegree outside the bound, so the reported \
          (rounded) bound is not the true (unrounded) edge and this case proves nothing"
     );
+}
+
+/// `use_fans_heatwaves`' heat-strain flags at and just below the saturation caps.
+///
+/// These are not band edges: `m_bl`, `w` and `m_rsw` are *clamped* to their caps inside
+/// the two-node model, so a saturated value is bit-identical to the cap and upstream tests
+/// it with `==`. The failure mode is therefore the opposite of the usual one -- not
+/// "the edge was never reached" but "a tolerance was used where equality was meant",
+/// which reports strain for a value merely *near* the cap.
+///
+/// That was a real bug here: a 1e-3 window called `heat_strain_w` true where Python
+/// reports false. `use_fans_heatwaves.rs` cites `tdb=38.1, tr=43.7, v=2.16` for it, but
+/// **those inputs no longer demonstrate it** -- at 4.4.2 they put `w` 0.032 away from
+/// `w_max`, far outside any plausible window, so a test built on them would prove
+/// nothing. The pair below was re-derived by scanning:
+///
+/// - **saturated**: `w == w_max` exactly, both `0.6710727624360568`; strain is true.
+/// - **near-miss**: `w` and `w_max` differ by 4.7e-05; strain is false. This is the case
+///   that discriminates -- any tolerance down to 1e-4 flips it.
+#[test]
+fn test_use_fans_heatwaves_strain_flags_at_the_caps() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // (tdb, tr, v, rh, saturated?, description)
+        let cases = [
+            (34.0, 39.0, 0.2, 70.0, true, "w == w_max exactly"),
+            (35.5, 40.5, 4.0, 70.0, false, "w within 4.7e-05 of w_max"),
+        ];
+
+        for (tdb, tr, v, rh, expect_strain_w, what) in cases {
+            let (met, clo) = (1.2, 0.5);
+            let label = format!("use_fans_heatwaves [{what}]");
+
+            let kwargs = [
+                ("round_output", PyBool::new(py, false).to_owned().into_any()),
+                ("limit_inputs", PyBool::new(py, false).to_owned().into_any()),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+            let py_result = pythermal
+                .getattr("use_fans_heatwaves")
+                .unwrap()
+                .call((tdb, tr, v, rh, met, clo), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+
+            let py_w: f64 = py_result.getattr("w").unwrap().extract().unwrap();
+            let py_w_max: f64 = py_result.getattr("w_max").unwrap().extract().unwrap();
+            let py_strain_w: f64 = py_result
+                .getattr("heat_strain_w")
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            // The fixture guard: each case only probes what it claims to if `w` is still
+            // in the right relationship to the cap.
+            if expect_strain_w {
+                assert_eq!(
+                    py_w, py_w_max,
+                    "{label}: w is no longer clamped to the cap; rescan for a saturating input"
+                );
+            } else {
+                let gap = (py_w_max - py_w).abs();
+                assert!(
+                    gap > 0.0 && gap < 1e-4,
+                    "{label}: w is {gap} from the cap, not inside the near-miss window \
+                     this case exists to probe; rescan"
+                );
+            }
+            assert_eq!(
+                py_strain_w != 0.0,
+                expect_strain_w,
+                "{label}: upstream's verdict changed"
+            );
+
+            let rust = use_fans_heatwaves(
+                UseFansHeatwavesInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    v: Speed::from_meters_per_second(v),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                },
+                UseFansHeatwavesOptions {
+                    round_output: false,
+                    limit_inputs: false,
+                    ..Default::default()
+                },
+            );
+
+            assert_eq!(
+                rust.heat_strain_w,
+                Some(expect_strain_w),
+                "{label}: Rust {:?}, Python {expect_strain_w}",
+                rust.heat_strain_w
+            );
+        }
+    });
 }
 
 /// `ireq`'s `dle` either side of the 8-hour reporting ceiling.

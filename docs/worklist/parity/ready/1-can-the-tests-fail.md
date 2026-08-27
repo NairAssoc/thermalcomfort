@@ -121,9 +121,14 @@ exact-equality caps rather than on a rounded output:
   `2-temperature-newtype-is-lossy-at-the-boundary.md`, which needs a decision.
 - `SportsHeatStressRisk.recommendation` — edges at risk level 2.0/3.0/4.0, but the value
   is a brentq root, so landing on one exactly needs solving rather than scanning.
-- `UseFansHeatwavesResult.heat_strain*` — driven by exact `==` against the caps
-  (`m_bl == max_skin_blood_flow`, `w == w_max`, `m_rsw == max_sweating`), not a literal
-  band edge.
+- ~~`UseFansHeatwavesResult.heat_strain*`~~ — DONE 2026-08-26,
+  `test_use_fans_heatwaves_strain_flags_at_the_caps`. The inverse of every other site: the
+  values are *clamped* to their caps, so a saturated one is bit-identical and upstream uses
+  `==`. The failure mode is a tolerance where equality was meant. A 1e-3 window is caught
+  by the sweep and the new test; a **1e-4 window is missed by the sweep** and caught here.
+  Also fixed a comment in `use_fans_heatwaves.rs` citing `tdb=38.1, tr=43.7, v=2.16` as the
+  case a 1e-3 window got wrong — at 4.4.2 those inputs sit 0.032 from the cap, so the
+  example had stopped demonstrating its own bug. Cite a test, not a tuple.
 - ~~`IreqResult.dle_min`/`dle_neutral`~~ — DONE 2026-08-26,
   `test_ireq_dle_at_the_eight_hour_ceiling`. Moving the ceiling 8.0 → 8.1 is caught here
   and missed by `sweep_ireq`. Two things learned. Classifying the *rounded* `dle` instead
