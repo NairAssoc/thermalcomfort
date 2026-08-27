@@ -106,8 +106,14 @@ band, while `discomfort_index` bands the unrounded value and rounds only what it
 rescaled `utci_approx` it returns; the port handles this and comments it, but it reads
 like a bug.
 
-**Still open**, and needing a different technique because their edges are on inputs or on
-exact-equality caps rather than on a rounded output:
+**All nine sites are now done** (2026-08-26). Each needed a different technique, because
+the "edge" is a different thing each time: a rounded output, a computed bound, an
+exact-equality cap, a reporting ceiling, a floor nudge.
+
+**The headline number: of the nine, the differential sweep missed the discriminating fault
+at seven.** That is the empirical answer to Gap 2's premise below — see the note at the end
+of this document on why Gap 2 must be split rather than run as one uniform perturbation
+pass.
 
 - ~~`AdaptiveAshraeResult.acceptability_80`/`_90` and `AdaptiveEnResult.
   acceptability_cat_i`/`_ii`/`_iii`~~ — DONE 2026-08-26,
@@ -119,8 +125,14 @@ exact-equality caps rather than on a rounded output:
   evaluated against. And probing EN on the bound surfaced a real divergence from
   upstream that is nothing to do with banding: see
   `2-temperature-newtype-is-lossy-at-the-boundary.md`, which needs a decision.
-- `SportsHeatStressRisk.recommendation` — edges at risk level 2.0/3.0/4.0, but the value
-  is a brentq root, so landing on one exactly needs solving rather than scanning.
+- ~~`SportsHeatStressRisk.recommendation`~~ — DONE 2026-08-26,
+  `test_sports_risk_level_floor_nudge_and_ceiling`. The real hole was not the 2.0/3.0/4.0
+  recommendation edges (a 0.1-wide target the sweep hits routinely) but the **`1e-9` nudge
+  inside `min(floor((risk + 1e-9) * 10) / 10, 4.9)`, whose deletion the entire suite could
+  not detect** — lib tests, sweep and parity all stayed green. It is reachable after all:
+  `d(risk)/d(tdb)` ≈ 0.22, so the window is ~4.5e-9 in `tdb`, four orders of magnitude
+  wider than the `Temperature` error. `tdb = 25.29999999` sits inside it. The 4.9 clamp is
+  covered by a lib test but was uncovered cross-library; now pinned too.
 - ~~`UseFansHeatwavesResult.heat_strain*`~~ — DONE 2026-08-26,
   `test_use_fans_heatwaves_strain_flags_at_the_caps`. The inverse of every other site: the
   values are *clamped* to their caps, so a saturated one is bit-identical and upstream uses

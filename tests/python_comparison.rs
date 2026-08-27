@@ -2088,6 +2088,95 @@ fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label:
     );
 }
 
+/// `sports_heat_stress_risk`'s floor-with-nudge and its 4.9 ceiling.
+///
+/// `risk_level_interpolated` is `min(floor((risk + 1e-9) * 10) / 10, 4.9)`, and the
+/// recommendation is derived from that floored value, so both the nudge and the clamp are
+/// discrete-output logic driven by a float.
+///
+/// **The `1e-9` nudge was undetectable by the entire suite.** Removing it leaves the lib
+/// tests, `sweep_sports_heat_stress_risk` and every parity test green -- verified by
+/// removing it. It exists to stop a risk that should be exactly a tenth from flooring a
+/// tenth *down* when the interpolation lands a few ULPs short, and it changes the answer
+/// only for a risk within 1e-9 below a tenth. `d(risk)/d(tdb)` is about 0.22 here, so that
+/// is a ~4.5e-9 window in `tdb` -- narrow, but four orders of magnitude wider than the
+/// `Temperature` round-trip error, so unlike `ireq`'s ceiling this one *is* reachable
+/// through the public API.
+///
+/// `tdb = 25.29999999` sits in that window: upstream and this port both report 1.2, and
+/// without the nudge this port reports 1.1.
+///
+/// The 4.9 clamp is caught by `test_extreme_band_caps_at_4_9` in the model's own unit
+/// tests but by nothing cross-library, so it is pinned against Python here too.
+#[test]
+fn test_sports_risk_level_floor_nudge_and_ceiling() {
+    use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+
+    Python::with_gil(|py| {
+        let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
+            .expect("Failed to import sports_heat_stress_risk");
+        let py_func = sports_mod.getattr("sports_heat_stress_risk").unwrap();
+        let py_sports = sports_mod.getattr("Sports").unwrap();
+
+        // (tdb, expected floored risk, what the case is for)
+        let cases = [
+            (25.29999999_f64, 1.2, "inside the 1e-9 floor nudge window"),
+            (
+                70.0_f64,
+                4.9,
+                "far above t_extreme, clamped by the 4.9 ceiling",
+            ),
+        ];
+
+        for (tdb, expected, what) in cases {
+            let label = format!("sports_heat_stress_risk [{what}]");
+            let (tr, rh, vr) = (30.0, 50.0, 1.0);
+
+            let kwargs = [("sport", py_sports.getattr("RUNNING").unwrap())]
+                .into_py_dict(py)
+                .unwrap();
+            let py_result = py_func
+                .call((tdb, tr, rh, vr), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_risk: f64 = py_result
+                .getattr("risk_level_interpolated")
+                .unwrap()
+                .extract()
+                .unwrap();
+
+            // The fixture guard: if upstream's value moved, the input has slid out of the
+            // window it was chosen for and the case no longer probes anything.
+            assert_eq!(
+                py_risk, expected,
+                "{label}: upstream now reports {py_risk}, not {expected}; re-bisect for an \
+                 input inside the window"
+            );
+
+            let rust = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                rh: Humidity::from_percent(rh),
+                vr: Speed::from_meters_per_second(vr),
+                sport: Sports::RUNNING,
+            })
+            .unwrap_or_else(|e| panic!("{label}: Rust returned {e}"));
+
+            assert_eq!(
+                rust.risk_level_interpolated, py_risk,
+                "{label}: Rust {}, Python {py_risk}",
+                rust.risk_level_interpolated
+            );
+
+            let py_recommendation = extract_category(&py_result.getattr("recommendation").unwrap());
+            assert_eq!(
+                Some(rust.recommendation),
+                py_recommendation.as_deref(),
+                "{label}: recommendation differs"
+            );
+        }
+    });
+}
+
 /// `use_fans_heatwaves`' heat-strain flags at and just below the saturation caps.
 ///
 /// These are not band edges: `m_bl`, `w` and `m_rsw` are *clamped* to their caps inside
