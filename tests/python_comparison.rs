@@ -2088,6 +2088,116 @@ fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label:
     );
 }
 
+/// `ireq`'s `dle` either side of the 8-hour reporting ceiling.
+///
+/// `DurationLimitedExposure` is `Hours(_)` up to the ceiling and `MoreThanEight` past it,
+/// so it is a discrete output driven by a float and carries the same risk as every band
+/// edge in this file. Two details make it worth its own test rather than trusting the
+/// sweep:
+///
+/// - The comparison is on the **unrounded** `dle` (upstream: `(dle > 8.0) | (dle < 0)` in
+///   `ireq.py:_format_dle`), while `Hours` reports the rounded one. The `Hours` case below
+///   is `7.957...`, reported as `8.0`.
+///
+/// Measured, by injecting each fault: moving the ceiling from 8.0 to 8.1 is **caught**
+/// here and **missed** by `sweep_ireq`. Classifying the rounded `dle` instead of the
+/// unrounded one is **not** caught by either -- and that is a property of the model, not a
+/// hole to plug. The two orders differ only for a `dle` in `(8.0, 8.05]`, and the
+/// discontinuity at the ceiling means no input produces one: the value jumps from ~7.96
+/// straight past the window. Do not add cases chasing it.
+/// - `dle = -40 / storage` is discontinuous where `storage` crosses zero, so the value
+///   jumps across the ceiling rather than creeping over it.
+///
+/// The bracket is 1e-4 wide in `tdb`, not tighter, and that is forced rather than chosen.
+/// Bisection puts the crossing between two *adjacent* f64s, but
+/// `Temperature::from_celsius(-0.3483882704890564).as_celsius()` is
+/// `-0.3483882704890675` -- off by ~1e-13, which is millions of ULPs at this magnitude,
+/// so the Rust API cannot deliver an input on the correct side of the crossing at all.
+/// A tighter bracket would test the newtype's representation instead of the ceiling
+/// comparison. See `2-temperature-newtype-is-lossy-at-the-boundary.md`; this is the same
+/// divergence found via `adaptive_en`, in a place where it bites harder.
+#[test]
+fn test_ireq_dle_at_the_eight_hour_ceiling() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        // Straddling the ceiling, everything else held fixed. The true crossing is at
+        // tdb = -0.34838827048905638; these bracket it by 1e-4.
+        let below = -0.3484_f64;
+        let above = -0.3483_f64;
+
+        for (tdb, expect_more_than_eight) in [(below, false), (above, true)] {
+            let label = format!("ireq dle_neutral at tdb={tdb:?}");
+            let (tr, vr, rh, met, clo, p, walk_sp) = (tdb, 1.0, 50.0, 2.0, 2.0, 101.325, 0.0);
+
+            let kwargs = [("limit_inputs", PyBool::new(py, false).to_owned().into_any())]
+                .into_py_dict(py)
+                .unwrap();
+            let py_result = pythermal
+                .getattr("ireq")
+                .unwrap()
+                .call((tdb, tr, vr, rh, met, clo, p, walk_sp), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: raised: {e}"));
+            let py_desc = describe_field(&py_result.getattr("dle_neutral").unwrap());
+
+            let rust = ireq(
+                IreqInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tr),
+                    vr: Speed::from_meters_per_second(vr),
+                    rh: Humidity::from_percent(rh),
+                    met: MetabolicRate::from_met(met),
+                    clo: ClothingInsulation::from_clo(clo),
+                    p: AirPermeability::from_l_per_m2_s(p),
+                    walk_sp: Speed::from_meters_per_second(walk_sp),
+                },
+                IreqOptions {
+                    limit_inputs: false,
+                    ..Default::default()
+                },
+            );
+
+            // The fixture guard: the pair only brackets the ceiling if Python actually
+            // reports different sides for the two probes.
+            if expect_more_than_eight {
+                assert_eq!(
+                    py_desc, "\"more than 8\"",
+                    "{label}: upstream no longer reports the over-ceiling side here; \
+                     re-bisect for a pair straddling dle = 8.0"
+                );
+                assert_eq!(
+                    rust.dle_neutral,
+                    DurationLimitedExposure::MoreThanEight,
+                    "{label}: Rust {} where Python says {py_desc}",
+                    rust.dle_neutral
+                );
+            } else {
+                let py_hours: f64 = py_result
+                    .getattr("dle_neutral")
+                    .unwrap()
+                    .extract()
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "{label}: upstream reports {py_desc} rather than a number of \
+                             hours; re-bisect for a pair straddling dle = 8.0"
+                        )
+                    });
+                assert_eq!(
+                    py_hours, 8.0,
+                    "{label}: upstream no longer reports 8.0 h here; re-bisect"
+                );
+                assert_eq!(
+                    rust.dle_neutral,
+                    DurationLimitedExposure::Hours(8.0),
+                    "{label}: Rust {} where Python says {py_desc}",
+                    rust.dle_neutral
+                );
+            }
+        }
+    });
+}
+
 /// The adaptive acceptability flags exactly on their band bounds.
 ///
 /// `acceptability_80`/`_90` and `acceptability_cat_i`/`_ii`/`_iii` are `low <= to <= up`

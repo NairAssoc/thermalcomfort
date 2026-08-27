@@ -124,8 +124,17 @@ exact-equality caps rather than on a rounded output:
 - `UseFansHeatwavesResult.heat_strain*` — driven by exact `==` against the caps
   (`m_bl == max_skin_blood_flow`, `w == w_max`, `m_rsw == max_sweating`), not a literal
   band edge.
-- `IreqResult.dle_min`/`dle_neutral` — `Hours` vs `MoreThanEight` at `dle == 0.0` and
-  `dle == 8.0`.
+- ~~`IreqResult.dle_min`/`dle_neutral`~~ — DONE 2026-08-26,
+  `test_ireq_dle_at_the_eight_hour_ceiling`. Moving the ceiling 8.0 → 8.1 is caught here
+  and missed by `sweep_ireq`. Two things learned. Classifying the *rounded* `dle` instead
+  of the unrounded one is **untestable**, not untested: the two orders differ only for a
+  `dle` in `(8.0, 8.05]`, and `dle = -40 / storage` is discontinuous at the ceiling, so no
+  input lands in that window — do not add cases chasing it. And the crossing sits between
+  two *adjacent* f64s, which the `Temperature` newtype cannot deliver (it perturbs by
+  ~1e-13, millions of ULPs at that magnitude), so the test brackets by 1e-4 instead. That
+  is the sharpest instance yet of
+  `2-temperature-newtype-is-lossy-at-the-boundary.md`: near a discontinuity the crate
+  cannot express the input at all.
 
 ## Gap 2 — nobody has shown the other sweeps can fail
 
