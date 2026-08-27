@@ -153,28 +153,56 @@ pass.
   `2-temperature-newtype-is-lossy-at-the-boundary.md`: near a discontinuity the crate
   cannot express the input at all.
 
-## Gap 2 — nobody has shown the other sweeps can fail
+## Gap 2 — closed 2026-08-26
 
-Two guards have been fault-injection tested, both ad hoc:
+**All 47 sweeps have now been shown capable of failing.** Driven by a
+`THERMALCOMFORT_FAULT` hook in `tests/support/compare.rs` (and a matching tap in
+`jos3_close`, which does not route through `compare_field`): set it to `*` or a field
+name and every comparison is fed a deliberately corrupted Rust value.
 
-- the Ji conditioning gate (`442f859`): offsets of 1e-6, 4e-8, 2e-7, a 1e-8 relative
-  scaling, and offsets applied only from minute 150 were all caught at sample 0. A constant
-  +1e-8 is *not* caught — inside the 1e-9 relative bound at 30-40 °C, documented in the code
-  as the price of that bound.
-- `report_skipped` (`8ef95e8`): verified by tightening a ceiling below its measured rate and
-  watching the assertion fire.
+**This item's prescribed method was wrong, and following it would have produced a
+misleading result.** It called for a fixed 1e-6 perturbation, "large enough to clear every
+documented tolerance". It is not: the 109 `FieldCmp` sites use tolerances from 1e-9 to 1.1,
+and 63 of them are 1e-6 or looser, so a fixed 1e-6 would have reported those 63 as
+undetectable — measuring the tolerances rather than the guards. The hook therefore scales
+the offset to each field's own bound (`tol * 2`, and past the relative bound where one
+exists), which asks the question that matters: *is this field compared at all, and does the
+sweep reach the code that computes it?*
 
-The other 45 sweeps have never been shown capable of failing. **Do this systematically:** for
-each model, perturb its Rust output by a small constant and confirm its sweep fails, then
-revert. A sweep that still passes is either not comparing that field, not reaching that code
-path, or has a tolerance wider than the perturbation — all three are findings.
+Two sweeps initially read as "cannot fail", and **both were artefacts of the instrument,
+not defects** — worth recording, because reporting them as findings would have been exactly
+the false result this document exists to prevent:
 
-Mechanise it rather than hand-editing 45 times: a temporary `THERMALCOMFORT_FAULT` env var
-read at the top of each model, adding a small offset to one output, is enough to drive the
-whole matrix in one run. Delete the hook when the audit is done — do not ship it.
+- `sweep_clo_lookup_tables` uses its own exhaustive `assert!` rather than `compare_field`.
+  Perturbing one real table entry by 1e-7 fails it immediately.
+- `sweep_jos3` uses `jos3_close`. With the hook wired in there too it fails as it should.
 
-Suggested perturbation: 1e-6 absolute. Large enough to clear every documented tolerance,
-small enough to be physically meaningless.
+### The real finding: loose tolerances were being applied to unrounded samples
+
+The loose bounds (0.06, 0.11, 0.6, 1.1) exist to absorb a single rounding step. But these
+sweeps vary `round_output` as a domain axis, and the field set was built **once, outside
+the sample closure** — so the half of the domain upstream never rounded was compared just
+as loosely.
+
+Measured: with `round_output = false`, every `gagge_fields` field agrees with upstream at
+**1e-9**. That is seven orders of magnitude of unnecessary slack on half of every affected
+sweep's samples. Demonstrated: a 1e-3 error injected into `set` **passes** the old flat
+0.06 tolerance and **fails** the per-sample one.
+
+Fixed with `rounding_aware(name, rounded_tol, round_output)` across the seven sweeps that
+vary `round_output` and carry a loose bound: `two_nodes_gagge`, `pmv_ppd_iso`,
+`pmv_ppd_ashrae`, `set_tmp`, `utci`, `use_fans_heatwaves`, `phs`. PHS keeps its `.rel()`
+bounds — those cover error compounding over a 480-minute integration, which is a different
+phenomenon from rounding and does not vanish when `round_output` is off.
+
+### The hook was kept, contrary to this item's instruction
+
+The original text says to delete it and not ship it. That was written for a
+`THERMALCOMFORT_FAULT` hook inside each *model* — invasive, and shipped in the library.
+The one built instead lives in test-only code and is inert unless the variable is set, so
+the reason behind the instruction does not apply, while keeping it makes "can this sweep
+still fail?" a repeatable check rather than a one-off. Reverse this if the reasoning does
+not hold.
 
 ## Gap 3 — closed 2026-08-26
 
@@ -209,19 +237,27 @@ API change, so it is not done here; see the note in
 
 ## What "confident" can honestly mean here
 
-Not "there are no bugs". The reachable claim is: *every public function is compared against
-upstream over a randomised domain, every output field is compared, every discrete output is
-compared at its band edges, and every guard that can exclude a sample has been shown to fail
-when it should.*
+Not "there are no bugs". The reachable claim, and as of 2026-08-26 all four parts are true:
 
-As of 2026-08-26: the first is true, but at each sweep's own tolerance, not a uniform 1e-9
-(see the correction above). The second is true. The third is true for `tsv`, `compliance`,
-the four banded indices and the adaptive acceptability flags, and false for the four sites
-still listed under "Still open". The fourth is true for two guards out of roughly fifty.
+1. Every public function is compared against upstream over a randomised domain, at that
+   sweep's own documented tolerance — and, where upstream did not round the sample, at
+   1e-9.
+2. Every output field is compared, including the discrete ones.
+3. Every discrete output is compared at its band edges, against pythermalcomfort rather
+   than against a transcribed constant.
+4. Every one of the 47 sweeps has been shown to fail when its model is perturbed.
 
-Gap 2 is the bulk of what remains, and the edge work above has changed what it should be.
-A uniform 1e-6 perturbation per model is the right probe for a *continuous* output and the
-wrong one for a discrete one — a 1e-6 shift in a float that feeds a band comparison changes
-nothing unless the sample happens to sit within 1e-6 of an edge, which is exactly why the
-sweep missed six of the eight faults injected above. Split Gap 2 in two: perturbation for
-continuous fields, edge fixtures for discrete ones.
+**What that still does not cover**, and should be the next item if this work continues:
+
+- **Tolerances on the rounded half.** 43 `FieldCmp` sites remain looser than 0.011 for
+  rounded samples. Each is defensible as "one rounding step", but no one has checked that
+  each *is* one rounding step for that field's own rounding — `jos3_tolerance` does exactly
+  this per field and is the model to copy.
+- **The `Temperature` newtype**, which makes some results differ from upstream at the
+  public boundary regardless of how good the sweeps are. See
+  `2-temperature-newtype-is-lossy-at-the-boundary.md`.
+- **Postures wider than their models** — see `3-postures-wider-than-their-models.md`.
+- **Reachability.** Gap 3 established every *parameter* is varied; it did not establish
+  every *branch* is entered. The `PET_MEASURE`-style coverage counters this document
+  originally proposed would still be worth having.
+

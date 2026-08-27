@@ -109,7 +109,7 @@ fn sweep_pmv_ppd_iso() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = [FieldCmp::new("pmv", 0.01), FieldCmp::new("ppd", 0.11)];
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_pmv_ppd_iso", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
@@ -123,6 +123,10 @@ fn sweep_pmv_ppd_iso() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let fields = [
+                rounding_aware("pmv", 0.01, round_output),
+                rounding_aware("ppd", 0.11, round_output),
+            ];
             let (model, py_model) = match s.index("model") {
                 0 => (Iso7730Model::Iso77302005, "7730-2005"),
                 _ => (Iso7730Model::Iso77302025, "7730-2025"),
@@ -198,7 +202,7 @@ fn sweep_pmv_ppd_ashrae() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = [FieldCmp::new("pmv", 0.01), FieldCmp::new("ppd", 0.11)];
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_pmv_ppd_ashrae", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
@@ -212,6 +216,10 @@ fn sweep_pmv_ppd_ashrae() {
             );
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let fields = [
+                rounding_aware("pmv", 0.01, round_output),
+                rounding_aware("ppd", 0.11, round_output),
+            ];
             let airspeed_control = s.flag("airspeed_control");
             // Only one legal value today (see `Ashrae55Model`); the axis is drawn
             // anyway so this sweep keeps the same shape as `sweep_pmv_ppd_iso`.
@@ -286,31 +294,43 @@ fn sweep_pmv_ppd_ashrae() {
     });
 }
 
+/// Tolerance for a field upstream rounds only when `round_output` is set.
+///
+/// The loose bounds in this file exist to absorb one rounding step. Applying them to
+/// *unrounded* samples too — which every sweep here did until 2026-08-26, because the
+/// field set was built once outside the sample closure — compares half the domain seven
+/// orders of magnitude looser than it needs to be, and a real 0.05 °C port error in an
+/// unrounded sample passes unnoticed. Measured: with `round_output = false` every
+/// `gagge_fields` field agrees with upstream at 1e-9.
+fn rounding_aware(name: &'static str, rounded_tol: f64, round_output: bool) -> FieldCmp {
+    FieldCmp::new(name, if round_output { rounded_tol } else { 1e-9 })
+}
+
 /// Field set shared by the Gagge two-node model and its variants.
 ///
 /// Tolerances are loose enough to absorb a single rounding step (Python rounds to one
 /// decimal when `round_output` is set) but no looser — a real divergence in these models
 /// is typically far larger, as the 2026-08-09 `alfa` bug showed.
-fn gagge_fields() -> Vec<FieldCmp> {
+fn gagge_fields(round_output: bool) -> Vec<FieldCmp> {
     vec![
-        FieldCmp::new("e_skin", 0.11),
-        FieldCmp::new("e_rsw", 0.11),
-        FieldCmp::new("e_max", 0.11),
-        FieldCmp::new("q_sensible", 0.11),
-        FieldCmp::new("q_skin", 0.11),
-        FieldCmp::new("q_res", 0.11),
-        FieldCmp::new("t_core", 0.06),
-        FieldCmp::new("t_skin", 0.06),
-        FieldCmp::new("m_bl", 0.11),
-        FieldCmp::new("m_rsw", 0.11),
-        FieldCmp::new("w", 0.06),
-        FieldCmp::new("w_max", 0.06),
-        FieldCmp::new("set", 0.06),
-        FieldCmp::new("et", 0.06),
-        FieldCmp::new("pmv_gagge", 0.06),
-        FieldCmp::new("pmv_set", 0.06),
-        FieldCmp::new("disc", 0.06),
-        FieldCmp::new("t_sens", 0.06),
+        rounding_aware("e_skin", 0.11, round_output),
+        rounding_aware("e_rsw", 0.11, round_output),
+        rounding_aware("e_max", 0.11, round_output),
+        rounding_aware("q_sensible", 0.11, round_output),
+        rounding_aware("q_skin", 0.11, round_output),
+        rounding_aware("q_res", 0.11, round_output),
+        rounding_aware("t_core", 0.06, round_output),
+        rounding_aware("t_skin", 0.06, round_output),
+        rounding_aware("m_bl", 0.11, round_output),
+        rounding_aware("m_rsw", 0.11, round_output),
+        rounding_aware("w", 0.06, round_output),
+        rounding_aware("w_max", 0.06, round_output),
+        rounding_aware("set", 0.06, round_output),
+        rounding_aware("et", 0.06, round_output),
+        rounding_aware("pmv_gagge", 0.06, round_output),
+        rounding_aware("pmv_set", 0.06, round_output),
+        rounding_aware("disc", 0.06, round_output),
+        rounding_aware("t_sens", 0.06, round_output),
     ]
 }
 
@@ -343,7 +363,8 @@ fn sweep_two_nodes_gagge() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = gagge_fields();
+        // Field set is built per sample: the tolerance depends on whether
+        // upstream rounded this one.
 
         run_sweep("sweep_two_nodes_gagge", &domain, |s: &Sample| {
             let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm, msbf, msw) = (
@@ -365,6 +386,7 @@ fn sweep_two_nodes_gagge() {
             };
             let round_output = s.flag("round_output");
             let calculate_ce = s.flag("calculate_ce");
+            let fields = gagge_fields(round_output);
             // Upstream's `w_max` is the sentinel-typed `float | False`: `False` means
             // "no cap". Sweep both the sentinel and a real cap.
             let w_max = s.flag("use_w_max").then(|| s.real("w_max"));
@@ -500,7 +522,7 @@ fn sweep_set_tmp() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let field = FieldCmp::new("set", 0.06);
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_set_tmp", &domain, |s: &Sample| {
             let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm) = (
@@ -520,6 +542,7 @@ fn sweep_set_tmp() {
             };
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let field = rounding_aware("set", 0.06, round_output);
             let calculate_ce = s.flag("calculate_ce");
 
             let kwargs = [
@@ -594,15 +617,16 @@ fn sweep_utci() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let field_si = FieldCmp::new("utci", 0.06);
-        // A genuine SI->IP temperature conversion of the result (utci.py:126-130), so a
-        // Celsius-scale tolerance becomes 9/5 as large once expressed in Fahrenheit.
-        let field_ip = FieldCmp::new("utci", 0.06 * 9.0 / 5.0);
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_utci", &domain, |s: &Sample| {
             let (tdb, tr, v, rh) = (s.real("tdb"), s.real("tr"), s.real("v"), s.real("rh"));
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
+            let field_si = rounding_aware("utci", 0.06, round_output);
+            // A genuine SI->IP conversion of the result (utci.py:126-130), so a
+            // Celsius-scale tolerance is 9/5 as large expressed in Fahrenheit.
+            let field_ip = rounding_aware("utci", 0.06 * 9.0 / 5.0, round_output);
             let (units, py_units) = match s.index("units") {
                 0 => (Units::SI, "SI"),
                 _ => (Units::IP, "IP"),
@@ -769,22 +793,24 @@ fn sweep_use_fans_heatwaves() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let numeric = [
-            FieldCmp::new("e_skin", 0.11),
-            FieldCmp::new("e_rsw", 0.11),
-            FieldCmp::new("e_max", 0.11),
-            FieldCmp::new("q_sensible", 0.11),
-            FieldCmp::new("q_skin", 0.11),
-            FieldCmp::new("q_res", 0.11),
-            FieldCmp::new("t_core", 0.06),
-            FieldCmp::new("t_skin", 0.06),
-            FieldCmp::new("m_bl", 0.11),
-            FieldCmp::new("m_rsw", 0.11),
-            FieldCmp::new("w", 0.06),
-            FieldCmp::new("w_max", 0.06),
-        ];
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_use_fans_heatwaves", &domain, |s: &Sample| {
+            let round_output = s.flag("round_output");
+            let numeric = [
+                rounding_aware("e_skin", 0.11, round_output),
+                rounding_aware("e_rsw", 0.11, round_output),
+                rounding_aware("e_max", 0.11, round_output),
+                rounding_aware("q_sensible", 0.11, round_output),
+                rounding_aware("q_skin", 0.11, round_output),
+                rounding_aware("q_res", 0.11, round_output),
+                rounding_aware("t_core", 0.06, round_output),
+                rounding_aware("t_skin", 0.06, round_output),
+                rounding_aware("m_bl", 0.11, round_output),
+                rounding_aware("m_rsw", 0.11, round_output),
+                rounding_aware("w", 0.06, round_output),
+                rounding_aware("w_max", 0.06, round_output),
+            ];
             let (tdb, tr, v, rh, met, clo, wme, bsa, p_atm, msbf, msw) = (
                 s.real("tdb"),
                 s.real("tr"),
@@ -947,19 +973,7 @@ fn sweep_phs() {
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
-        let fields = [
-            FieldCmp::new("t_re", 0.06),
-            FieldCmp::new("t_sk", 0.06),
-            FieldCmp::new("t_cr", 0.06),
-            FieldCmp::new("t_cr_eq", 0.06),
-            FieldCmp::new("t_sk_t_cr_wg", 0.06),
-            FieldCmp::new("d_lim_loss_50", 0.6),
-            FieldCmp::new("d_lim_loss_95", 0.6),
-            FieldCmp::new("d_lim_t_re", 0.6),
-            FieldCmp::new("sweat_loss_g", 1.1).rel(1e-3),
-            FieldCmp::new("sweat_rate_watt", 0.6).rel(1e-3),
-            FieldCmp::new("evap_load_wm2_min", 0.6).rel(1e-3),
-        ];
+        // Built per sample; see `rounding_aware`.
 
         run_sweep("sweep_phs", &domain, |s: &Sample| {
             let (tdb, tr, v, rh, met, clo, wme, i_mst, a_p, weight, height, walk_sp, theta) = (
@@ -996,6 +1010,19 @@ fn sweep_phs() {
             let drink = s.flag("drink");
             let acclimatized = s.flag("acclimatized");
             let round_output = s.flag("round_output");
+            let fields = [
+                rounding_aware("t_re", 0.06, round_output),
+                rounding_aware("t_sk", 0.06, round_output),
+                rounding_aware("t_cr", 0.06, round_output),
+                rounding_aware("t_cr_eq", 0.06, round_output),
+                rounding_aware("t_sk_t_cr_wg", 0.06, round_output),
+                rounding_aware("d_lim_loss_50", 0.6, round_output),
+                rounding_aware("d_lim_loss_95", 0.6, round_output),
+                rounding_aware("d_lim_t_re", 0.6, round_output),
+                rounding_aware("sweat_loss_g", 1.1, round_output).rel(1e-3),
+                rounding_aware("sweat_rate_watt", 0.6, round_output).rel(1e-3),
+                rounding_aware("evap_load_wm2_min", 0.6, round_output).rel(1e-3),
+            ];
 
             let kwargs = [
                 ("wme", wme.into_pyobject(py).unwrap().into_any()),
@@ -1928,6 +1955,17 @@ impl From<String> for Jos3Mismatch {
 }
 
 fn jos3_close(field: &str, step: usize, rust: f64, py: f64) -> Result<(), Jos3Mismatch> {
+    // JOS3 does not route through `compare_field`, so it needs its own tap into the
+    // `THERMALCOMFORT_FAULT` audit hook -- without this the fault matrix reports
+    // `sweep_jos3` as unable to fail, which would be an artefact of the instrument rather
+    // than a property of the sweep. Same rule as `support::compare`: off unless the
+    // variable is set, offset scaled to this field's own tolerance.
+    let rust = match std::env::var("THERMALCOMFORT_FAULT") {
+        Ok(target) if target == "*" || target == field => {
+            rust + jos3_tolerance(field) * 2.0 + 1e-12
+        }
+        _ => rust,
+    };
     if (rust.is_nan() && py.is_nan()) || (rust - py).abs() <= jos3_tolerance(field) {
         Ok(())
     } else {

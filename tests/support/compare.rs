@@ -47,9 +47,35 @@ impl FieldCmp {
     }
 }
 
+/// Deliberately corrupt a Rust value before comparison, to prove a sweep can fail.
+///
+/// Enabled only when `THERMALCOMFORT_FAULT` is set, to `*` (every field) or to one field
+/// name. **Off in every normal run**, including CI: with the variable unset this is one
+/// failed env lookup per comparison and nothing else.
+///
+/// The offset is deliberately *not* a fixed constant. This crate's tolerances span 1e-9 to
+/// 1.1 (109 `FieldCmp` sites), so the fixed 1e-6 the worklist originally suggested would
+/// sail through the 63 fields whose tolerance is 1e-6 or looser and report them as
+/// undetectable — measuring the tolerance rather than the guard. Scaling the offset to
+/// each field's own bound asks the question that actually matters: *is this field
+/// compared at all, and does the sweep reach the code that computes it?*
+fn fault_offset(field: &FieldCmp, rust: f64) -> f64 {
+    let Ok(target) = std::env::var("THERMALCOMFORT_FAULT") else {
+        return 0.0;
+    };
+    if target != "*" && target != field.name {
+        return 0.0;
+    }
+    let absolute = field.tol * 2.0;
+    let relative = field.rel.map_or(0.0, |r| r * rust.abs() * 2.0);
+    // The `1e-12` floor keeps a zero-tolerance field perturbable.
+    absolute.max(relative).max(1e-12)
+}
+
 /// Compare one field. The error names the field and both values so a sweep failure is
 /// actionable without re-running under a debugger.
 pub fn compare_field(field: &FieldCmp, rust: f64, py: f64) -> Result<(), String> {
+    let rust = rust + fault_offset(field, rust);
     match (rust.is_nan(), py.is_nan()) {
         (true, true) => Ok(()),
         (true, false) => {
