@@ -23,6 +23,10 @@ pub struct SetOptions {
     pub limit_inputs: bool,
     /// Round output value
     pub round_output: bool,
+    /// Skip the metabolic increase of the convective heat transfer coefficient, as needed
+    /// when SET is evaluated for the cooling effect (pythermalcomfort's `calculate_ce`).
+    /// Default `false`, as in pythermalcomfort's `set_tmp`.
+    pub calculate_ce: bool,
 }
 
 impl Default for SetOptions {
@@ -34,6 +38,7 @@ impl Default for SetOptions {
             posture: Posture::Standing,
             limit_inputs: true,
             round_output: true,
+            calculate_ce: false,
         }
     }
 }
@@ -120,7 +125,6 @@ pub fn set_tmp(
         }
     }
 
-    // Call two_nodes_gagge with calculate_ce = true for faster calculation
     let gagge_options = GaggeTwoNodesOptions {
         wme: options.wme,
         body_surface_area: options.body_surface_area,
@@ -130,7 +134,7 @@ pub fn set_tmp(
         round_output: false, // Don't round in Gagge, we'll round here if needed
         max_sweating: 500.0,
         w_max: None,
-        calculate_ce: true, // Only calculate SET, not all outputs
+        calculate_ce: options.calculate_ce,
     };
 
     let result = two_nodes_gagge(
@@ -223,6 +227,76 @@ mod tests {
             options,
         );
         assert!(!set.is_nan());
+    }
+
+    #[test]
+    fn test_set_tmp_reference_values() {
+        // pythermalcomfort 3.9.8 with round_output=False:
+        // set_tmp(25, 25, 0.1, 50, 1.2, 0.5) = 24.3149 and set_tmp(28, 28, 0.3, 60, 1.5, 0.3) = 26.3632
+        let unrounded = SetOptions {
+            round_output: false,
+            ..Default::default()
+        };
+        let set = set_tmp(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Speed::from_meters_per_second(0.1),
+            Humidity::from_percent(50.0),
+            MetabolicRate::from_met(1.2),
+            ClothingInsulation::from_clo(0.5),
+            unrounded,
+        );
+        assert!((set - 24.3149).abs() < 0.05, "set = {set}");
+
+        let set = set_tmp(
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Speed::from_meters_per_second(0.3),
+            Humidity::from_percent(60.0),
+            MetabolicRate::from_met(1.5),
+            ClothingInsulation::from_clo(0.3),
+            unrounded,
+        );
+        assert!((set - 26.3632).abs() < 0.05, "set = {set}");
+    }
+
+    #[test]
+    fn test_set_tmp_calculate_ce() {
+        // Above 0.85 met, calculate_ce skips the metabolic increase of the convective
+        // coefficient (used by the cooling effect), so the two results differ
+        let inputs = (
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Speed::from_meters_per_second(0.3),
+            Humidity::from_percent(60.0),
+            MetabolicRate::from_met(1.5),
+            ClothingInsulation::from_clo(0.3),
+        );
+        let default = set_tmp(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            inputs.4,
+            inputs.5,
+            Default::default(),
+        );
+        let ce = set_tmp(
+            inputs.0,
+            inputs.1,
+            inputs.2,
+            inputs.3,
+            inputs.4,
+            inputs.5,
+            SetOptions {
+                calculate_ce: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            (default - ce).abs() > 0.5,
+            "default {default}, calculate_ce {ce}"
+        );
     }
 
     #[test]

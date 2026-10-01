@@ -103,6 +103,7 @@ pub fn cooling_effect(
         posture: options.posture,
         limit_inputs: false, // Don't limit inputs for cooling effect calculation
         round_output: false, // Need exact values for root finding
+        calculate_ce: true,  // As in pythermalcomfort's cooling_effect
     };
 
     let initial_set = set_tmp(
