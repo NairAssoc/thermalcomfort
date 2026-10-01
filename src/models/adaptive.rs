@@ -201,22 +201,22 @@ pub fn adaptive_ashrae(
 ///
 /// # Arguments
 ///
-/// * `dry_bulb_temp` - Dry bulb air temperature (recommended range: 10-30°C)
-/// * `mean_radiant_temp` - Mean radiant temperature (recommended range: 10-40°C)
-/// * `running_mean_outdoor_temp` - Running mean outdoor temperature (recommended range: 10-30°C)
-/// * `air_speed` - Air speed (recommended range: 0-2 m/s)
+/// * `dry_bulb_temp` - Dry bulb air temperature
+/// * `mean_radiant_temp` - Mean radiant temperature
+/// * `running_mean_outdoor_temp` - Running mean outdoor temperature
+/// * `air_speed` - Air speed; at 0.6 m/s or more and an operative temperature of
+///   at least 25 °C it raises the upper limits (cooling effect of 1.2, 1.8 or 2.2 °C)
 /// * `options` - Adaptive comfort options
 ///
 /// # Returns
 ///
-/// AdaptiveEnResult with comfort temperature and category limits
+/// AdaptiveEnResult with comfort temperature and category limits. As in
+/// pythermalcomfort, the lower limits are `t_cmf` − 3/4/5 °C and the upper limits
+/// `t_cmf` + 2/3/4 °C plus the cooling effect for categories I/II/III.
 ///
 /// # Applicability Limits (when limit_inputs = true)
 ///
-/// * 10 < tdb [°C] < 30
-/// * 10 < tr [°C] < 40
-/// * 0 < v [m/s] < 2
-/// * 10 < t_running_mean [°C] < 30
+/// * 10 ≤ t_running_mean [°C] ≤ 33.5 (otherwise `tmp_cmf` is NaN)
 ///
 /// # Examples
 ///
@@ -241,13 +241,27 @@ pub fn adaptive_en(
     air_speed: Speed,
     options: AdaptiveOptions,
 ) -> AdaptiveEnResult {
-    let dry_bulb_celsius = dry_bulb_temp.as_celsius();
-    let radiant_celsius = mean_radiant_temp.as_celsius();
     let running_mean_celsius = running_mean_outdoor_temp.as_celsius();
     let speed_mps = air_speed.as_meters_per_second();
 
-    // Calculate operative temperature (use_ashrae=true for adaptive models)
-    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, true);
+    // Operative temperature: pythermalcomfort's adaptive_en uses the ISO method
+    let to = operative_temperature(dry_bulb_temp, mean_radiant_temp, air_speed, false);
+    let to_celsius = to.as_celsius();
+
+    // Cooling effect of elevated air speed on the upper limits, as in pythermalcomfort:
+    // 1.2 / 1.8 / 2.2 °C at 0.6 / 0.9 / 1.2 m/s, when the operative temperature is
+    // at least 25 °C
+    let ce = if speed_mps >= 0.6 && to_celsius >= 25.0 {
+        if speed_mps < 0.9 {
+            1.2
+        } else if speed_mps < 1.2 {
+            1.8
+        } else {
+            2.2
+        }
+    } else {
+        0.0
+    };
 
     // Comfort temperature based on running mean outdoor temperature
     // EN 16798-1:2019 adaptive comfort equation:
@@ -256,43 +270,42 @@ pub fn adaptive_en(
     // and 18.8°C is the base comfort temperature
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
-    // Apply input limits if requested (EN 16798-1:2019 applicability limits)
-    // Dry bulb temperature: 10-30°C
-    // Mean radiant temperature: 10-40°C
-    // Air speed: 0-2 m/s
-    // Running mean outdoor temperature: 10-30°C
-    if options.limit_inputs
-        && (!(10.0..=30.0).contains(&dry_bulb_celsius)
-            || !(10.0..=40.0).contains(&radiant_celsius)
-            || !(0.0..=2.0).contains(&speed_mps)
-            || !(10.0..=30.0).contains(&running_mean_celsius))
-    {
+    // Apply input limits if requested. As in pythermalcomfort, only the running mean
+    // outdoor temperature is limited (10-33.5 °C); the indoor conditions are what the
+    // model evaluates and must not be restricted.
+    if options.limit_inputs && !(10.0..=33.5).contains(&running_mean_celsius) {
         t_cmf = f64::NAN;
     }
 
-    if options.round_output {
-        t_cmf = libm::round(t_cmf * 10.0) / 10.0;
-    }
+    // Category limits (EN 16798-1:2019, as in pythermalcomfort)
+    // Category I:   t_cmf - 3 ... t_cmf + 2 + ce
+    // Category II:  t_cmf - 4 ... t_cmf + 3 + ce
+    // Category III: t_cmf - 5 ... t_cmf + 4 + ce
+    let mut tmp_cmf_cat_i_low = t_cmf - 3.0;
+    let mut tmp_cmf_cat_ii_low = t_cmf - 4.0;
+    let mut tmp_cmf_cat_iii_low = t_cmf - 5.0;
+    let mut tmp_cmf_cat_i_up = t_cmf + 2.0 + ce;
+    let mut tmp_cmf_cat_ii_up = t_cmf + 3.0 + ce;
+    let mut tmp_cmf_cat_iii_up = t_cmf + 4.0 + ce;
 
-    // Calculate category bounds (EN 16798-1:2019)
-    // Category I (high expectation): ±2°C from comfort temperature
-    // Category II (medium expectation): ±3°C from comfort temperature
-    // Category III (moderate expectation): ±4°C from comfort temperature
-    let tmp_cmf_cat_i_low = t_cmf - 2.0;
-    let tmp_cmf_cat_i_up = t_cmf + 2.0;
-    let tmp_cmf_cat_ii_low = t_cmf - 3.0;
-    let tmp_cmf_cat_ii_up = t_cmf + 3.0;
-    let tmp_cmf_cat_iii_low = t_cmf - 4.0;
-    let tmp_cmf_cat_iii_up = t_cmf + 4.0;
-
-    // Check acceptability for each category
-    let to_celsius = to.as_celsius();
+    // Acceptability is evaluated before rounding, as in pythermalcomfort
     let acceptability_cat_i =
         !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
     let acceptability_cat_ii =
         !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
     let acceptability_cat_iii =
         !t_cmf.is_nan() && to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+
+    if options.round_output {
+        let round1 = |x: f64| libm::round(x * 10.0) / 10.0;
+        t_cmf = round1(t_cmf);
+        tmp_cmf_cat_i_low = round1(tmp_cmf_cat_i_low);
+        tmp_cmf_cat_ii_low = round1(tmp_cmf_cat_ii_low);
+        tmp_cmf_cat_iii_low = round1(tmp_cmf_cat_iii_low);
+        tmp_cmf_cat_i_up = round1(tmp_cmf_cat_i_up);
+        tmp_cmf_cat_ii_up = round1(tmp_cmf_cat_ii_up);
+        tmp_cmf_cat_iii_up = round1(tmp_cmf_cat_iii_up);
+    }
 
     AdaptiveEnResult {
         tmp_cmf: t_cmf,
@@ -409,6 +422,91 @@ mod tests {
             Default::default(),
         );
         assert!(result.tmp_cmf.is_nan());
+        assert!(!result.acceptability_cat_ii);
+    }
+
+    #[test]
+    fn test_adaptive_en_hot_indoor_conditions() {
+        // Indoor air above 30 °C is the condition the model has to assess, not an
+        // input error: only the running mean outdoor temperature is limited.
+        let result = adaptive_en(
+            Temperature::from_celsius(30.5),
+            Temperature::from_celsius(30.5),
+            Temperature::from_celsius(24.0),
+            Speed::from_meters_per_second(0.1),
+            Default::default(),
+        );
+        assert!((result.tmp_cmf - 26.7).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_up - 30.7).abs() < 1e-9);
+        assert!(result.acceptability_cat_iii);
+        assert!(!result.acceptability_cat_ii);
+
+        // Running mean outdoor temperatures up to 33.5 °C are accepted
+        let result = adaptive_en(
+            Temperature::from_celsius(30.0),
+            Temperature::from_celsius(30.0),
+            Temperature::from_celsius(32.0),
+            Speed::from_meters_per_second(0.1),
+            Default::default(),
+        );
+        assert!(!result.tmp_cmf.is_nan());
+    }
+
+    #[test]
+    fn test_adaptive_en_category_limits() {
+        // trm = 20 °C: t_cmf = 25.4 °C
+        let result = adaptive_en(
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(25.0),
+            Temperature::from_celsius(20.0),
+            Speed::from_meters_per_second(0.1),
+            Default::default(),
+        );
+        assert!((result.tmp_cmf_cat_i_low - 22.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_ii_low - 21.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_low - 20.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_i_up - 27.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_ii_up - 28.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_up - 29.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_adaptive_en_cooling_effect() {
+        // Elevated air speed raises the upper limits when to >= 25 °C
+        let still = adaptive_en(
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(20.0),
+            Speed::from_meters_per_second(0.1),
+            Default::default(),
+        );
+        let fan = adaptive_en(
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(28.0),
+            Temperature::from_celsius(20.0),
+            Speed::from_meters_per_second(1.0),
+            Default::default(),
+        );
+        assert!((fan.tmp_cmf_cat_ii_up - still.tmp_cmf_cat_ii_up - 1.8).abs() < 1e-9);
+        assert!((fan.tmp_cmf_cat_ii_low - still.tmp_cmf_cat_ii_low).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_adaptive_en_iso_operative_temperature() {
+        // With tdb != tr and v = 0.5 m/s the ISO operative temperature is
+        // (30 * sqrt(5) + 26) / (1 + sqrt(5)) = 28.76 °C, inside category III
+        // (upper limit 25.4 + 4 = 29.4 °C). The ASHRAE weighting would give 28.4 °C.
+        let result = adaptive_en(
+            Temperature::from_celsius(30.0),
+            Temperature::from_celsius(26.0),
+            Temperature::from_celsius(20.0),
+            Speed::from_meters_per_second(0.5),
+            AdaptiveOptions {
+                limit_inputs: true,
+                round_output: false,
+            },
+        );
+        assert!(result.acceptability_cat_iii);
         assert!(!result.acceptability_cat_ii);
     }
 
