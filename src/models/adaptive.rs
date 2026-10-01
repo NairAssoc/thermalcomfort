@@ -455,6 +455,60 @@ mod tests {
     }
 
     #[test]
+    fn test_adaptive_en_hot_indoor_conditions() {
+        // Indoor air above 30 °C is the condition the model has to assess, not an
+        // input error: only the running mean outdoor temperature is limited.
+        let result = adaptive_en(inputs(30.5, 30.5, 24.0, 0.1), Default::default());
+        assert!((result.tmp_cmf.as_celsius() - 26.7).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_up.as_celsius() - 30.7).abs() < 1e-9);
+        assert!(result.acceptability_cat_iii);
+        assert!(!result.acceptability_cat_ii);
+
+        // Running mean outdoor temperatures up to 33.5 °C are accepted
+        let result = adaptive_en(inputs(30.0, 30.0, 32.0, 0.1), Default::default());
+        assert!(!result.tmp_cmf.as_celsius().is_nan());
+    }
+
+    #[test]
+    fn test_adaptive_en_category_limits() {
+        // trm = 20 °C: t_cmf = 25.4 °C
+        let result = adaptive_en(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
+        assert!((result.tmp_cmf_cat_i_low.as_celsius() - 22.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_ii_low.as_celsius() - 21.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_low.as_celsius() - 20.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_i_up.as_celsius() - 27.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_ii_up.as_celsius() - 28.4).abs() < 1e-9);
+        assert!((result.tmp_cmf_cat_iii_up.as_celsius() - 29.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_adaptive_en_cooling_effect() {
+        // Elevated air speed raises the upper limits when to >= 25 °C
+        let still = adaptive_en(inputs(28.0, 28.0, 20.0, 0.1), Default::default());
+        let fan = adaptive_en(inputs(28.0, 28.0, 20.0, 1.0), Default::default());
+        let up_delta = fan.tmp_cmf_cat_ii_up.as_celsius() - still.tmp_cmf_cat_ii_up.as_celsius();
+        let low_delta = fan.tmp_cmf_cat_ii_low.as_celsius() - still.tmp_cmf_cat_ii_low.as_celsius();
+        assert!((up_delta - 1.8).abs() < 1e-9);
+        assert!(low_delta.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_adaptive_en_iso_operative_temperature() {
+        // With tdb != tr and v = 0.5 m/s the ISO operative temperature is
+        // (30 * sqrt(5) + 26) / (1 + sqrt(5)) = 28.76 °C, inside category III
+        // (upper limit 25.4 + 4 = 29.4 °C). The ASHRAE weighting would give 28.4 °C.
+        let result = adaptive_en(
+            inputs(30.0, 26.0, 20.0, 0.5),
+            AdaptiveOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        assert!(result.acceptability_cat_iii);
+        assert!(!result.acceptability_cat_ii);
+    }
+
+    #[test]
     fn test_adaptive_ashrae_round_output() {
         // trm=27 yields t_cmf = 0.31*27 + 17.8 = 26.17, which rounds to 26.2.
         // The 0.03 gap lets us detect whether rounding was applied.
