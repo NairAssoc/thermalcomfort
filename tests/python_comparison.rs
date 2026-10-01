@@ -2839,6 +2839,9 @@ fn test_compare_set_tmp() {
             (25.0, 25.0, 0.1, 50.0, 1.2, 0.5),
             (28.0, 28.0, 0.3, 60.0, 1.5, 0.3),
             (22.0, 24.0, 0.15, 40.0, 1.1, 0.7),
+            (25.0, 25.0, 0.1, 50.0, 2.0, 0.5),
+            (30.0, 30.0, 0.8, 50.0, 1.5, 0.5),
+            (20.0, 20.0, 0.2, 40.0, 3.0, 1.0),
         ];
 
         for (tdb, tr, v, rh, met, clo) in test_cases {
@@ -2863,7 +2866,8 @@ fn test_compare_set_tmp() {
             )
             .as_celsius();
 
-            assert_abs_diff_eq!(rust_result, py_set, epsilon = 1.5);
+            // Both sides round to 0.1 °C
+            assert_abs_diff_eq!(rust_result, py_set, epsilon = 0.11);
         }
     });
 }
