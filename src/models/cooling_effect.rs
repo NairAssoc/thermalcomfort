@@ -4,8 +4,9 @@
 //! the still air threshold (0.1 m/s).
 
 use crate::models::set_tmp::{SetInputs, SetOptions, set_tmp};
+use crate::models::two_nodes_gagge::GaggePosture;
 use crate::numerical::brentq;
-use crate::utilities::{Posture, Units};
+use crate::utilities::Units;
 use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
@@ -21,7 +22,7 @@ const BODY_SURFACE_AREA_M2: f64 = 1.8258;
 const P_ATM_PA: f64 = 101_325.0;
 // two_nodes_gagge's calculate_ce=True path hardcodes position=1 (the "standing" branch)
 // regardless of any posture argument, so cooling_effect always uses it too.
-const POSTURE: Posture = Posture::Standing;
+const POSTURE: GaggePosture = GaggePosture::Standing;
 
 /// The comfort inputs to [`cooling_effect`].
 ///

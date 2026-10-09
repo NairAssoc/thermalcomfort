@@ -92,8 +92,8 @@ use crate::{BmrEquation, Sex, Temperature};
 ///
 /// Re-exported as [`crate::models::jos3::Jos3Posture`], which is also the type of
 /// [`crate::models::jos3::Jos3Conditions::posture`] — JOS3 has coefficient tables for
-/// exactly these three postures, so the public field is this enum rather than the wider
-/// crate-wide [`crate::utilities::Posture`].
+/// exactly these three postures, so the public field is this enum. Every model with its own
+/// coefficient table carries its own posture enum for the same reason.
 ///
 /// Python: a `posture: str` argument to [`natural_convection`], [`conv_coef`], and
 /// [`rad_coef`], validated against `pythermalcomfort.utilities.Postures`. See the
@@ -105,11 +105,9 @@ use crate::{BmrEquation, Sex, Temperature};
 /// `standing`/`sitting`/`sedentary`/`lying`/`supine` in its `elif isinstance(inp, str):`
 /// branch and otherwise falls through doing nothing, silently leaving `self._posture` at
 /// whatever it was last set to (the `else` branch that resets to `standing` and prints a
-/// warning fires only for a non-string `inp`). An earlier version of this port took the
-/// 7-variant [`crate::utilities::Posture`] and returned a runtime error for the two
-/// variants JOS3 has no table for; expressing the same restriction in the type makes it
-/// a compile error instead, and nothing is lost because `sedentary` and `supine` are
-/// pure aliases upstream.
+/// warning fires only for a non-string `inp`). Expressing the restriction in the type makes an
+/// unsupported posture a compile error rather than a runtime one, and nothing is lost
+/// because `sedentary` and `supine` are pure aliases upstream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Posture {
     /// Python: `Postures.standing.value` (`"standing"`).

@@ -14,18 +14,6 @@ branch kept finding?* Three of them shared one shape — **a check that could no
 Each looked exactly like a passing test. **Green is not evidence a test can detect anything.**
 The only way to know is to break the thing deliberately and confirm the test notices.
 
-## Priority (user, 2026-08-26)
-
-**Gap 2, Gap 3 and the remaining band-edge sites all land before any new functionality.**
-No new models, no new ports, no API work until these three are done.
-
-Order, and the reason for it: remaining band edges first (in flight, and the technique is
-established), then Gap 3, then Gap 2. **Gap 3 must precede Gap 2.** A sweep whose domain
-never reaches a branch cannot fail when that branch is perturbed, so fault-injecting an
-unaudited domain measures the domain, not the guard — and returns a clean bill of health
-for code the sweep never executed. That is the same false-confidence shape this whole item
-exists to eliminate.
-
 ## What has been measured (2026-08-12)
 
 Done, no action needed:
@@ -195,14 +183,11 @@ vary `round_output` and carry a loose bound: `two_nodes_gagge`, `pmv_ppd_iso`,
 bounds — those cover error compounding over a 480-minute integration, which is a different
 phenomenon from rounding and does not vanish when `round_output` is off.
 
-### The hook was kept, contrary to this item's instruction
+### The hook is test-only and stays
 
-The original text says to delete it and not ship it. That was written for a
-`THERMALCOMFORT_FAULT` hook inside each *model* — invasive, and shipped in the library.
-The one built instead lives in test-only code and is inert unless the variable is set, so
-the reason behind the instruction does not apply, while keeping it makes "can this sweep
-still fail?" a repeatable check rather than a one-off. Reverse this if the reasoning does
-not hold.
+It lives in `tests/support`, is inert unless the variable is set, and makes "can this
+sweep still fail?" a repeatable check rather than a one-off. Keep it; use it whenever a
+sweep's comparator or domain changes.
 
 ## Gap 3 — closed 2026-08-26
 
@@ -227,14 +212,6 @@ those paths reach different upstream functions with different signatures.* When 
 sweep axis for a flag, check what upstream does on the other branch before assuming the
 two are the same calculation with one value changed.
 
-**Not a finding, recorded so it is not re-raised:** the `posture` axes in `set_tmp`,
-`two_nodes_gagge` and `use_fans_heatwaves` cover 2 of `Posture`'s 7 variants. Upstream
-raises `ValueError` on the other five, so they cannot be swept. That does surface a
-separate issue — this crate *accepts* `Posture::Sedentary` and returns a number where
-upstream refuses, the same shape as the JOS3 posture problem fixed in 8592d90. It is an
-API change, so it is not done here; see the note in
-`3-postures-wider-than-their-models.md`.
-
 ## What "confident" can honestly mean here
 
 Not "there are no bugs". The reachable claim, and as of 2026-08-26 all four parts are true:
@@ -256,7 +233,6 @@ Not "there are no bugs". The reachable claim, and as of 2026-08-26 all four part
 - **The `Temperature` newtype**, which makes some results differ from upstream at the
   public boundary regardless of how good the sweeps are. See
   `2-temperature-newtype-is-lossy-at-the-boundary.md`.
-- **Postures wider than their models** — see `3-postures-wider-than-their-models.md`.
 - **Reachability.** Gap 3 established every *parameter* is varied; it did not establish
   every *branch* is entered. The `PET_MEASURE`-style coverage counters this document
   originally proposed would still be worth having.

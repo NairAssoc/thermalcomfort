@@ -2,9 +2,24 @@
 //!
 //! Calculate the solar gain to the human body using the Effective Radiant Field (ERF).
 
-use crate::utilities::Posture;
 use crate::{HeatFluxDensity, TemperatureDelta};
 use measurements::Angle;
+
+/// The postures `solar_gain` has a projected-area-factor table for.
+///
+/// pythermalcomfort accepts exactly `standing`, `sitting` and `supine` and raises
+/// `ValueError` for the rest of its `Postures` enum, so the other members are not
+/// representable here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SolarGainPosture {
+    /// Standing, 0.725 of the body surface exposed to radiation
+    Standing,
+    /// Sitting, 0.696 exposed; pythermalcomfort's default
+    #[default]
+    Sitting,
+    /// Lying face up; the solar angles are transposed onto the standing table
+    Supine,
+}
 
 /// The sun's position and the radiation reaching the occupant.
 ///
@@ -36,7 +51,7 @@ pub struct SolarGainOptions {
     /// Average short-wave absorptivity of the occupant, 0.57-0.84
     pub asw: f64,
     /// Body posture
-    pub posture: Posture,
+    pub posture: SolarGainPosture,
     /// Floor reflectance `[0, 1]`
     pub floor_reflectance: f64,
     /// Round both outputs to one decimal place
@@ -47,7 +62,7 @@ impl Default for SolarGainOptions {
     fn default() -> Self {
         Self {
             asw: 0.7,
-            posture: Posture::Sitting,
+            posture: SolarGainPosture::Sitting,
             floor_reflectance: 0.6,
             round_output: true,
         }
@@ -142,7 +157,7 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
     // Tables contain empirical f_p values from ASHRAE 55 for different
     // solar altitudes (rows) and azimuths (columns)
     let fp_table: [[f64; 7]; 13] = match posture {
-        Posture::Sitting => [
+        SolarGainPosture::Sitting => [
             [0.29, 0.324, 0.305, 0.303, 0.262, 0.224, 0.177],
             [0.292, 0.328, 0.294, 0.288, 0.268, 0.227, 0.177],
             [0.288, 0.332, 0.298, 0.29, 0.264, 0.222, 0.177],
@@ -157,7 +172,7 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
             [0.306, 0.25, 0.18, 0.156, 0.156, 0.166, 0.177],
             [0.3, 0.24, 0.168, 0.152, 0.152, 0.164, 0.177],
         ],
-        Posture::Supine => [
+        SolarGainPosture::Supine => [
             // For supine, we use standing table but will transpose angles
             [0.35, 0.35, 0.314, 0.258, 0.206, 0.144, 0.082],
             [0.342, 0.342, 0.31, 0.252, 0.2, 0.14, 0.082],
@@ -192,7 +207,7 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
     };
 
     // Transpose angles for supine posture
-    let (sharp_adj, alt_adj) = if posture == Posture::Supine {
+    let (sharp_adj, alt_adj) = if posture == SolarGainPosture::Supine {
         crate::models::specialty::transpose_sharp_altitude_degrees(sharp, sol_altitude)
     } else {
         (sharp, sol_altitude)
@@ -228,7 +243,7 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
     // From ASHRAE 55 (fraction of body surface area exposed to radiation):
     // Sitting: 0.696 (larger surface area exposed while seated)
     // Standing: 0.725 (slightly more surface exposed when standing)
-    let f_eff = if posture == Posture::Sitting {
+    let f_eff = if posture == SolarGainPosture::Sitting {
         0.696
     } else {
         0.725
@@ -344,7 +359,7 @@ mod tests {
         let result = solar_gain(
             inputs(45.0, 90.0, 600.0, 0.7, 0.6, 0.7),
             SolarGainOptions {
-                posture: Posture::Standing,
+                posture: SolarGainPosture::Standing,
                 ..Default::default()
             },
         );

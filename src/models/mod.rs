@@ -44,7 +44,9 @@ pub use ridge_regression::{
     ridge_regression_predict_t_re_t_sk,
 };
 pub use set_tmp::{SetInputs, SetOptions, set_tmp};
-pub use solar_gain::{SolarGainInputs, SolarGainOptions, SolarGainResult, solar_gain};
+pub use solar_gain::{
+    SolarGainInputs, SolarGainOptions, SolarGainPosture, SolarGainResult, solar_gain,
+};
 pub use specialty::{
     AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
     VerticalTmpGradPpdOptions, ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
@@ -63,8 +65,9 @@ pub use thermal_indices::{
     wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
-    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, GaggeTwoNodesJiResult,
-    GaggeTwoNodesOptions, GaggeTwoNodesResult, two_nodes_gagge, two_nodes_gagge_ji,
+    GaggePosture, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions,
+    GaggeTwoNodesJiResult, GaggeTwoNodesOptions, GaggeTwoNodesResult, two_nodes_gagge,
+    two_nodes_gagge_ji,
 };
 pub use two_nodes_gagge_sleep::{
     GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, MismatchedScheduleLengths, SleepInputs,

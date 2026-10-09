@@ -3,8 +3,8 @@
 //! Estimate if environmental conditions would cause heat strain during heatwaves
 //! when using fans.
 
+use crate::models::two_nodes_gagge::GaggePosture;
 use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
-use crate::utilities::Posture;
 use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
@@ -38,7 +38,7 @@ pub struct UseFansHeatwavesOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Body position
-    pub position: Posture,
+    pub position: GaggePosture,
     /// Maximum blood flow from the core to the skin [kg/h/m²].
     ///
     /// Defaults to **80** here, unlike [`two_nodes_gagge`]'s default of 90 -- this
@@ -59,7 +59,7 @@ impl Default for UseFansHeatwavesOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            position: Posture::Standing,
+            position: GaggePosture::Standing,
             max_skin_blood_flow: 80.0,
             max_sweating: 500.0,
             limit_inputs: true,

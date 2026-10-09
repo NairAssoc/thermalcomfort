@@ -3,8 +3,8 @@
 //! This module provides a wrapper around the two-node Gagge model
 //! to calculate SET values.
 
+use crate::models::two_nodes_gagge::GaggePosture;
 use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
-use crate::utilities::Posture;
 use crate::{ClothingInsulation, MetabolicRate};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
@@ -37,7 +37,7 @@ pub struct SetOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Body position
-    pub position: Posture,
+    pub position: GaggePosture,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output value
@@ -60,7 +60,7 @@ impl Default for SetOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            position: Posture::Standing,
+            position: GaggePosture::Standing,
             limit_inputs: true,
             round_output: true,
             calculate_ce: false,

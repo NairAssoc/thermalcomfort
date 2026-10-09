@@ -26,15 +26,15 @@ use thermalcomfort::models::{
     HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs, HumidexModel, HumidexOptions,
     IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs, PetOptions, PhsInputs, PhsOptions,
     PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs, SolarGainInputs, SolarGainOptions,
-    SportsHeatStressRiskInputs, ThiInputs, UseFansHeatwavesInputs, UseFansHeatwavesOptions,
-    UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs, WindChillTemperatureInputs,
-    WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at,
-    cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen,
-    humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso,
-    ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, transpose_sharp_altitude,
-    two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep, use_fans_heatwaves, utci,
-    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
-    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    SolarGainPosture, SportsHeatStressRiskInputs, ThiInputs, UseFansHeatwavesInputs,
+    UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs,
+    WindChillTemperatureInputs, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae,
+    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
+    heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb,
+    pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain,
+    thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
+    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
+    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
     MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
@@ -45,12 +45,11 @@ use thermalcomfort::utilities::{
     BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
     CLO_TYPICAL_ENSEMBLES, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
     CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
-    CloInsulationAirLayerInputs, CloTotalInsulationInputs, Posture,
-    RunningMeanOutdoorTemperatureOptions, Units, antoine, body_surface_area, clo_area_factor,
-    clo_correction_factor_environment, clo_dynamic_ashrae, clo_individual_garment,
-    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
-    clo_typical_ensemble, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
-    running_mean_outdoor_temperature, v_relative,
+    CloInsulationAirLayerInputs, CloTotalInsulationInputs, RunningMeanOutdoorTemperatureOptions,
+    Units, antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
+    clo_dynamic_ashrae, clo_individual_garment, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
+    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
     ActivityRatio, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
@@ -2112,8 +2111,8 @@ fn assert_is_really_the_edge(verdicts: [Option<bool>; 3], is_lower: bool, label:
 #[test]
 fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
     use measurements::{Area, Pressure};
+    use thermalcomfort::models::GaggePosture;
     use thermalcomfort::models::GaggeTwoNodesOptions;
-    use thermalcomfort::utilities::Posture;
 
     Python::with_gil(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
@@ -2171,7 +2170,7 @@ fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
                     wme: MetabolicRate::from_met(0.221401),
                     body_surface_area: Area::from_square_meters(1.512569),
                     p_atm: Pressure::from_pascals(80765.553751),
-                    position: Posture::Sitting,
+                    position: GaggePosture::Sitting,
                     max_skin_blood_flow: msbf,
                     max_sweating: msw,
                     round_output,
@@ -4144,9 +4143,10 @@ fn test_compare_solar_gain() {
             let py_delta_mrt: f64 = py_result.getattr("delta_mrt").unwrap().extract().unwrap();
 
             let posture = match posture_str {
-                "sitting" => Posture::Sitting,
-                "standing" => Posture::Standing,
-                _ => Posture::Standing,
+                "sitting" => SolarGainPosture::Sitting,
+                "standing" => SolarGainPosture::Standing,
+                "supine" => SolarGainPosture::Supine,
+                other => panic!("solar_gain has no posture {other:?}"),
             };
 
             let rust_result = solar_gain(

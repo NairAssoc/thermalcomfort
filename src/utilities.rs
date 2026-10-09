@@ -39,31 +39,6 @@ pub enum Units {
     IP,
 }
 
-/// Body postures for thermal comfort calculations
-///
-/// Different postures affect the radiative heat transfer coefficient
-/// and body surface area exposed to the environment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Posture {
-    /// Standing posture (0.73 radiation area ratio)
-    #[default]
-    Standing,
-    /// Sitting posture (0.7 radiation area ratio)
-    Sitting,
-    /// Sedentary posture
-    Sedentary,
-    /// Reclining posture
-    Reclining,
-    /// Lying down posture
-    Lying,
-    /// Supine (lying face up) posture
-    Supine,
-    /// Crouching posture
-    Crouching,
-}
-
-impl Posture {}
-
 /// Model standards
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Model {

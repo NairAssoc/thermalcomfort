@@ -7,9 +7,28 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::utilities::{Posture, p_sat_torr, py_max, py_min, round_to};
+use crate::utilities::{p_sat_torr, py_max, py_min, round_to};
 use crate::{ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
+
+/// The postures the Gagge two-node kernel can compute.
+///
+/// pythermalcomfort accepts `sitting`, `standing` and `standing, forced convection` for
+/// `two_nodes_gagge`, `two_nodes_gagge_ji`, `set_tmp` and `use_fans_heatwaves`, and raises
+/// `ValueError` for every other `Postures` member. The kernel branches only on sitting
+/// (radiating-area ratio 0.7) versus not (0.77), so the two standing strings are the same
+/// calculation and share one variant here. Models with a different coefficient table carry
+/// their own enum: [`PhsPosture`](crate::models::PhsPosture),
+/// [`Jos3Posture`](crate::models::Jos3Posture), [`PetPosture`](crate::models::PetPosture)
+/// and [`SolarGainPosture`](crate::models::SolarGainPosture).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GaggePosture {
+    /// Standing, radiating-area ratio 0.77
+    #[default]
+    Standing,
+    /// Sitting, radiating-area ratio 0.7
+    Sitting,
+}
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// The comfort inputs to [`two_nodes_gagge`]: pythermalcomfort requires all six (no
@@ -83,7 +102,7 @@ pub struct GaggeTwoNodesOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Body position
-    pub position: Posture,
+    pub position: GaggePosture,
     /// Maximum skin blood flow [kg/h/m²]
     pub max_skin_blood_flow: f64,
     /// Round output values
@@ -102,7 +121,7 @@ impl Default for GaggeTwoNodesOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            position: Posture::Standing,
+            position: GaggePosture::Standing,
             max_skin_blood_flow: 90.0,
             round_output: true,
             max_sweating: 500.0,
@@ -251,7 +270,7 @@ fn gagge_two_nodes_optimized(
     wme: f64,
     body_surface_area: f64,
     p_atm: f64,
-    posture: Posture,
+    posture: GaggePosture,
     calculate_ce: bool,
     max_skin_blood_flow: f64,
     max_sweating: f64,
@@ -267,7 +286,7 @@ fn gagge_two_nodes_optimized(
     // takes the "standing" (`else`) branch, regardless of what posture the caller actually
     // asked for. Mirror that by forcing Standing here whenever `calculate_ce` is set.
     let posture = if calculate_ce {
-        Posture::Standing
+        GaggePosture::Standing
     } else {
         posture
     };
@@ -385,11 +404,11 @@ fn gagge_two_nodes_optimized(
         while !tc_converged {
             // 0.95 is the clothing emissivity from ASHRAE fundamentals Ch. 9.7 Eq. 35
             h_r = match posture {
-                Posture::Sitting => {
+                GaggePosture::Sitting => {
                     // 0.7 ratio between radiation area of the body and the body area
                     4.0 * 0.95 * sbc * pow((t_cl + tr) / 2.0 + 273.15, 3.0) * 0.7
                 }
-                _ => {
+                GaggePosture::Standing => {
                     // 0.73 ratio for standing and other postures
                     4.0 * 0.95 * sbc * pow((t_cl + tr) / 2.0 + 273.15, 3.0) * 0.73
                 }
@@ -665,7 +684,7 @@ pub struct GaggeTwoNodesJiOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Body position
-    pub position: Posture,
+    pub position: GaggePosture,
     /// Whether the subject is heat-acclimatised
     ///
     /// Acclimatisation raises the maximum regulatory evaporation by 25% and the
@@ -687,7 +706,7 @@ impl Default for GaggeTwoNodesJiOptions {
             wme: MetabolicRate::from_met(0.0),
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
-            position: Posture::Sitting,
+            position: GaggePosture::Sitting,
             acclimatized: true,
             body_weight: Mass::from_kilograms(70.0),
             length_time_simulation: 120,
@@ -860,7 +879,7 @@ fn gagge_two_nodes_ji_core(
     wme: f64,
     body_surface_area: f64,
     p_atm: f64,
-    posture: Posture,
+    posture: GaggePosture,
     acclimatized: bool,
     body_weight: f64,
     length_time_simulation: usize,
@@ -968,8 +987,8 @@ fn gagge_two_nodes_ji_core(
             // Emissivity 0.97, and the radiating-area ratio is 0.7 sitting / 0.77
             // standing.
             let area_ratio = match posture {
-                Posture::Sitting => 0.7,
-                _ => 0.77,
+                GaggePosture::Sitting => 0.7,
+                GaggePosture::Standing => 0.77,
             };
             h_r = 4.0 * 0.97 * sbc * pow((t_cl + tr) / 2.0 + 273.15, 3.0) * area_ratio;
             h_t = h_r + h_cc;
@@ -1183,7 +1202,7 @@ mod tests {
     /// **REAL BUG**: pythermalcomfort's `calculate_ce=True` path hardcodes the
     /// "standing" branch regardless of the caller's position (see the comment in
     /// `gagge_two_nodes_optimized`). Before the fix, Rust always honoured
-    /// `options.position`, so a `calculate_ce: true` call with `Posture::Sitting` would
+    /// `options.position`, so a `calculate_ce: true` call with `GaggePosture::Sitting` would
     /// take the sitting radiative-coefficient branch (0.7) instead of upstream's forced
     /// standing branch (0.73) -- silently diverging from Python whenever a caller other
     /// than `cooling_effect` (which always happens to pass `Standing`) used this flag.
@@ -1194,7 +1213,7 @@ mod tests {
         let sitting = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                position: Posture::Sitting,
+                position: GaggePosture::Sitting,
                 calculate_ce: true,
                 round_output: false,
                 ..Default::default()
@@ -1203,7 +1222,7 @@ mod tests {
         let standing = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                position: Posture::Standing,
+                position: GaggePosture::Standing,
                 calculate_ce: true,
                 round_output: false,
                 ..Default::default()
@@ -1221,7 +1240,7 @@ mod tests {
         let sitting_full = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                position: Posture::Sitting,
+                position: GaggePosture::Sitting,
                 calculate_ce: false,
                 round_output: false,
                 ..Default::default()
@@ -1230,7 +1249,7 @@ mod tests {
         let standing_full = two_nodes_gagge(
             inputs,
             GaggeTwoNodesOptions {
-                position: Posture::Standing,
+                position: GaggePosture::Standing,
                 calculate_ce: false,
                 round_output: false,
                 ..Default::default()

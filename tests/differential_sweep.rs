@@ -33,21 +33,21 @@ use thermalcomfort::models::two_nodes_gagge::{
 use thermalcomfort::models::{
     AdaptiveInputs, AdaptiveOptions, AtInputs, AtOptions, CoolingEffectInputs,
     CoolingEffectOptions, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs, EsiOptions,
-    GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, HeatIndexLuInputs, HeatIndexLuOptions,
-    HeatIndexRothfuszInputs, HeatIndexRothfuszOptions, HeatIndexSchoenInputs,
+    GaggePosture, GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, HeatIndexLuInputs,
+    HeatIndexLuOptions, HeatIndexRothfuszInputs, HeatIndexRothfuszOptions, HeatIndexSchoenInputs,
     HeatIndexSchoenOptions, HumidexInputs, HumidexModel, HumidexOptions, IreqInputs, IreqOptions,
     Iso7933Model, NetInputs, NetOptions, PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions,
     PhsPosture, RidgeRegressionInputs, RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs,
-    SolarGainInputs, SolarGainOptions, Sports, SportsHeatStressRiskInputs, SportsValues, ThiInputs,
-    ThiOptions, UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions,
-    WbgtInputs, WbgtOptions, WciInputs, WciOptions, WindChillTemperatureInputs,
-    WindChillTemperatureOptions, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae,
-    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
-    heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb,
-    pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain,
-    sports_heat_stress_risk, thi, two_nodes_gagge, two_nodes_gagge_sleep, use_fans_heatwaves, utci,
-    vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature, work_capacity_dunne,
-    work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    SolarGainInputs, SolarGainOptions, SolarGainPosture, Sports, SportsHeatStressRiskInputs,
+    SportsValues, ThiInputs, ThiOptions, UseFansHeatwavesInputs, UseFansHeatwavesOptions,
+    UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs, WciOptions,
+    WindChillTemperatureInputs, WindChillTemperatureOptions, WorkCapacityIntensityOptions,
+    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
+    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
+    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
+    set_tmp, solar_gain, sports_heat_stress_risk, thi, two_nodes_gagge, two_nodes_gagge_sleep,
+    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
+    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
@@ -59,9 +59,9 @@ use thermalcomfort::utilities::{
     Ashrae55Model, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula,
     CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
     CloDynamicIsoInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
-    CloTotalInsulationInputs, Iso9920Model, Posture, RunningMeanOutdoorTemperatureOptions, Units,
-    antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
-    clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
+    CloTotalInsulationInputs, Iso9920Model, RunningMeanOutdoorTemperatureOptions, Units, antoine,
+    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
+    clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
     clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
     hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
@@ -381,8 +381,8 @@ fn sweep_two_nodes_gagge() {
                 s.real("max_sweating"),
             );
             let (posture, py_posture) = match s.index("posture") {
-                0 => (Posture::Standing, "standing"),
-                _ => (Posture::Sitting, "sitting"),
+                0 => (GaggePosture::Standing, "standing"),
+                _ => (GaggePosture::Sitting, "sitting"),
             };
             let round_output = s.flag("round_output");
             let calculate_ce = s.flag("calculate_ce");
@@ -537,8 +537,8 @@ fn sweep_set_tmp() {
                 s.real("p_atm"),
             );
             let (posture, py_posture) = match s.index("posture") {
-                0 => (Posture::Standing, "standing"),
-                _ => (Posture::Sitting, "sitting"),
+                0 => (GaggePosture::Standing, "standing"),
+                _ => (GaggePosture::Sitting, "sitting"),
             };
             let limit_inputs = s.flag("limit_inputs");
             let round_output = s.flag("round_output");
@@ -825,8 +825,8 @@ fn sweep_use_fans_heatwaves() {
                 s.real("max_sweating"),
             );
             let (posture, py_posture) = match s.index("posture") {
-                0 => (Posture::Standing, "standing"),
-                _ => (Posture::Sitting, "sitting"),
+                0 => (GaggePosture::Standing, "standing"),
+                _ => (GaggePosture::Sitting, "sitting"),
             };
 
             // pythermalcomfort 4.4.0 raises UFuncTypeError for this combination: with
@@ -1307,12 +1307,12 @@ fn sweep_two_nodes_gagge_ji() {
             );
             // Python's Ji validator accepts exactly these three. Only `sitting` takes
             // the 0.7 radiating-area branch; both standing forms share 0.77, which the
-            // Rust `Posture::Standing` covers -- the crate has no separate
+            // Rust `GaggePosture::Standing` covers -- the crate has no separate
             // forced-convection variant and the model is insensitive to the difference.
             let (posture, py_posture) = match s.index("position") {
-                0 => (Posture::Sitting, "sitting"),
-                1 => (Posture::Standing, "standing"),
-                _ => (Posture::Standing, "standing, forced convection"),
+                0 => (GaggePosture::Sitting, "sitting"),
+                1 => (GaggePosture::Standing, "standing"),
+                _ => (GaggePosture::Standing, "standing, forced convection"),
             };
             let acclimatized = s.flag("acclimatized");
             let length_time_simulation = match s.index("length_time_simulation") {
@@ -4146,9 +4146,9 @@ fn sweep_solar_gain() {
             );
             // Python accepts only these three for solar gain.
             let (posture, py_posture) = match s.index("posture") {
-                0 => (Posture::Sitting, "sitting"),
-                1 => (Posture::Standing, "standing"),
-                _ => (Posture::Supine, "supine"),
+                0 => (SolarGainPosture::Sitting, "sitting"),
+                1 => (SolarGainPosture::Standing, "standing"),
+                _ => (SolarGainPosture::Supine, "supine"),
             };
             let round_output = s.flag("round_output");
 
