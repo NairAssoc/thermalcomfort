@@ -120,7 +120,7 @@ def public_function_names() -> set[str]:
     rust_files = sorted(SRC.rglob("*.rs"))
 
     for path in rust_files:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
 
         # Module-level free functions. The qualifier group matters: `pub const fn` is
         # already used in this crate, and a bare `^pub fn` regex would let the next
@@ -144,7 +144,7 @@ def public_function_names() -> set[str]:
     # by the snake_case filter. Drop anything that is only a module name.
     module_names = set()
     for path in rust_files:
-        module_names.update(re.findall(r"^pub mod (\w+);", path.read_text(), re.MULTILINE))
+        module_names.update(re.findall(r"^pub mod (\w+);", path.read_text(encoding="utf-8"), re.MULTILINE))
     # A name that is *also* a real function stays; only pure modules are dropped.
     module_only = {
         n for n in names if n in module_names and not _is_defined_fn(n, rust_files)
@@ -157,7 +157,7 @@ def _is_defined_fn(name: str, rust_files: list[Path]) -> bool:
     pattern = re.compile(
         PUB_FN_RE.replace(r"(\w+)", re.escape(name)) + r"\b", re.MULTILINE
     )
-    return any(pattern.search(p.read_text()) for p in rust_files)
+    return any(pattern.search(p.read_text(encoding="utf-8")) for p in rust_files)
 
 
 def public_rust_identifiers() -> set[str]:
@@ -169,7 +169,7 @@ def public_rust_identifiers() -> set[str]:
     """
     names = public_function_names()
     for path in sorted(SRC.rglob("*.rs")):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         names.update(
             re.findall(r"^pub (?:struct|enum|type|trait) (\w+)", text, re.MULTILINE)
         )
@@ -330,7 +330,7 @@ def main() -> int:
         return 1
 
     tests = "\n".join(
-        executable_test_source(p.read_text()) for p in PARITY_TEST_FILES
+        executable_test_source(p.read_text(encoding="utf-8")) for p in PARITY_TEST_FILES
     )
     functions = public_function_names()
 
