@@ -387,9 +387,11 @@ make verify
 ```
 
 `make verify` fails rather than skips when a target or toolchain is missing: a silent
-skip once let it pass locally on a tree CI rejected. The one CI condition it cannot
-reproduce is the operating system; it stands in for the Windows runners by giving the
-parity-coverage script a cp1252 console.
+skip once let it pass locally on a tree CI rejected. Two CI conditions it cannot
+reproduce: the operating system, for which it stands in by giving the parity-coverage
+script the cp1252 console the Windows runners have, and the Python minor version, which is
+whatever `python3` is locally and 3.11 on CI. Re-run `make setup-parity` now and then; it
+upgrades the reference venv's dependencies to what a fresh CI runner would resolve.
 
 `make` wires up the venv for you. To drive cargo directly, point `PYTHONPATH` at it:
 

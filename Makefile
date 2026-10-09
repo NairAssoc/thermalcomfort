@@ -78,12 +78,15 @@ parity-version:
 	@echo $(PTC_VERSION)
 
 # Build the reference environment. Idempotent: re-running repins to the current version,
-# so this is also how you move the reference forward during a version bump.
+# so this is also how you move the reference forward during a version bump. Dependencies
+# are upgraded eagerly so a re-run resolves what a fresh CI runner resolves today, rather
+# than keeping whatever numba and scipy the venv was first created with.
 setup-parity:
 	@echo "Creating parity venv at $(PARITY_VENV) with pythermalcomfort==$(PTC_VERSION)..."
 	@$(PYTHON) -m venv $(PARITY_VENV)
 	@$(PARITY_VENV)/bin/pip install --quiet --upgrade pip
-	@$(PARITY_VENV)/bin/pip install --quiet pythermalcomfort==$(PTC_VERSION)
+	@$(PARITY_VENV)/bin/pip install --quiet --upgrade --upgrade-strategy eager \
+		pythermalcomfort==$(PTC_VERSION)
 	@echo "✓ Reference pythermalcomfort $$($(PARITY_VENV)/bin/python -c 'import pythermalcomfort; print(pythermalcomfort.__version__)') ready"
 
 clean-parity:
