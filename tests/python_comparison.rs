@@ -3,13 +3,15 @@
 //! These tests ensure the Rust port produces identical results to the original
 //! Python package across a wide range of inputs and edge cases.
 
+mod support;
+
 use approx::assert_abs_diff_eq;
 use core::time::Duration;
 use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
-use std::sync::atomic::{AtomicBool, Ordering};
+use support::sweep::{assert_reference_version, import_reference};
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
@@ -70,69 +72,6 @@ use thermalcomfort::{
 #[test]
 fn test_pythermalcomfort_version_matches_crate() {
     Python::with_gil(assert_reference_version);
-}
-
-/// Import a pythermalcomfort module, asserting once per process that the reference is
-/// the version this crate ports.
-///
-/// Drop-in for `PyModule::import` - it returns the same `PyResult`, so call sites keep
-/// their existing `.expect(...)`/`.unwrap()`. Routing every import through here is what
-/// makes the check unskippable: as a standalone `#[test]` it was bypassed by any
-/// `cargo test <name>` filter, and absent entirely for tests outside this target.
-fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'py, PyModule>> {
-    // Deliberately an atomic flag rather than a `Once`. Tests run on parallel threads,
-    // and Python's import machinery can release the GIL mid-import; a blocking
-    // `Once::call_once` around it deadlocks, because a second thread acquires the
-    // released GIL and then waits on the `Once` the first thread needs the GIL to
-    // finish. A relaxed flag can let a few threads race and verify redundantly, which
-    // is harmless - the check is a cheap attribute read and the assertion is identical.
-    static CHECKED: AtomicBool = AtomicBool::new(false);
-    if !CHECKED.swap(true, Ordering::Relaxed) {
-        assert_reference_version(py);
-    }
-    PyModule::import(py, module)
-}
-
-/// Assert the importable pythermalcomfort is the version this crate ports.
-fn assert_reference_version(py: Python<'_>) {
-    // A Rust pre-release suffix (4.4.0-rc.1) marks a revision of the *port*, not of
-    // upstream, and PEP 440 spells pre-releases differently anyway. Compare the release
-    // triple only.
-    let full = env!("CARGO_PKG_VERSION");
-    let expected = full.split('-').next().unwrap_or(full);
-
-    {
-        let ptc = PyModule::import(py, "pythermalcomfort").unwrap_or_else(|e| {
-            panic!(
-                "could not import pythermalcomfort, so no parity test in this suite is \
-                 actually verifying anything.\n\
-                 Expected version {expected}. Set one up with:\n  \
-                 python3 -m venv /tmp/ptc_venv && \
-                 /tmp/ptc_venv/bin/pip install pythermalcomfort=={expected}\n  \
-                 PYTHONPATH=/tmp/ptc_venv/lib/python3.*/site-packages cargo test\n\
-                 Underlying error: {e}"
-            )
-        });
-
-        let actual: String = ptc
-            .getattr("__version__")
-            .expect("pythermalcomfort has no __version__")
-            .extract()
-            .expect("pythermalcomfort.__version__ is not a string");
-
-        assert_eq!(
-            actual, expected,
-            "\n\npythermalcomfort version mismatch: the parity tests in this suite are \
-             comparing against {actual}, but this crate ports {expected}.\n\
-             Every parity result below is therefore meaningless.\n\
-             Fix with:\n  \
-             python3 -m venv /tmp/ptc_venv && \
-             /tmp/ptc_venv/bin/pip install pythermalcomfort=={expected}\n  \
-             PYTHONPATH=/tmp/ptc_venv/lib/python3.*/site-packages cargo test\n\
-             If you are intentionally bumping the port, update Cargo.toml and README \
-             together with the models.\n"
-        );
-    }
 }
 
 /// Extract a category/label field from a pythermalcomfort result.

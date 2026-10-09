@@ -4,7 +4,7 @@ use crate::support::domain::{Axis, Domain, Sample, draw};
 use crate::support::rng::Rng;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 /// Samples per model. Override with `SWEEP_N=5000` for a deep run.
 pub fn sweep_n() -> usize {
@@ -49,20 +49,47 @@ pub fn seed() -> u64 {
         .unwrap_or(0x00C0_FFEE)
 }
 
-/// Import a pythermalcomfort module, asserting once per process that the reference is
-/// the version this crate ports.
+/// Import a pythermalcomfort module, loading the reference package exactly once per
+/// process and asserting it is the version this crate ports.
 ///
 /// Drop-in for `PyModule::import`. Routing every import through here is what makes the
 /// version check unskippable by test-name filtering.
+///
+/// The first call from any thread does the whole load — pythermalcomfort, its models and
+/// utilities, and through them numba and llvmlite — and every other thread waits for it
+/// with the GIL *released*. Both halves matter. Once: llvmlite's lazy library load goes
+/// through `importlib.resources`, and when two test threads run that first import
+/// concurrently it raises a spurious `NameError` (about one run in seven under load) that
+/// leaves a half-initialised module in `sys.modules`, so every later test in the process
+/// fails too. Released: Python's import machinery drops the GIL mid-import, so a thread
+/// waiting on the `Once` while still holding it would deadlock the thread doing the work.
 pub fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'py, PyModule>> {
-    // An atomic flag, not a `Once`: Python's import machinery can release the GIL
-    // mid-import, and a blocking `Once` around it deadlocks once a second test thread
-    // takes the released GIL and waits on the `Once` the first thread needs to finish.
-    static CHECKED: AtomicBool = AtomicBool::new(false);
-    if !CHECKED.swap(true, Ordering::Relaxed) {
-        assert_reference_version(py);
-    }
-    PyModule::import(py, module)
+    static LOADED: Once = Once::new();
+    py.allow_threads(|| {
+        LOADED.call_once(|| {
+            Python::with_gil(|py| {
+                assert_reference_version(py);
+                for name in ["pythermalcomfort.models", "pythermalcomfort.utilities"] {
+                    if let Err(e) = PyModule::import(py, name) {
+                        panic!("could not import {name}: {e}\n{}", traceback(py, &e));
+                    }
+                }
+            })
+        })
+    });
+    PyModule::import(py, module).map_err(|e| {
+        // `PyErr`'s Debug output drops the Python traceback, which is the only thing that
+        // says *where* an import failed; print it before the caller's panic.
+        eprintln!("import of {module} failed: {e}\n{}", traceback(py, &e));
+        e
+    })
+}
+
+/// The formatted Python traceback of `err`, or an empty string if it has none.
+pub fn traceback(py: Python<'_>, err: &PyErr) -> String {
+    err.traceback(py)
+        .and_then(|t| t.format().ok())
+        .unwrap_or_default()
 }
 
 /// Assert the importable pythermalcomfort is the version this crate ports.
