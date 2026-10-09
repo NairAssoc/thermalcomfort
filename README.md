@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v3.9.8) for thermal comfort calculations. All 38 core models, all utility functions, and all clothing databases are implemented with identical results to the Python reference.
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.2) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,11 +12,14 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **100% Feature Complete**: All 38 core models from pythermalcomfort v3.9.8
-- **Identical Results**: Perfect accuracy compared to the Python reference for all models (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
-- **`no_std` compatible**: Works in embedded and WASM environments (default)
-- **`std` feature**: Optional for perfect PET accuracy in extreme cold+wind conditions
-- **Rigorously Validated**: 202 tests (88 unit + 56 Python comparison + 58 doctests)
+- **Complete coverage**: every pythermalcomfort v4.4.2 model, `JOS3` included
+- **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
+- **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
+- **Rigorously Validated**: 413 tests (197 unit + 83 Python comparison + 79 doctests +
+  47 differential sweeps + 7 harness self-tests). Every public function with a
+  pythermalcomfort counterpart has a cross-library parity test *and* is driven through the
+  randomised differential sweep. The examples on this page are compiled by
+  `cargo test --doc`, so they cannot drift from the API.
 - **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
@@ -35,22 +38,45 @@ From the [`measurements`](https://crates.io/crates/measurements) crate:
 - `Pressure` - Pa, kPa, mmHg, atm, etc.
 
 Defined in this crate:
+- `TemperatureDelta` - A temperature *difference* (°C/K or °F). Distinct from `Temperature`,
+  which is absolute: a change of 1 °C is a change of 1.8 °F, with no offset
+- `AirPermeability` - Air permeability of clothing (l/(m²·s)), per ISO 11079
 - `ClothingInsulation` - Clothing insulation (clo, tog, m²·K/W)
 - `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
 - `Sex` - Biological sex for physiological models
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
 
-### Optional `std` Feature
+Also defined here and used on **results**, not just inputs:
+- `HeatFluxDensity` - a density of heat flow rate (W/m²), distinct from `Power` over the
+  whole body
+- `CardiacIndex`, `ActivityRatio`, `BodyFat`, `BmrEquation` - JOS3's body parameters
+- `Angle` - re-exported from `measurements` for solar geometry
 
-For applications requiring perfect Python accuracy matching in extreme PET conditions, enable the `std` feature:
+Physical quantities are newtypes on inputs **and** outputs: an absolute temperature comes
+back as `Temperature`, a temperature *difference* as `TemperatureDelta`, a heat flow as
+`HeatFluxDensity`. Genuinely dimensionless results (PMV, PPD, and indices such as WBGT and
+UTCI that are expressed in temperature-like units without being thermodynamic temperatures)
+stay `f64`.
 
-```toml
-[dependencies]
-thermalcomfort = { version = "3.9.8", features = ["std"] }
-```
+Every model takes a named `XInputs` struct for the parameters upstream requires, plus a
+defaulted `XOptions` for the ones it defaults — mirroring pythermalcomfort's own split, so a
+call transfers between the two libraries by reading. `XInputs` deliberately has no `Default`,
+so every required field must be named at the call site: the models take long runs of
+same-typed arguments (`solar_gain` has seven consecutive `f64`, five of them fractions) and
+no type system distinguishes those from one another.
 
-This uses nalgebra for numerically stable linear algebra (LU decomposition), matching Python's scipy.optimize.fsolve. The trade-off is breaking `no_std` compatibility and a slightly larger binary (~100KB). Only needed when extreme cold+wind PET accuracy is critical (< 5°C, > 2 m/s).
+### The `std` feature (deprecated no-op)
+
+There is no longer anything to enable. The crate has one configuration, and it is
+`no_std`. `std` is retained as an empty feature so existing dependants that wrote
+`features = ["std"]` keep building; it will go at the next upstream major.
+
+Historically `std` swapped PET onto a nalgebra solver "for perfect accuracy in extreme
+cold+wind". Two things ended that: the accuracy gap was closed by fixes to the solver
+itself, so both implementations produced identical results; and nalgebra never needed
+`std` in the first place — it has supported `no_std` since 0.15, and is now built against
+`alloc` + `libm` like any other dependency here.
 
 ## Installation
 
@@ -58,7 +84,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "3.9.8"
+thermalcomfort = "4.4.2"
 ```
 
 ## Usage
@@ -67,6 +93,7 @@ thermalcomfort = "3.9.8"
 
 ```rust
 use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::models::pmv::PmvPpdInputs;
 
 fn main() {
     let tdb = Temperature::from_celsius(25.0);
@@ -78,7 +105,17 @@ fn main() {
 
     let vr = v_relative(v, met);
 
-    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
+        },
+        Default::default(),
+    );
 
     println!("PMV: {:.2}", result.pmv);  // ~0.17
     println!("PPD: {:.1}%", result.ppd); // ~5.6%
@@ -90,16 +127,19 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
+use thermalcomfort::models::sports_heat_stress_risk::{
+    Sports, SportsHeatStressRiskInputs, sports_heat_stress_risk,
+};
 
 fn main() {
-    let result = sports_heat_stress_risk(
-        Temperature::from_celsius(35.0),
-        Temperature::from_celsius(35.0),
-        Humidity::from_percent(40.0),
-        Speed::from_meters_per_second(0.1),
-        Sports::RUNNING,
-    );
+    let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
+        tdb: Temperature::from_celsius(35.0),
+        tr: Temperature::from_celsius(35.0),
+        rh: Humidity::from_percent(40.0),
+        vr: Speed::from_meters_per_second(0.1),
+        sport: Sports::RUNNING,
+    })
+    .expect("35°C is a determinate risk level");
 
     println!("Risk level: {:.1}", result.risk_level_interpolated); // 2.1 (Moderate)
     println!("Recommendation: {}", result.recommendation);
@@ -110,18 +150,24 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::utci;
+use thermalcomfort::models::{utci, UtciInputs};
 
 fn main() {
     let result = utci(
-        Temperature::from_celsius(25.0),
-        Temperature::from_celsius(27.0),
-        Speed::from_meters_per_second(1.0),
-        Humidity::from_percent(50.0),
-        Default::default()
+        UtciInputs {
+            tdb: Temperature::from_celsius(25.0),
+            tr: Temperature::from_celsius(27.0),
+            v: Speed::from_meters_per_second(1.0),
+            rh: Humidity::from_percent(50.0),
+        },
+        Default::default(),
     );
     println!("UTCI: {:.1}°C", result.utci);
-    println!("Stress: {}", result.stress_category.as_str());
+    match result.stress_category {
+        Some(c) => println!("Stress: {}", c.as_str()),
+        // `None` where the index falls outside the categorised range
+        None => println!("Stress: uncategorised"),
+    }
 }
 ```
 
@@ -129,17 +175,19 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::pet_steady;
+use thermalcomfort::models::{pet_steady, PetInputs};
 
 fn main() {
     let result = pet_steady(
-        Temperature::from_celsius(25.0),
-        Temperature::from_celsius(27.0),
-        Speed::from_meters_per_second(1.0),
-        Humidity::from_percent(50.0),
-        MetabolicRate::from_met(1.5),
-        ClothingInsulation::from_clo(1.0),
-        Default::default()
+        PetInputs {
+            tdb: Temperature::from_celsius(25.0),
+            tr: Temperature::from_celsius(27.0),
+            v: Speed::from_meters_per_second(1.0),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(1.5),
+            clo: ClothingInsulation::from_clo(1.0),
+        },
+        Default::default(),
     );
     println!("PET: {:.1}°C", result.pet);
 }
@@ -149,23 +197,61 @@ fn main() {
 
 ```rust
 use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::{phs, PhsPosture, PhsOptions};
+use thermalcomfort::models::{phs, PhsInputs, PhsPosture};
 
 fn main() {
     let result = phs(
-        Temperature::from_celsius(40.0),
-        Temperature::from_celsius(40.0),
-        Speed::from_meters_per_second(0.3),
-        Humidity::from_percent(33.85),
-        MetabolicRate::from_met(2.5),
-        ClothingInsulation::from_clo(0.5),
-        PhsPosture::Standing,
-        PhsOptions::default()
+        PhsInputs {
+            tdb: Temperature::from_celsius(40.0),
+            tr: Temperature::from_celsius(40.0),
+            v: Speed::from_meters_per_second(0.3),
+            rh: Humidity::from_percent(33.85),
+            met: MetabolicRate::from_met(2.5),
+            clo: ClothingInsulation::from_clo(0.5),
+            posture: PhsPosture::Standing,
+        },
+        Default::default(),
     );
 
-    println!("Rectal temperature: {:.1}°C", result.t_re);
+    println!("Rectal temperature: {:.1}°C", result.t_re.as_celsius());
     println!("Max exposure (50%): {:.0} min", result.d_lim_loss_50);
-    println!("Sweat loss: {:.0} g", result.sweat_loss_g);
+    println!("Sweat loss: {:.0} g", result.sweat_loss_g.as_grams());
+}
+```
+
+### IREQ (Required Clothing Insulation, ISO 11079)
+
+For cold environments: the clothing insulation required for thermal equilibrium, and how
+long exposure can last when the clothing available is not enough.
+
+```rust
+use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::AirPermeability;
+use thermalcomfort::models::{ireq, IreqInputs, DurationLimitedExposure};
+
+fn main() {
+    let result = ireq(
+        IreqInputs {
+            tdb: Temperature::from_celsius(-15.0),
+            tr: Temperature::from_celsius(-15.0),
+            vr: Speed::from_meters_per_second(2.0),
+            rh: Humidity::from_percent(55.0),
+            met: MetabolicRate::from_met(175.0 / 58.15),
+            clo: ClothingInsulation::from_clo(2.8),
+            p: AirPermeability::from_l_per_m2_s(50.0),
+            walk_sp: Speed::from_meters_per_second(1.1),
+        },
+        Default::default(),
+    );
+
+    println!("Required insulation (minimal): {:.1} clo", result.ireq_min.as_clo());
+    println!("Required insulation (neutral): {:.1} clo", result.ireq_neutral.as_clo());
+
+    match result.dle_min {
+        DurationLimitedExposure::Hours(h) => println!("Exposure limit: {h:.1} h"),
+        DurationLimitedExposure::MoreThanEight => println!("Exposure limit: more than 8 h"),
+        DurationLimitedExposure::NotApplicable => println!("Outside ISO 11079 limits"),
+    }
 }
 ```
 
@@ -175,6 +261,7 @@ All measurement types support automatic unit conversion:
 
 ```rust
 use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+use thermalcomfort::models::pmv::PmvPpdInputs;
 
 fn main() {
     // Use any units - automatically converts internally
@@ -186,7 +273,17 @@ fn main() {
     let clo = ClothingInsulation::from_clo(0.5);
 
     let vr = v_relative(v, met);
-    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
+        },
+        Default::default(),
+    );
     println!("PMV: {:.2}", result.pmv);
 }
 ```
@@ -194,7 +291,7 @@ fn main() {
 ### Clothing Insulation Lookups
 
 ```rust
-use thermalcomfort::{clo_typical_ensemble, clo_individual_garment};
+use thermalcomfort::{clo_typical_ensemble, clo_individual_garment, ClothingInsulation};
 use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
 
 fn main() {
@@ -205,7 +302,7 @@ fn main() {
     let pants = clo_individual_garment("Thick trousers").unwrap();
     let underwear = clo_individual_garment("Men's underwear").unwrap();
 
-    let garments = [shirt, pants, underwear];
+    let garments = [shirt, pants, underwear].map(ClothingInsulation::from_clo);
     let total_clo = clo_intrinsic_insulation_ensemble(&garments);
     println!("Total ensemble: {:.2} clo", total_clo); // ~0.60 clo
 }
@@ -221,38 +318,125 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce identical results to pythermalcomfort v3.9.8. The only exception is the PET model under extreme cold+wind conditions when using the default `no_std` build:
+All models produce results identical to pythermalcomfort v4.4.2 across the swept input
+space, in the one build configuration the crate has. There is no accuracy trade-off to
+choose between. The four edge-case divergences that remain are listed under
+[Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
 
-| Condition | Python | Rust (`no_std`) | Rust (`std`) |
-|-----------|--------|-----------------|--------------|
-| Normal (25°C, 0.1 m/s, 50% RH) | 24.17°C | 24.17°C | 24.17°C |
-| Hot (35°C, 1.0 m/s, 60% RH) | 36.26°C | 36.26°C | 36.26°C |
-| Cold+wind (5°C, 2.0 m/s, 50% RH) | -0.46°C | 2.06°C | -0.46°C |
+Verification is a randomised differential sweep (see [Testing](#testing)) that drives
+every model through pseudo-random input vectors covering its optional parameters, not
+just its physical inputs, and compares every output field against Python. Divergences
+found this way are fixed in the port rather than tolerated: a tolerance is widened only
+where the residue is demonstrably float-representation noise, and each such place says so
+in the test and states what resolution was given up. Where a model rounds its own outputs
+upstream, the sweep cannot see drift below that rounding step — which is why run lengths
+are chosen so accumulated drift would exceed it.
 
-The `no_std` PET solver uses a custom Newton-Raphson method with a full 3x3 Jacobian, which is less numerically stable than Python's scipy HYBRD algorithm in extreme conditions. Enabling the `std` feature switches to a MINPACK-based HYBRD solver for perfect accuracy in all conditions.
+Earlier releases shipped a second, hand-written PET solver for `no_std` and documented it
+as less accurate in extreme cold+wind. Both the second solver and the caveat are gone: the
+underlying solver bugs were fixed, after which the two implementations agreed everywhere
+measured, so the duplicate was deleted rather than kept as a choice.
 
-All other models (PMV/PPD, UTCI, PHS, SET, Gagge variants, sports heat stress risk, etc.) produce identical results in both `no_std` and `std` builds.
+## Coverage
+
+Every public function is checked against pythermalcomfort by `make parity-coverage`, and
+every one is driven through the randomised differential sweep. The checker runs in both
+directions, so an upstream release growing a model this port lacks fails the build.
+
+Five divergences are known and deliberate. Each is a case where the two libraries disagree
+about an input at the edge of what the model can answer; none affects ordinary results.
+
+| Divergence | Detail |
+|---|---|
+| `pet_steady` returns `NaN` where scipy returns a number | Rust's 3-node Newton demands a 1e-5 residual. scipy's `fsolve` stops on step size and accepts points whose energy balance is still ~0.3 W/m² out. Where no root meets the stricter bar this port reports `NaN` rather than a wrong number. |
+| `two_nodes_gagge_sleep` returns infinity where Python raises `OverflowError` | Hot, humid and heavily quilted, the model's own exponentials overflow. Confined to inputs upstream declines to answer at all. |
+| `JOS3` drift below one rounding step is invisible to the sweep | Upstream rounds its own outputs (2 dp for most fields), so there is no unrounded reference to compare against. |
+| `adaptive_en` acceptability flags can flip on an input sitting exactly on a comfort bound | `Temperature` stores kelvin, so a Celsius input that is not exactly representable comes back changed by up to 2.3e-14 °C (one ULP of the kelvin value; integers and half-integers are exact). EN compares the operative temperature directly against bounds computed from the running mean, so `tdb = tr = 24.1` at `t_running_mean = 10` is category I in Python and not here. Accepted as irrelevant at that magnitude. |
+| One `JOS3` sample in 3000 is skipped as ill-conditioned | The chest segment can sit exactly on the wettedness saturation clip, where the answer stops being a function of the inputs at any resolution the sweep can see. Skipped only after re-running Python against itself with the input moved one ULP confirms upstream's own answer has already moved. |
+
+`two_nodes_gagge_sleep` is a faithful port of the Yan et al. (2022) model: it simulates the
+night minute by minute and takes a per-minute schedule for each driving variable, as upstream
+does. It previously delegated to the standard Gagge model at a fixed 0.7 met, so
+`quilt_thickness` had no effect at all. All ten output trajectories are compared against
+pythermalcomfort to 1e-9.
+
+`JOS3` is ported in full — all 17 body segments, the 85-node thermal network and the
+per-timestep dense solve — with every output field compared against upstream and driven
+through the sweep.
 
 ## Testing
 
+The parity tests compare this crate against the real `pythermalcomfort` package through
+pyo3, so they need the **exact version this crate ports** to be importable. The crate
+version is that version — they are kept in lockstep deliberately.
+
 ```bash
-# Run all tests
-cargo test
+# One-time: create a venv holding pythermalcomfort==<crate version>
+make setup-parity
 
-# Run only library tests (88 tests)
-cargo test --lib
+# Run the whole suite, then confirm the crate still builds for a no_std target
+make test
 
-# Run documentation tests (58 tests)
-cargo test --doc
-
-# Run Python comparison tests (56 tests, requires pythermalcomfort)
-cargo test --test python_comparison
+# Lint (fmt + clippy + parity coverage) followed by the full suite
+make verify
 ```
+
+`make` wires up the venv for you. To drive cargo directly, point `PYTHONPATH` at it:
+
+```bash
+export PYTHONPATH=$(ls -d .parity-venv/lib/python*/site-packages)
+
+cargo test --lib                      # library tests
+cargo test --doc                      # documentation tests
+cargo test --test python_comparison   # hand-written Python parity tests
+cargo test --test differential_sweep  # randomised differential sweep
+```
+
+Two guards keep the comparison honest:
+
+- `test_pythermalcomfort_version_matches_crate` fails the suite if the importable
+  `pythermalcomfort` is not the version being ported. Without it, a stale install makes
+  every parity assertion silently meaningless — which is exactly what happened when CI
+  sat pinned to 3.8.0 through four releases.
+- `make parity-coverage` fails if any public function has no parity test. New functions
+  must be compared against Python, not just unit-tested against transcribed constants.
+  Functions with no Python counterpart go in `EXEMPT` in `scripts/check_parity_coverage.py`
+  with a reason. `KNOWN_GAPS` is empty: adding to it is a regression, so write the test.
+
+### Differential sweep
+
+Beyond the hand-written parity cases, `tests/differential_sweep.rs` drives every model
+through pseudo-random input vectors — including the optional parameters (`wme`, `p_atm`,
+posture, blood-flow and sweating caps) that fixed cases leave at their defaults — and
+compares every output field against Python.
+
+```bash
+make sweep                      # deep run, SWEEP_N=20000
+SWEEP_N=500 cargo test --test differential_sweep
+```
+
+The sweep exists because "every function is called by a parity test" is not the same as
+"every function is verified": a median hand-written case pinned 49 of 103 optional
+parameters at their defaults, and real bugs lived in that residue.
+
+Failures print the seed and a shrunk input vector. Reproduce with:
+
+```bash
+SWEEP_SEED=<seed> SWEEP_N=<n> cargo test --test differential_sweep -- --nocapture
+```
+
+Widening a tolerance to make a sweep pass is almost always wrong: the sweep exists to find
+the differences that fixed cases miss.
+
+When bumping to a new pythermalcomfort release, change the version in `Cargo.toml`, re-run
+`make setup-parity`, and CI will follow automatically — it derives the pin from
+`Cargo.toml` rather than hardcoding it.
 
 ## Standards Compliance
 
-- **ISO 7730:2005** - PMV/PPD
+- **ISO 7730:2025** - PMV/PPD (formulae unchanged from ISO 7730:2005)
 - **ISO 7933:2004/2023** - Predicted Heat Strain
+- **ISO 11079:2007** - Required clothing insulation (IREQ) and duration limited exposure
 - **ASHRAE 55** - Thermal Environmental Conditions for Human Occupancy
 - **ISO 7726:1998** - Instruments for measuring physical quantities
 - **ISO 9920:2007** - Clothing insulation estimation
@@ -260,7 +444,7 @@ cargo test --test python_comparison
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v3.9.8), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.4.2), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

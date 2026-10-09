@@ -6,9 +6,25 @@
 
 use measurements::Temperature;
 
-/// Options for WBGT calculation
+/// The comfort inputs to [`wbgt`].
+///
+/// `twb` and `tg` are consecutive [`Temperature`]s; naming every field
+/// forecloses a silent transposition between them.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WbgtInputs {
+    /// Natural (no forced air flow) wet bulb temperature
+    pub twb: Temperature,
+    /// Globe temperature
+    pub tg: Temperature,
+}
+
+/// Optional parameters for [`wbgt`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WbgtOptions {
+    /// Dry bulb air temperature, required if `with_solar_load` is true
+    pub tdb: Option<Temperature>,
     /// Whether the person is exposed to direct solar radiation
     pub with_solar_load: bool,
     /// Whether to round output to 1 decimal place
@@ -18,6 +34,7 @@ pub struct WbgtOptions {
 impl Default for WbgtOptions {
     fn default() -> Self {
         Self {
+            tdb: None,
             with_solar_load: false,
             round_output: true,
         }
@@ -33,13 +50,6 @@ impl Default for WbgtOptions {
 /// The WBGT determines the impact of heat on a person throughout the course of
 /// a working day (up to 8 hours). It does not apply to very brief heat exposures.
 ///
-/// # Arguments
-///
-/// * `wet_bulb_temp` - Natural (no forced air flow) wet bulb temperature
-/// * `globe_temp` - Globe temperature
-/// * `dry_bulb_temp` - Dry bulb air temperature (required if with_solar_load = true)
-/// * `options` - WBGT calculation options
-///
 /// # Returns
 ///
 /// WBGT index [°C]
@@ -52,28 +62,31 @@ impl Default for WbgtOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::wbgt::{wbgt, WbgtOptions};
+/// use thermalcomfort::models::wbgt::{wbgt, WbgtInputs, WbgtOptions};
 /// use thermalcomfort::Temperature;
 ///
 /// // Indoor environment (no direct solar radiation)
 /// let result = wbgt(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(32.0),
-///     None,
-///     Default::default()
+///     WbgtInputs {
+///         twb: Temperature::from_celsius(25.0),
+///         tg: Temperature::from_celsius(32.0),
+///     },
+///     Default::default(),
 /// );
 /// assert!((result - 27.1).abs() < 0.1);
 ///
 /// // Outdoor environment (with solar load)
 /// let options = WbgtOptions {
+///     tdb: Some(Temperature::from_celsius(20.0)),
 ///     with_solar_load: true,
 ///     round_output: true,
 /// };
 /// let result = wbgt(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(32.0),
-///     Some(Temperature::from_celsius(20.0)),
-///     options
+///     WbgtInputs {
+///         twb: Temperature::from_celsius(25.0),
+///         tg: Temperature::from_celsius(32.0),
+///     },
+///     options,
 /// );
 /// assert!((result - 25.9).abs() < 0.1);
 /// ```
@@ -81,15 +94,11 @@ impl Default for WbgtOptions {
 /// # References
 ///
 /// - ISO 7243:2017 - Ergonomics of the thermal environment
-pub fn wbgt(
-    wet_bulb_temp: Temperature,
-    globe_temp: Temperature,
-    dry_bulb_temp: Option<Temperature>,
-    options: WbgtOptions,
-) -> f64 {
-    let wet_bulb_celsius = wet_bulb_temp.as_celsius();
-    let globe_celsius = globe_temp.as_celsius();
-    let dry_bulb_celsius_opt = dry_bulb_temp.map(|t| t.as_celsius());
+pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> f64 {
+    let WbgtInputs { twb, tg } = inputs;
+    let wet_bulb_celsius = twb.as_celsius();
+    let globe_celsius = tg.as_celsius();
+    let dry_bulb_celsius_opt = options.tdb.map(|t| t.as_celsius());
 
     // Validate that tdb is provided when solar load is present
     if options.with_solar_load && dry_bulb_celsius_opt.is_none() {
@@ -110,7 +119,7 @@ pub fn wbgt(
 
     // Round to 1 decimal place if requested
     if options.round_output {
-        wbgt_value = libm::round(wbgt_value * 10.0) / 10.0;
+        wbgt_value = crate::utilities::round_half_even(wbgt_value * 10.0) / 10.0;
     }
 
     wbgt_value
@@ -120,15 +129,17 @@ pub fn wbgt(
 mod tests {
     use super::*;
 
+    fn inputs(twb: f64, tg: f64) -> WbgtInputs {
+        WbgtInputs {
+            twb: Temperature::from_celsius(twb),
+            tg: Temperature::from_celsius(tg),
+        }
+    }
+
     #[test]
     fn test_wbgt_indoor() {
         // Test without solar load (indoor environment)
-        let result = wbgt(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(32.0),
-            None,
-            Default::default(),
-        );
+        let result = wbgt(inputs(25.0, 32.0), Default::default());
         assert!((result - 27.1).abs() < 0.1);
     }
 
@@ -136,30 +147,22 @@ mod tests {
     fn test_wbgt_outdoor() {
         // Test with solar load (outdoor environment)
         let options = WbgtOptions {
+            tdb: Some(Temperature::from_celsius(20.0)),
             with_solar_load: true,
             round_output: true,
         };
-        let result = wbgt(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(32.0),
-            Some(Temperature::from_celsius(20.0)),
-            options,
-        );
+        let result = wbgt(inputs(25.0, 32.0), options);
         assert!((result - 25.9).abs() < 0.1);
     }
 
     #[test]
     fn test_wbgt_no_rounding() {
         let options = WbgtOptions {
+            tdb: None,
             with_solar_load: false,
             round_output: false,
         };
-        let result = wbgt(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(32.0),
-            None,
-            options,
-        );
+        let result = wbgt(inputs(25.0, 32.0), options);
         // 0.7 * 25 + 0.3 * 32 = 17.5 + 9.6 = 27.1
         assert!((result - 27.1).abs() < 0.001);
     }
@@ -168,15 +171,11 @@ mod tests {
     fn test_wbgt_missing_tdb() {
         // Should return NaN when solar load is true but tdb is None
         let options = WbgtOptions {
+            tdb: None,
             with_solar_load: true,
             round_output: true,
         };
-        let result = wbgt(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(32.0),
-            None,
-            options,
-        );
+        let result = wbgt(inputs(25.0, 32.0), options);
         assert!(result.is_nan());
     }
 
@@ -186,10 +185,9 @@ mod tests {
 
         // Without solar: 0.7 * 30 + 0.3 * 35 = 21 + 10.5 = 31.5
         let result = wbgt(
-            Temperature::from_celsius(30.0),
-            Temperature::from_celsius(35.0),
-            None,
+            inputs(30.0, 35.0),
             WbgtOptions {
+                tdb: None,
                 with_solar_load: false,
                 round_output: false,
             },
@@ -198,10 +196,9 @@ mod tests {
 
         // With solar: 0.7 * 30 + 0.2 * 35 + 0.1 * 28 = 21 + 7 + 2.8 = 30.8
         let result = wbgt(
-            Temperature::from_celsius(30.0),
-            Temperature::from_celsius(35.0),
-            Some(Temperature::from_celsius(28.0)),
+            inputs(30.0, 35.0),
             WbgtOptions {
+                tdb: Some(Temperature::from_celsius(28.0)),
                 with_solar_load: true,
                 round_output: false,
             },

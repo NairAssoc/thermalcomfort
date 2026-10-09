@@ -10,21 +10,50 @@ use alloc::vec::Vec;
 use measurements::{Humidity, Length, Mass, Temperature};
 
 /// Result from ridge regression body temperature prediction
+///
+/// `t_re`/`t_sk` are `Vec<Temperature>`, not `Vec<f64>`: this matches
+/// [`GaggeTwoNodesJiResult`](crate::models::two_nodes_gagge::GaggeTwoNodesJiResult), the
+/// crate's other per-minute temperature time series, rather than introducing a second,
+/// untyped convention for the same shape of result. The values are written once, at the
+/// end of the simulation loop, from a plain `f64` Celsius value -- never re-unwrapped and
+/// fed back into the ongoing calculation -- so this is the safe "wrap the final answer"
+/// case, not the mid-calculation re-wrap that cost a 2 °C error in JOS3 (28adfa8).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictedBodyTemperatures {
-    /// Predicted rectal temperature history [°C] over time
-    pub t_re: Vec<f64>,
-    /// Predicted mean skin temperature history [°C] over time
-    pub t_sk: Vec<f64>,
+    /// Predicted rectal temperature history over time
+    pub t_re: Vec<Temperature>,
+    /// Predicted mean skin temperature history over time
+    pub t_sk: Vec<Temperature>,
+}
+
+/// The comfort inputs to [`ridge_regression_predict_t_re_t_sk`].
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RidgeRegressionInputs {
+    /// Biological sex
+    pub sex: Sex,
+    /// Age \[years\]
+    pub age: f64,
+    /// Body height
+    pub height: Length,
+    /// Body weight
+    pub weight: Mass,
+    /// Ambient (dry bulb) air temperature
+    pub tdb: Temperature,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Duration of the simulation in the specified environment \[minutes\]
+    pub duration: usize,
 }
 
 /// Options for ridge regression prediction
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RidgeRegressionOptions {
     /// Initial rectal temperature (None = run baseline simulation)
-    pub t_re_initial: Option<Temperature>,
+    pub t_re: Option<Temperature>,
     /// Initial skin temperature (None = run baseline simulation)
-    pub t_sk_initial: Option<Temperature>,
+    pub t_sk: Option<Temperature>,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output to 2 decimal places
@@ -34,8 +63,8 @@ pub struct RidgeRegressionOptions {
 impl Default for RidgeRegressionOptions {
     fn default() -> Self {
         Self {
-            t_re_initial: None,
-            t_sk_initial: None,
+            t_re: None,
+            t_sk: None,
             limit_inputs: true,
             round_output: true,
         }
@@ -209,13 +238,7 @@ fn predict_temperature_simulation(
 ///
 /// # Arguments
 ///
-/// * `sex` - Biological sex
-/// * `age` - Age \[years\]
-/// * `height` - Body height (use `Length::from_meters()` or similar)
-/// * `weight` - Body weight (use `Mass::from_kilograms()` or similar)
-/// * `tdb` - Ambient air temperature (use `Temperature::from_celsius()` or similar)
-/// * `rh` - Relative humidity (use `Humidity::from_percent()` or similar)
-/// * `duration` - Simulation duration \[minutes\]
+/// * `inputs` - Required personal and environmental inputs
 /// * `options` - Model options
 ///
 /// # Returns
@@ -241,39 +264,43 @@ fn predict_temperature_simulation(
 ///
 /// ```
 /// use thermalcomfort::models::ridge_regression::{
-///     ridge_regression_predict_t_re_t_sk, RidgeRegressionOptions
+///     ridge_regression_predict_t_re_t_sk, RidgeRegressionInputs, RidgeRegressionOptions
 /// };
 /// use thermalcomfort::{Sex, Temperature, Length, Mass, Humidity};
 ///
 /// let result = ridge_regression_predict_t_re_t_sk(
-///     Sex::Male,
-///     60.0,          // age
-///     Length::from_meters(1.8),
-///     Mass::from_kilograms(75.0),
-///     Temperature::from_celsius(35.0),
-///     Humidity::from_percent(60.0),
-///     540,           // duration [min]
+///     RidgeRegressionInputs {
+///         sex: Sex::Male,
+///         age: 60.0,
+///         height: Length::from_meters(1.8),
+///         weight: Mass::from_kilograms(75.0),
+///         tdb: Temperature::from_celsius(35.0),
+///         rh: Humidity::from_percent(60.0),
+///         duration: 540,
+///     },
 ///     Default::default()
 /// );
 ///
-/// println!("Final rectal temp: {:.2}°C", result.t_re.last().unwrap());
-/// println!("Final skin temp: {:.2}°C", result.t_sk.last().unwrap());
+/// println!("Final rectal temp: {:.2}°C", result.t_re.last().unwrap().as_celsius());
+/// println!("Final skin temp: {:.2}°C", result.t_sk.last().unwrap().as_celsius());
 /// ```
 ///
 /// # References
 ///
 /// - Forbes et al. (2025), doi:10.1016/j.jtherbio.2025.104078
-#[allow(clippy::too_many_arguments)]
 pub fn ridge_regression_predict_t_re_t_sk(
-    sex: Sex,
-    age: f64,
-    height: Length,
-    weight: Mass,
-    tdb: Temperature,
-    rh: Humidity,
-    duration: usize,
+    inputs: RidgeRegressionInputs,
     options: RidgeRegressionOptions,
 ) -> PredictedBodyTemperatures {
+    let RidgeRegressionInputs {
+        sex,
+        age,
+        height,
+        weight,
+        tdb,
+        rh,
+        duration,
+    } = inputs;
     let tdb_c = tdb.as_celsius();
     let height_m = height.as_meters();
     let height_cm = height_m * 100.0;
@@ -292,15 +319,15 @@ pub fn ridge_regression_predict_t_re_t_sk(
         if !age_valid || !height_valid || !weight_valid || !tdb_valid || !rh_valid {
             // Return NaN-filled arrays for out-of-range inputs
             return PredictedBodyTemperatures {
-                t_re: vec![f64::NAN; duration],
-                t_sk: vec![f64::NAN; duration],
+                t_re: vec![Temperature::from_celsius(f64::NAN); duration],
+                t_sk: vec![Temperature::from_celsius(f64::NAN); duration],
             };
         }
     }
 
     // Determine initial temperatures
     let (initial_t_re, initial_t_sk) =
-        if let (Some(t_re), Some(t_sk)) = (options.t_re_initial, options.t_sk_initial) {
+        if let (Some(t_re), Some(t_sk)) = (options.t_re, options.t_sk) {
             // Use provided initial temperatures
             (t_re.as_celsius(), t_sk.as_celsius())
         } else {
@@ -340,16 +367,22 @@ pub fn ridge_regression_predict_t_re_t_sk(
     // Round if requested
     if options.round_output {
         for val in &mut t_re_history {
-            *val = libm::round(*val * 100.0) / 100.0;
+            *val = crate::utilities::round_half_even(*val * 100.0) / 100.0;
         }
         for val in &mut t_sk_history {
-            *val = libm::round(*val * 100.0) / 100.0;
+            *val = crate::utilities::round_half_even(*val * 100.0) / 100.0;
         }
     }
 
     PredictedBodyTemperatures {
-        t_re: t_re_history,
-        t_sk: t_sk_history,
+        t_re: t_re_history
+            .into_iter()
+            .map(Temperature::from_celsius)
+            .collect(),
+        t_sk: t_sk_history
+            .into_iter()
+            .map(Temperature::from_celsius)
+            .collect(),
     }
 }
 
@@ -360,13 +393,15 @@ mod tests {
     #[test]
     fn test_ridge_regression_basic() {
         let result = ridge_regression_predict_t_re_t_sk(
-            Sex::Male,
-            60.0,
-            Length::from_meters(1.8),
-            Mass::from_kilograms(75.0),
-            Temperature::from_celsius(35.0),
-            Humidity::from_percent(60.0),
-            540,
+            RidgeRegressionInputs {
+                sex: Sex::Male,
+                age: 60.0,
+                height: Length::from_meters(1.8),
+                weight: Mass::from_kilograms(75.0),
+                tdb: Temperature::from_celsius(35.0),
+                rh: Humidity::from_percent(60.0),
+                duration: 540,
+            },
             Default::default(),
         );
 
@@ -375,48 +410,64 @@ mod tests {
         assert_eq!(result.t_sk.len(), 540);
 
         // Temperatures should be in realistic range
-        assert!(result.t_re.iter().all(|&t| t > 30.0 && t < 45.0));
-        assert!(result.t_sk.iter().all(|&t| t > 25.0 && t < 45.0));
+        assert!(
+            result
+                .t_re
+                .iter()
+                .all(|t| t.as_celsius() > 30.0 && t.as_celsius() < 45.0)
+        );
+        assert!(
+            result
+                .t_sk
+                .iter()
+                .all(|t| t.as_celsius() > 25.0 && t.as_celsius() < 45.0)
+        );
 
         // Temperature should increase over time in hot environment
-        assert!(result.t_re.last().unwrap() > result.t_re.first().unwrap());
+        assert!(
+            result.t_re.last().unwrap().as_celsius() > result.t_re.first().unwrap().as_celsius()
+        );
     }
 
     #[test]
     fn test_ridge_regression_out_of_range() {
         let result = ridge_regression_predict_t_re_t_sk(
-            Sex::Male,
-            50.0, // Too young (< 60)
-            Length::from_meters(1.8),
-            Mass::from_kilograms(75.0),
-            Temperature::from_celsius(35.0),
-            Humidity::from_percent(60.0),
-            10,
+            RidgeRegressionInputs {
+                sex: Sex::Male,
+                age: 50.0, // Too young (< 60)
+                height: Length::from_meters(1.8),
+                weight: Mass::from_kilograms(75.0),
+                tdb: Temperature::from_celsius(35.0),
+                rh: Humidity::from_percent(60.0),
+                duration: 10,
+            },
             Default::default(),
         );
 
         // Should return NaN for out-of-range inputs
-        assert!(result.t_re.iter().all(|t| t.is_nan()));
-        assert!(result.t_sk.iter().all(|t| t.is_nan()));
+        assert!(result.t_re.iter().all(|t| t.as_celsius().is_nan()));
+        assert!(result.t_sk.iter().all(|t| t.as_celsius().is_nan()));
     }
 
     #[test]
     fn test_ridge_regression_with_initial_temps() {
         let options = RidgeRegressionOptions {
-            t_re_initial: Some(Temperature::from_celsius(37.0)),
-            t_sk_initial: Some(Temperature::from_celsius(33.0)),
+            t_re: Some(Temperature::from_celsius(37.0)),
+            t_sk: Some(Temperature::from_celsius(33.0)),
             limit_inputs: true,
             round_output: true,
         };
 
         let result = ridge_regression_predict_t_re_t_sk(
-            Sex::Female,
-            65.0,
-            Length::from_meters(1.65),
-            Mass::from_kilograms(60.0),
-            Temperature::from_celsius(40.0),
-            Humidity::from_percent(50.0),
-            60,
+            RidgeRegressionInputs {
+                sex: Sex::Female,
+                age: 65.0,
+                height: Length::from_meters(1.65),
+                weight: Mass::from_kilograms(60.0),
+                tdb: Temperature::from_celsius(40.0),
+                rh: Humidity::from_percent(50.0),
+                duration: 60,
+            },
             options,
         );
 
@@ -425,6 +476,11 @@ mod tests {
         assert_eq!(result.t_sk.len(), 60);
 
         // Values should be reasonable
-        assert!(result.t_re.iter().all(|&t| t > 35.0 && t < 42.0));
+        assert!(
+            result
+                .t_re
+                .iter()
+                .all(|t| t.as_celsius() > 35.0 && t.as_celsius() < 42.0)
+        );
     }
 }

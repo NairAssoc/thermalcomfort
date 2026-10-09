@@ -1,6 +1,6 @@
 [package]
 name = "thermalcomfort"
-version = "3.9.8"
+version = "4.4.2"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Thermal Comfort Contributors"]
@@ -18,9 +18,12 @@ libm = "0.2"
 measurements = { version = "0.11", default-features = false }
 heapless = "0.8"
 
-# std feature: enables sophisticated linear algebra for perfect Python accuracy matching
-# Trade-off: breaks no_std compatibility, slightly larger binary size
-nalgebra = { version = "0.33", optional = true, default-features = false, features = ["std"] }
+# Dense linear algebra, used by PET's 3-node solve. Built against `alloc` + `libm` rather
+# than `std`: nalgebra has supported no_std since 0.15, so this is a normal dependency of
+# a no_std crate, not a std opt-in. It was previously pinned to `features = ["std"]` and
+# documented as "breaks no_std compatibility", which was never true and cost the crate a
+# duplicated hand-rolled solver plus a feature flag that gated nothing.
+nalgebra = { version = "0.33", default-features = false, features = ["alloc", "libm", "macros"] }
 
 [dev-dependencies]
 approx = "0.5"
@@ -28,6 +31,9 @@ pyo3 = { version = "0.23", features = ["auto-initialize"] }
 
 [features]
 default = []
-# Enable std library and nalgebra for perfect accuracy matching in extreme conditions
-# This breaks no_std compatibility but provides <0.1°C accuracy in all conditions
-std = ["nalgebra"]
+# Retained as a no-op so existing `features = ["std"]` dependants keep building. It used
+# to switch PET onto nalgebra; nalgebra is now unconditional and the two solvers it chose
+# between produced identical results, so there is nothing left to gate. Kept rather than
+# deleted purely as a courtesy - 3.9.x users get a working build instead of an unknown-
+# feature error - and it can go whenever that courtesy expires.
+std = []

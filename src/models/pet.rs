@@ -95,12 +95,11 @@
 //!   Building and Environment 137:1-10
 
 use crate::numerical::brentq;
-use crate::utilities::body_surface_area_dubois;
-use crate::{ClothingInsulation, MetabolicRate, Sex};
-use libm::{exp, fabs, log, pow};
-use measurements::{Humidity, Length, Mass, Power, Pressure, Speed, Temperature};
+use crate::utilities::{body_surface_area_dubois, round_to};
+use crate::{ClothingInsulation, MetabolicRate, Sex, WorkEfficiency};
+use libm::{fabs, log, pow};
+use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
-#[cfg(feature = "std")]
 use nalgebra::{Matrix3, Vector3};
 
 // TAU constant (2π) for no_std compatibility
@@ -124,6 +123,25 @@ pub enum Posture {
     Standing,
 }
 
+/// The comfort inputs to [`pet_steady`].
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PetInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Air speed
+    pub v: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation
+    pub clo: ClothingInsulation,
+}
+
 /// Options for PET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetOptions {
@@ -137,12 +155,35 @@ pub struct PetOptions {
     pub weight: Mass,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// External work
-    pub work: Power,
-    /// Posture
-    pub posture: Posture,
-    /// Round output values
-    pub round_output: bool,
+    /// Mechanical efficiency of external work
+    ///
+    /// Both this port and pythermalcomfort use the value as the dimensionless
+    /// multiplier in `h = he * (1 - wme)`, so it is an efficiency and not a rate.
+    /// It was typed as `Power` in watts, which meant a caller supplying honest
+    /// watts silently got an unphysical energy balance; [`WorkEfficiency`]
+    /// rejects anything outside `[0, 1]` at construction instead.
+    pub wme: WorkEfficiency,
+    /// Body position
+    pub position: Posture,
+    /// Use the forced-convection convective coefficient.
+    ///
+    /// Python's `position` accepts a third value, `"standing, forced convection"`
+    /// (`pet_steady.py:329-330`), which uses `hc = 8.6 * v**0.513` instead of either
+    /// position's still-air formula. It is not a third [`Posture`] variant -- other code
+    /// pattern-matches that enum exhaustively -- so it is exposed as this flag instead,
+    /// combined with `position` in [`pet_steady`]'s convective-coefficient calculation.
+    ///
+    /// Only takes effect when `position` is [`Posture::Standing`]: Python has no
+    /// "sitting, forced convection" position, so that combination is defined here to
+    /// fall back to the plain-sitting formula, matching the only sensible reading of an
+    /// unreachable upstream state.
+    ///
+    /// The flag has a second, easy-to-miss effect upstream: `f_eff` (the effective
+    /// radiation area fraction) is `0.696` only when `position == "standing"` *exactly*;
+    /// `"standing, forced convection"` fails that string comparison and falls through to
+    /// the `0.725` sitting value. That quirk is reproduced verbatim rather than
+    /// "corrected", per the port's job of matching behaviour, not redesigning it.
+    pub forced_convection: bool,
 }
 
 impl Default for PetOptions {
@@ -153,9 +194,9 @@ impl Default for PetOptions {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: Power::from_watts(0.0),
-            posture: Posture::Sitting,
-            round_output: true,
+            wme: WorkEfficiency::ZERO,
+            position: Posture::Sitting,
+            forced_convection: false,
         }
     }
 }
@@ -168,12 +209,7 @@ impl Default for PetOptions {
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature
-/// * `tr` - Mean radiant temperature
-/// * `v` - Air velocity [m/s]
-/// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate
-/// * `clo` - Clothing insulation
+/// * `inputs` - Required environmental and personal inputs
 /// * `options` - Model options
 ///
 /// # Returns
@@ -192,15 +228,17 @@ impl Default for PetOptions {
 ///
 /// ```
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-/// use thermalcomfort::models::pet::{pet_steady, PetOptions};
+/// use thermalcomfort::models::pet::{pet_steady, PetInputs, PetOptions};
 ///
 /// let result = pet_steady(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(27.0),
-///     Speed::from_meters_per_second(1.0),
-///     Humidity::from_percent(50.0),
-///     MetabolicRate::from_met(1.0),
-///     ClothingInsulation::from_clo(0.5),
+///     PetInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(27.0),
+///         v: Speed::from_meters_per_second(1.0),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.0),
+///         clo: ClothingInsulation::from_clo(0.5),
+///     },
 ///     Default::default()
 /// );
 /// println!("PET: {:.1}°C", result.pet);
@@ -211,15 +249,15 @@ impl Default for PetOptions {
 /// - Höppe P. (1999) The physiological equivalent temperature - a universal
 ///   index for the biometeorological assessment of the thermal environment.
 ///   International Journal of Biometeorology 43:71-75
-pub fn pet_steady(
-    tdb: Temperature,
-    tr: Temperature,
-    v: Speed,
-    rh: Humidity,
-    met: MetabolicRate,
-    clo: ClothingInsulation,
-    options: PetOptions,
-) -> PetResult {
+pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
+    let PetInputs {
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
+    } = inputs;
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let v_ms = v.as_meters_per_second();
@@ -251,9 +289,10 @@ pub fn pet_steady(
         weight_kg,
         options.age,
         sex_bool,
-        options.work.as_watts(),
+        options.wme.as_fraction(),
         p_atm_hpa,
-        options.posture,
+        options.position,
+        options.forced_convection,
     );
 
     // Check for solver failure
@@ -274,24 +313,29 @@ pub fn pet_steady(
             options.age,
             sex_bool,
             p_atm_hpa,
-            options.posture,
+            options.position,
+            options.wme.as_fraction(),
+            options.forced_convection,
         )
     };
 
-    // Search for PET using brentq
-    // Python uses clothing temperature as initial guess for fsolve
-    // We use brentq which needs a bracket, so try narrower ranges first
-    let pet = brentq(find_pet, -10.0, 50.0, Some(0.0001), Some(300))
-        .or_else(|_| brentq(find_pet, -40.0, 60.0, Some(0.001), Some(200)))
+    // Search for PET using brentq. Python uses the clothing temperature as an initial
+    // guess for an *unconstrained* fsolve, so any finite PET is reachable; brentq needs
+    // a sign change, so widen progressively rather than giving up at the first bracket
+    // that fails. Stopping at 60 degC returned NaN for hot, humid cases whose root
+    // genuinely lies above it - 44 degC at 86% RH solves to 61.17 in Python.
+    // Narrow-first ordering is kept so cases that already bracketed are untouched.
+    const BRACKETS: [(f64, f64); 3] = [(-10.0, 50.0), (-40.0, 60.0), (-120.0, 200.0)];
+    let pet = BRACKETS
+        .iter()
+        .find_map(|&(lo, hi)| brentq(find_pet, lo, hi, Some(0.0001), Some(300)).ok())
         .unwrap_or(f64::NAN);
 
-    let pet_rounded = if options.round_output {
-        round_to(pet, 2)
-    } else {
-        pet
-    };
-
-    PetResult { pet: pet_rounded }
+    // pet_steady.py:474 rounds unconditionally -- `return round(fsolve(...)[0], 2)`.
+    // There is no flag upstream, so an unrounded PET is a value Python cannot produce.
+    PetResult {
+        pet: round_to(pet, 2),
+    }
 }
 
 /// Solve the 3-node MEMI system for actual environment (std version with nalgebra)
@@ -299,7 +343,6 @@ pub fn pet_steady(
 /// This version uses nalgebra's LU decomposition with partial pivoting for better
 /// numerical stability in extreme conditions, providing perfect accuracy matching
 /// with Python's scipy.optimize.fsolve.
-#[cfg(feature = "std")]
 #[allow(clippy::too_many_arguments)]
 fn solve_3node_system(
     tdb: f64,
@@ -316,10 +359,12 @@ fn solve_3node_system(
     wme: f64,
     p_atm: f64,
     posture: Posture,
+    forced_convection: bool,
 ) -> (f64, f64, f64) {
     // Initial guess - adjust for cold conditions
-    let mut t_core = if tdb < 15.0 { 36.0 } else { 36.7 };
-    let mut t_skin = if tdb < 15.0 { 30.0 } else { 34.0 };
+    // Python always starts from [36.7, 34, 0.5*(tdb+tr)] regardless of temperature.
+    let mut t_core = 36.7;
+    let mut t_skin = 34.0;
     let mut t_clo = 0.5 * (tdb + tr);
 
     // Newton-Raphson with full numerical Jacobian
@@ -327,10 +372,28 @@ fn solve_3node_system(
     let eps = 0.001; // Perturbation for numerical derivatives
     let max_iter = if tdb < 15.0 || v > 1.5 { 300 } else { 150 };
 
+    let mut converged = false;
     for iter in 0..max_iter {
         let (e1, e2, e3, _) = calculate_energy_balance(
-            t_core, t_skin, t_clo, tdb, tr, v, rh, met, clo, a_dubois, height, weight, age, sex,
-            wme, p_atm, posture, true,
+            t_core,
+            t_skin,
+            t_clo,
+            tdb,
+            tr,
+            v,
+            rh,
+            met,
+            clo,
+            a_dubois,
+            height,
+            weight,
+            age,
+            sex,
+            wme,
+            p_atm,
+            posture,
+            forced_convection,
+            true,
         );
 
         // Convergence check - tighter for cold conditions
@@ -340,6 +403,7 @@ fn solve_3node_system(
             0.0001
         };
         if fabs(e1) < tol && fabs(e2) < tol && fabs(e3) < tol {
+            converged = true;
             break;
         }
 
@@ -362,6 +426,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (e1_ts, _, _, _) = calculate_energy_balance(
@@ -382,6 +447,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (e1_tcl, _, _, _) = calculate_energy_balance(
@@ -402,6 +468,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -423,6 +490,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, e2_ts, _, _) = calculate_energy_balance(
@@ -443,6 +511,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, e2_tcl, _, _) = calculate_energy_balance(
@@ -463,6 +532,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -484,6 +554,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, _, e3_ts, _) = calculate_energy_balance(
@@ -504,6 +575,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
         let (_, _, e3_tcl, _) = calculate_energy_balance(
@@ -524,6 +596,7 @@ fn solve_3node_system(
             wme,
             p_atm,
             posture,
+            forced_convection,
             true,
         );
 
@@ -576,331 +649,22 @@ fn solve_3node_system(
         t_skin += alpha * delta[1];
         t_clo += alpha * delta[2];
 
-        // Limit ranges to physically reasonable values
-        t_core = t_core.clamp(35.0, 42.0);
-        t_skin = t_skin.clamp(20.0, 42.0);
+        // No clamping of t_core or t_skin. Python solves this with an unconstrained
+        // fsolve, and in cold conditions the MEMI root genuinely lies outside a
+        // "physically reasonable" body-temperature range - instrumented Python
+        // converges to t_core 31.17, t_skin 19.14 (residual 1e-9) at tdb 16.0, v 0.59.
+        // Clamping pinned the Newton iterate on the bound and returned the wrong root.
+        // t_clo keeps a wide guard purely to stop the iteration diverging.
         t_clo = t_clo.clamp(-20.0, 50.0);
     }
 
-    (t_core, t_skin, t_clo)
-}
-
-/// Solve the 3-node MEMI system for actual environment (no_std version)
-///
-/// This version uses custom Gaussian elimination for no_std compatibility.
-/// Provides excellent accuracy for normal conditions, acceptable for extreme cold+wind.
-#[cfg(not(feature = "std"))]
-#[allow(clippy::too_many_arguments)]
-fn solve_3node_system(
-    tdb: f64,
-    tr: f64,
-    v: f64,
-    rh: f64,
-    met: f64,
-    clo: f64,
-    a_dubois: f64,
-    height: f64,
-    weight: f64,
-    age: f64,
-    sex: bool,
-    wme: f64,
-    p_atm: f64,
-    posture: Posture,
-) -> (f64, f64, f64) {
-    // Initial guess - adjust for cold conditions
-    let mut t_core = if tdb < 15.0 { 36.0 } else { 36.7 };
-    let mut t_skin = if tdb < 15.0 { 30.0 } else { 34.0 };
-    let mut t_clo = 0.5 * (tdb + tr);
-
-    // Newton-Raphson with full numerical Jacobian (mimics scipy.optimize.fsolve)
-    let eps = 0.001; // Perturbation for numerical derivatives
-
-    // More iterations for challenging cases
-    let max_iter = if tdb < 15.0 || v > 1.5 { 300 } else { 150 };
-
-    for iter in 0..max_iter {
-        let (e1, e2, e3, _) = calculate_energy_balance(
-            t_core, t_skin, t_clo, tdb, tr, v, rh, met, clo, a_dubois, height, weight, age, sex,
-            wme, p_atm, posture, true,
-        );
-
-        // Convergence check - tighter for cold conditions
-        let tol = if tdb < 15.0 || v > 1.5 { 0.0001 } else { 0.001 };
-        if fabs(e1) < tol && fabs(e2) < tol && fabs(e3) < tol {
-            break;
-        }
-
-        // Compute full 3x3 Jacobian matrix using forward differences
-        let (e1_tc, _, _, _) = calculate_energy_balance(
-            t_core + eps,
-            t_skin,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (e1_ts, _, _, _) = calculate_energy_balance(
-            t_core,
-            t_skin + eps,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (e1_tcl, _, _, _) = calculate_energy_balance(
-            t_core,
-            t_skin,
-            t_clo + eps,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-
-        let (_, e2_tc, _, _) = calculate_energy_balance(
-            t_core + eps,
-            t_skin,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (_, e2_ts, _, _) = calculate_energy_balance(
-            t_core,
-            t_skin + eps,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (_, e2_tcl, _, _) = calculate_energy_balance(
-            t_core,
-            t_skin,
-            t_clo + eps,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-
-        let (_, _, e3_tc, _) = calculate_energy_balance(
-            t_core + eps,
-            t_skin,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (_, _, e3_ts, _) = calculate_energy_balance(
-            t_core,
-            t_skin + eps,
-            t_clo,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-        let (_, _, e3_tcl, _) = calculate_energy_balance(
-            t_core,
-            t_skin,
-            t_clo + eps,
-            tdb,
-            tr,
-            v,
-            rh,
-            met,
-            clo,
-            a_dubois,
-            height,
-            weight,
-            age,
-            sex,
-            wme,
-            p_atm,
-            posture,
-            true,
-        );
-
-        // Jacobian matrix J[i][j] = dF_i/dx_j
-        let j11 = (e1_tc - e1) / eps;
-        let j12 = (e1_ts - e1) / eps;
-        let j13 = (e1_tcl - e1) / eps;
-
-        let j21 = (e2_tc - e2) / eps;
-        let j22 = (e2_ts - e2) / eps;
-        let j23 = (e2_tcl - e2) / eps;
-
-        let j31 = (e3_tc - e3) / eps;
-        let j32 = (e3_ts - e3) / eps;
-        let j33 = (e3_tcl - e3) / eps;
-
-        // Solve J * delta = -F using Gaussian elimination
-        // Set up augmented matrix [J | -F]
-        let a11 = j11;
-        let a12 = j12;
-        let a13 = j13;
-        let b1 = -e1;
-
-        let mut a22 = j22;
-        let mut a23 = j23;
-        let mut b2 = -e2;
-
-        let mut a33 = j33;
-        let mut b3 = -e3;
-
-        // Forward elimination (row reduction to upper triangular)
-        // Row 2 -= (a21/a11) * Row 1
-        if fabs(a11) > 1e-12 {
-            let factor = j21 / a11;
-            a22 -= factor * a12;
-            a23 -= factor * a13;
-            b2 -= factor * b1;
-        }
-
-        // Row 3 -= (a31/a11) * Row 1
-        let mut a32 = j32;
-        if fabs(a11) > 1e-12 {
-            let factor = j31 / a11;
-            a32 -= factor * a12;
-            a33 -= factor * a13;
-            b3 -= factor * b1;
-        }
-
-        // Row 3 -= (a32/a22) * Row 2
-        if fabs(a22) > 1e-12 {
-            let factor = a32 / a22;
-            a33 -= factor * a23;
-            b3 -= factor * b2;
-        }
-
-        // Back substitution
-        let delta_clo = if fabs(a33) > 1e-12 { b3 / a33 } else { 0.0 };
-        let delta_skin = if fabs(a22) > 1e-12 {
-            (b2 - a23 * delta_clo) / a22
-        } else {
-            0.0
-        };
-        let delta_core = if fabs(a11) > 1e-12 {
-            (b1 - a12 * delta_skin - a13 * delta_clo) / a11
-        } else {
-            0.0
-        };
-
-        // Damped Newton step with adaptive damping
-        let alpha = if tdb < 15.0 || v > 1.5 {
-            // Cold/windy conditions need careful handling
-            if iter < 20 {
-                0.2 // Very conservative initially
-            } else {
-                0.4 // Still conservative
-            }
-        } else if iter < 10 {
-            0.5 // Moderate damping in early iterations
-        } else {
-            0.7 // Aggressive for normal conditions later
-        };
-
-        t_core += alpha * delta_core;
-        t_skin += alpha * delta_skin;
-        t_clo += alpha * delta_clo;
-
-        // Limit ranges to physically reasonable values
-        t_core = t_core.clamp(35.0, 42.0);
-        t_skin = t_skin.clamp(20.0, 42.0);
-        t_clo = t_clo.clamp(-20.0, 50.0);
+    // Falling out of the loop means the tolerance above was never met. Returning the
+    // last iterate would be a silently wrong answer: at 39.8 degC / 82% RH / met 3.9 it
+    // leaves the core balance 67.9 W/m2 from zero while satisfying the other two, and
+    // PET is then off by 0.08 degC with nothing to signal it. Report the failure instead,
+    // which pet_steady already turns into NaN.
+    if !converged {
+        return (f64::NAN, f64::NAN, f64::NAN);
     }
 
     (t_core, t_skin, t_clo)
@@ -920,6 +684,8 @@ fn solve_pet_balance(
     sex: bool,
     p_atm: f64,
     posture: Posture,
+    wme: f64,
+    forced_convection: bool,
 ) -> f64 {
     // Reference environment parameters
     let _tdb = t_pet;
@@ -945,9 +711,13 @@ fn solve_pet_balance(
         weight,
         age,
         sex,
-        0.0,
+        // Python binds the caller's wme into the partial that the PET search calls,
+        // so the reference environment carries the same external work. Hardcoding 0
+        // here made PET independent of wme.
+        wme,
         p_atm,
         posture,
+        forced_convection,
         false,
     );
 
@@ -974,6 +744,7 @@ fn calculate_energy_balance(
     wme: f64,
     p_atm: f64,
     posture: Posture,
+    forced_convection: bool,
     actual_environment: bool,
 ) -> (f64, f64, f64, f64) {
     // Constants
@@ -1008,9 +779,13 @@ fn calculate_energy_balance(
     let f_a_cl = if f_a_cl > 1.0 { 1.0 } else { f_a_cl };
     let a_clo = a_dubois * f_a_cl + a_dubois * (fcl - 1.0);
 
-    let f_eff = match posture {
-        Posture::Standing => 0.696,
-        Posture::Sitting => 0.725,
+    // pet_steady.py:313-314 only takes the 0.696 branch when
+    // `position == Postures.standing.value` *exactly*; `"standing, forced convection"`
+    // fails that string comparison and falls through to the 0.725 sitting value. Ported
+    // verbatim: `forced_convection` knocks Standing out of its own branch here.
+    let f_eff = match (posture, forced_convection) {
+        (Posture::Standing, false) => 0.696,
+        _ => 0.725,
     };
     let a_r_eff = a_dubois * f_eff;
 
@@ -1020,10 +795,14 @@ fn calculate_energy_balance(
         vpa = 12.0; // Reference environment
     }
 
-    // Convection coefficient
-    let mut hc = match posture {
-        Posture::Sitting => 2.67 + 6.5 * pow(v, 0.67),
-        Posture::Standing => 2.26 + 7.42 * pow(v, 0.67),
+    // Convection coefficient. pet_steady.py:327-331: the "standing, forced convection"
+    // position is a hc override on top of standing, not a posture of its own -- Python
+    // has no "sitting, forced convection" position, so the flag is a no-op combined with
+    // Posture::Sitting, matching the only sensible reading of that unreachable state.
+    let mut hc = match (posture, forced_convection) {
+        (Posture::Standing, true) => 8.6 * pow(v, 0.513),
+        (Posture::Sitting, _) => 2.67 + 6.5 * pow(v, 0.67),
+        (Posture::Standing, false) => 2.26 + 7.42 * pow(v, 0.67),
     };
     let h_cc = 3.0 * pow(p_atm / 1013.25, 0.53);
     if hc < h_cc {
@@ -1095,10 +874,17 @@ fn calculate_energy_balance(
         e_max = 0.001;
     }
     let mut w = esw / e_max;
+    let mut esw = esw;
     if w > 1.0 {
         w = 1.0;
+        // Python only reassigns esw here when `esw - e_max < 0`, which cannot hold
+        // inside this branch (w > 1 means esw > e_max). The guard is dead code
+        // upstream, so the clamp never fires; applying it unconditionally suppressed
+        // sweat evaporation in hot, humid air and inflated PET by up to 7.6 degC.
+        if esw - e_max < 0.0 {
+            esw = e_max;
+        }
     }
-    let esw = if esw > e_max { e_max } else { esw };
     let esw = if esw < 0.0 { 0.0 } else { esw };
 
     let r_ecl = (1.0 / (fcl * hc) + r_cl) / (lr * i_m);
@@ -1133,31 +919,32 @@ fn calculate_energy_balance(
 
 /// Saturation vapor pressure in hPa
 fn p_sat_hpa(t: f64) -> f64 {
-    610.78 * exp(17.27 * t / (t + 237.3)) / 100.0
-}
-
-#[inline]
-fn round_to(value: f64, decimals: u32) -> f64 {
-    let multiplier = pow(10.0, decimals as f64);
-    libm::round(value * multiplier) / multiplier
+    // pythermalcomfort's pet_steady calls utilities.p_sat, the ASHRAE Hyland-Wexler
+    // formulation, not the Magnus/Tetens approximation this used to hardcode. The two
+    // differ by enough to move PET in the second decimal.
+    crate::utilities::p_sat(Temperature::from_celsius(t)).as_pascals() / 100.0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use measurements::{Length, Mass};
+
+    fn inputs(tdb: f64, tr: f64, v: f64, rh: f64, met: f64, clo: f64) -> PetInputs {
+        PetInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+        }
+    }
 
     #[test]
     fn test_pet_basic() {
-        let result = pet_steady(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.0),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
+        let result = pet_steady(inputs(25.0, 25.0, 0.1, 50.0, 1.0, 0.5), Default::default());
 
         // PET should be reasonable for comfortable conditions (Python: 24.17°C)
         assert!(result.pet > 15.0 && result.pet < 35.0);
@@ -1166,15 +953,7 @@ mod tests {
 
     #[test]
     fn test_pet_hot() {
-        let result = pet_steady(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Speed::from_meters_per_second(1.0),
-            Humidity::from_percent(60.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Default::default(),
-        );
+        let result = pet_steady(inputs(35.0, 35.0, 1.0, 60.0, 1.2, 0.5), Default::default());
 
         // PET should be high in hot conditions (Python: 36.26°C)
         assert!(result.pet > 30.0);
@@ -1188,20 +967,12 @@ mod tests {
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
             p_atm: Pressure::from_pascals(101325.0),
-            work: Power::from_watts(0.0),
-            posture: Posture::Sitting,
-            round_output: true,
+            wme: WorkEfficiency::ZERO,
+            position: Posture::Sitting,
+            forced_convection: false,
         };
 
-        let result = pet_steady(
-            Temperature::from_celsius(5.0),
-            Temperature::from_celsius(5.0),
-            Speed::from_meters_per_second(2.0),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.5),
-            ClothingInsulation::from_clo(1.0),
-            opts,
-        );
+        let result = pet_steady(inputs(5.0, 5.0, 2.0, 50.0, 1.5, 1.0), opts);
 
         // PET should be low in cold conditions (Python gives around -0.5°C)
         assert!(
@@ -1210,5 +981,59 @@ mod tests {
             result.pet
         );
         assert!(!result.pet.is_nan());
+    }
+
+    /// Python's `position = "standing, forced convection"` (`pet_steady.py:329-330`) was
+    /// previously unreachable from Rust: there is no third [`Posture`] variant and no
+    /// flag to select it. `forced_convection` makes it reachable and should change both
+    /// the convective coefficient and (per the ported quirk) `f_eff`, so it must not be
+    /// a no-op relative to plain standing.
+    #[test]
+    fn test_pet_forced_convection_differs_from_plain_standing() {
+        let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
+        let standing = PetOptions {
+            position: Posture::Standing,
+            forced_convection: false,
+            ..Default::default()
+        };
+        let standing_forced = PetOptions {
+            position: Posture::Standing,
+            forced_convection: true,
+            ..Default::default()
+        };
+
+        let plain = pet_steady(case, standing);
+        let forced = pet_steady(case, standing_forced);
+
+        assert!(!plain.pet.is_nan() && !forced.pet.is_nan());
+        assert!(
+            (plain.pet - forced.pet).abs() > 0.01,
+            "forced convection should change PET: plain={}, forced={}",
+            plain.pet,
+            forced.pet
+        );
+    }
+
+    /// Python has no "sitting, forced convection" position; the flag combined with
+    /// [`Posture::Sitting`] should therefore fall back to the plain-sitting formulas
+    /// rather than silently doing nothing useful or panicking.
+    #[test]
+    fn test_pet_forced_convection_is_noop_for_sitting() {
+        let case = inputs(20.0, 20.0, 3.0, 50.0, 1.5, 0.5);
+        let sitting = PetOptions {
+            position: Posture::Sitting,
+            forced_convection: false,
+            ..Default::default()
+        };
+        let sitting_forced = PetOptions {
+            position: Posture::Sitting,
+            forced_convection: true,
+            ..Default::default()
+        };
+
+        let plain = pet_steady(case, sitting);
+        let forced = pet_steady(case, sitting_forced);
+
+        assert!((plain.pet - forced.pet).abs() < 1e-9);
     }
 }

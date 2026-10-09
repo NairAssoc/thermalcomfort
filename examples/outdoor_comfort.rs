@@ -3,7 +3,7 @@
 //! Demonstrates UTCI (Universal Thermal Climate Index) and WBGT (Wet Bulb Globe Temperature)
 //! for assessing outdoor thermal conditions and heat stress.
 
-use thermalcomfort::models::{utci, wbgt};
+use thermalcomfort::models::{UtciInputs, WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
 use thermalcomfort::{Humidity, Speed, Temperature};
 
@@ -30,20 +30,37 @@ fn main() {
     println!("  Relative humidity:    {:.0}%\n", rh1.as_percent());
 
     // UTCI calculation
-    let utci_result1 = utci(tdb1, tr1, v1, rh1, Default::default());
+    let utci_result1 = utci(
+        UtciInputs {
+            tdb: tdb1,
+            tr: tr1,
+            v: v1,
+            rh: rh1,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result1.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result1.stress_category.as_str()
+        utci_result1.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     // WBGT calculation (outdoor with solar load)
     let twb1 = wet_bulb_temperature(tdb1, rh1);
     let tg1 = Temperature::from_celsius(35.0); // globe temperature (elevated by solar radiation)
 
-    let wbgt_result1 = wbgt(twb1, tg1, Some(tdb1), Default::default());
+    let wbgt_result1 = wbgt(
+        WbgtInputs { twb: twb1, tg: tg1 },
+        WbgtOptions {
+            tdb: Some(tdb1),
+            // Both examples are outdoors in sun, which is what tdb is for:
+            // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
+            with_solar_load: true,
+            ..Default::default()
+        },
+    );
 
     println!("\nWBGT Heat Stress Assessment:");
     println!("  WBGT: {:.1}°C", wbgt_result1);
@@ -74,19 +91,36 @@ fn main() {
     );
     println!("  Relative humidity:    {:.0}%\n", rh2.as_percent());
 
-    let utci_result2 = utci(tdb2, tr2, v2, rh2, Default::default());
+    let utci_result2 = utci(
+        UtciInputs {
+            tdb: tdb2,
+            tr: tr2,
+            v: v2,
+            rh: rh2,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result2.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result2.stress_category.as_str()
+        utci_result2.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     let twb2 = wet_bulb_temperature(tdb2, rh2);
     let tg2 = Temperature::from_celsius(42.0);
 
-    let wbgt_result2 = wbgt(twb2, tg2, Some(tdb2), Default::default());
+    let wbgt_result2 = wbgt(
+        WbgtInputs { twb: twb2, tg: tg2 },
+        WbgtOptions {
+            tdb: Some(tdb2),
+            // Both examples are outdoors in sun, which is what tdb is for:
+            // without this flag WBGT uses 0.7*twb + 0.3*tg and ignores tdb entirely.
+            with_solar_load: true,
+            ..Default::default()
+        },
+    );
 
     println!("\nWBGT Heat Stress Assessment:");
     println!("  WBGT: {:.1}°C", wbgt_result2);
@@ -116,13 +150,21 @@ fn main() {
     );
     println!("  Relative humidity:    {:.0}%\n", rh3.as_percent());
 
-    let utci_result3 = utci(tdb3, tr3, v3, rh3, Default::default());
+    let utci_result3 = utci(
+        UtciInputs {
+            tdb: tdb3,
+            tr: tr3,
+            v: v3,
+            rh: rh3,
+        },
+        Default::default(),
+    );
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result3.utci);
     println!(
         "  Thermal stress: {}",
-        utci_result3.stress_category.as_str()
+        utci_result3.stress_category.map_or("n/a", |c| c.as_str())
     );
 
     println!("\n--- Summary ---");

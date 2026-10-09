@@ -28,19 +28,33 @@ jobs:
       - name: Install components
         run: rustup component add rustfmt clippy
 
+      # `cargo test` links the std test harness, so only a real no_std target build can
+      # prove the crate still compiles without std. `make no-std-check` skips with a
+      # notice when the target is absent, so CI must install it or the check is silent.
+      - name: Install a no_std target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install pythermalcomfort
-        run: pip install pythermalcomfort==3.8.0
-
+      # Derived from Cargo.toml, never hardcoded: the crate version IS the
+      # pythermalcomfort version being ported. A literal pin here silently went stale
+      # for four releases, so CI validated 3.9.x work against a 3.8.0 reference.
+      - name: Install the pythermalcomfort version this crate ports
+        shell: bash
+        run: |
+          PTC_VERSION="$(make parity-version)"
+          echo "Installing pythermalcomfort==${PTC_VERSION}"
+          pip install "pythermalcomfort==${PTC_VERSION}"
 
       - name: Run lint checks
+        shell: bash
         run: make lint
 
       - name: Run tests
+        shell: bash
         run: make test
 
   python-comparison:
@@ -57,11 +71,46 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pythermalcomfort
-        run: pip install pythermalcomfort==3.8.0
+      - name: Install the pythermalcomfort version this crate ports
+        shell: bash
+        run: |
+          PTC_VERSION="$(make parity-version)"
+          echo "Installing pythermalcomfort==${PTC_VERSION}"
+          pip install "pythermalcomfort==${PTC_VERSION}"
 
+      # Runs the whole tests/python_comparison.rs suite in both configurations. This
+      # previously ran `cargo test test_compare_with_python`, a single test, so the
+      # cross-library suite never executed in CI at all.
       - name: Run verification (including Python comparison)
+        shell: bash
         run: make verify
+
+  differential-sweep:
+    name: Differential Sweep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the pythermalcomfort version this crate ports
+        shell: bash
+        run: |
+          PTC_VERSION="$(make parity-version)"
+          echo "Installing pythermalcomfort==${PTC_VERSION}"
+          pip install "pythermalcomfort==${PTC_VERSION}"
+
+      # A short sweep on every push, so a divergence gates the merge without making it
+      # slow. `make sweep` is the deep run for a release check or a bug hunt.
+      - name: Run differential sweep
+        shell: bash
+        run: make sweep SWEEP_N=2000
 
   check:
     name: Check

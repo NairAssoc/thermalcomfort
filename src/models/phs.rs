@@ -37,21 +37,44 @@
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::utilities::{body_surface_area_dubois, p_sat};
-use crate::{ClothingInsulation, Humidity, Length, Mass, MetabolicRate, Speed, Temperature};
+use crate::utilities::{body_surface_area_dubois, p_sat, py_max, py_min};
+use crate::{
+    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Speed, Temperature,
+};
 use libm::{cos, exp, pow, sqrt};
+
+/// The comfort inputs to [`phs`]: pythermalcomfort requires all seven (no default).
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhsInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Air speed
+    pub v: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation
+    pub clo: ClothingInsulation,
+    /// Body posture
+    pub posture: PhsPosture,
+}
 
 /// Result of PHS calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PhsResult {
-    /// Rectal temperature [°C]
-    pub t_re: f64,
-    /// Skin temperature [°C]
-    pub t_sk: f64,
-    /// Core temperature [°C]
-    pub t_cr: f64,
-    /// Core temperature as a function of metabolic rate [°C]
-    pub t_cr_eq: f64,
+    /// Rectal temperature
+    pub t_re: Temperature,
+    /// Skin temperature
+    pub t_sk: Temperature,
+    /// Core temperature
+    pub t_cr: Temperature,
+    /// Core temperature as a function of metabolic rate
+    pub t_cr_eq: Temperature,
     /// Fraction of body mass at skin temperature \[dimensionless\]
     pub t_sk_t_cr_wg: f64,
     /// Maximum allowable exposure time for 50% worker (dehydration) \[minutes\]
@@ -60,11 +83,14 @@ pub struct PhsResult {
     pub d_lim_loss_95: f64,
     /// Maximum allowable exposure time for heat storage \[minutes\]
     pub d_lim_t_re: f64,
-    /// Cumulative sweat loss for whole person \[grams\]
-    pub sweat_loss_g: f64,
-    /// Instantaneous evaporative heat flux at skin [W/m²]
-    pub sweat_rate_watt: f64,
-    /// Accumulated evaporative load [W·min/m²]
+    /// Cumulative sweat loss for whole person
+    pub sweat_loss_g: Mass,
+    /// Instantaneous evaporative heat flux at skin
+    pub sweat_rate_watt: HeatFluxDensity,
+    /// Accumulated evaporative load [W·min/m²]. NOT a [`HeatFluxDensity`]: this is a
+    /// time-integrated accumulator (watt-minutes per square metre), not an instantaneous
+    /// flux, so wrapping it in the same newtype as `sweat_rate_watt` would misstate its
+    /// unit.
     pub evap_load_wm2_min: f64,
 }
 
@@ -174,20 +200,63 @@ const MET_TO_W_M2: f64 = 58.15;
 // Static boundary layer insulation
 const I_A_ST: f64 = 0.111; // m²·K/W
 
+/// Required skin wettedness and sweat rate for one PHS timestep, replicating
+/// `phs.py:729-752`.
+///
+/// `phs.py:731-732` reads `if e_max == 0: e_max = 0.001` — an *exact* equality check,
+/// not a "near zero" one — and that assignment mutates `e_max` itself, so the
+/// substituted value is what `w_req` divides by *and* what every downstream use of
+/// `e_max` (including this timestep's `e_p`, computed by the caller) sees for the rest
+/// of the step. A prior version of this port instead computed `w_req` from
+/// `e_max.max(1e-6)` without touching `e_max`: at `e_max == 0.0` that takes the
+/// `elif e_max <= 0` branch below (since the real `e_max` is still 0), where Python —
+/// having already substituted `e_max = 0.001` — takes the `else` branch instead. The
+/// two diverge in `sw_req` whenever `e_req` is small enough that `w_req = e_req /
+/// 0.001` stays under the `1.7` cutoff; see `phs_e_max_zero_pins_pythons_branch` in the
+/// tests below.
+///
+/// `e_req` is mutated the same way, to zero, whenever it is non-positive.
+///
+/// Returns `(e_req, e_max, sw_req)`: the possibly-mutated `e_req`/`e_max`, which the
+/// caller must use in place of the pre-call values for the rest of the timestep.
+fn phs_required_sweat_rate(mut e_req: f64, mut e_max: f64, sw_max: f64) -> (f64, f64, f64) {
+    if e_max == 0.0 {
+        e_max = 0.001;
+    }
+    let w_req = e_req / e_max;
+
+    let sw_req = if e_req <= 0.0 {
+        e_req = 0.0;
+        0.0
+    } else if e_max <= 0.0 {
+        e_max = 0.0;
+        sw_max
+    } else if w_req >= 1.7 {
+        sw_max
+    } else {
+        let e_v_eff = if w_req > 1.0 {
+            pow(2.0 - w_req, 2.0) / 2.0
+        } else {
+            1.0 - pow(w_req, 2.0) / 2.0
+        };
+        // `phs.py:749` is `max(0.05, e_v_eff)` — arguments in that order, so a NaN
+        // `e_v_eff` loses and 0.05 wins, which is what `f64::max` already does here.
+        let e_v_eff = e_v_eff.max(0.05);
+        // `phs.py:752`: builtin `min(sw_req, sw_max)`, NaN-propagating in `sw_req`.
+        py_min(e_req / e_v_eff, sw_max)
+    };
+
+    (e_req, e_max, sw_req)
+}
+
 /// Calculate PHS (Predicted Heat Strain)
 ///
 /// Predicts physiological strain in hot environments according to ISO 7933.
 ///
 /// # Arguments
 ///
-/// * `tdb` - Dry bulb air temperature [°C]
-/// * `tr` - Mean radiant temperature [°C]
-/// * `v` - Air speed [m/s]
-/// * `rh` - Relative humidity [%]
-/// * `met` - Metabolic rate
-/// * `clo` - Clothing insulation
-/// * `posture` - Body posture (standing, sitting, crouching)
-/// * `options` - Additional parameters
+/// * `inputs` - Required comfort inputs, see [`PhsInputs`]
+/// * `options` - Additional parameters, see [`PhsOptions`]
 ///
 /// # Returns
 ///
@@ -199,30 +268,34 @@ const I_A_ST: f64 = 0.111; // m²·K/W
 ///
 /// # Standard Applicability Limits (ISO 7933)
 ///
-/// When `limit_inputs` is true:
-/// - Temperature: 15-50°C (tdb), 0-60°C (tr)
+/// When `limit_inputs` is true (Annex A, Table A.1):
+/// - Temperature: 15-50°C (tdb), 0-60°C on the difference `tr - tdb` (not on `tr`)
 /// - Air speed: 0-3 m/s
-/// - Metabolic rate: 1.7-7.5 met
+/// - Metabolic rate, standard-specific: 1.7-7.5 met (100-450 W/m²) for
+///   [`Iso7933Model::Iso2004`], 0.96-4.3 met (56-250 W/m²) for
+///   [`Iso7933Model::Iso2023`]
 /// - Clothing: 0.1-1.0 clo
 ///
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::{phs, PhsOptions, PhsPosture};
+/// use thermalcomfort::models::{phs, PhsInputs, PhsOptions, PhsPosture};
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let result = phs(
-///     Temperature::from_celsius(40.0),
-///     Temperature::from_celsius(40.0),
-///     Speed::from_meters_per_second(0.3),
-///     Humidity::from_percent(33.85),
-///     MetabolicRate::from_met(2.5),
-///     ClothingInsulation::from_clo(0.5),
-///     PhsPosture::Standing,
+///     PhsInputs {
+///         tdb: Temperature::from_celsius(40.0),
+///         tr: Temperature::from_celsius(40.0),
+///         v: Speed::from_meters_per_second(0.3),
+///         rh: Humidity::from_percent(33.85),
+///         met: MetabolicRate::from_met(2.5),
+///         clo: ClothingInsulation::from_clo(0.5),
+///         posture: PhsPosture::Standing,
+///     },
 ///     PhsOptions::default(),
 /// );
 ///
-/// println!("Rectal temperature: {:.1}°C", result.t_re);
+/// println!("Rectal temperature: {:.1}°C", result.t_re.as_celsius());
 /// println!("Max exposure (50%): {:.0} min", result.d_lim_loss_50);
 /// ```
 ///
@@ -230,16 +303,16 @@ const I_A_ST: f64 = 0.111; // m²·K/W
 ///
 /// - ISO 7933:2004 - Ergonomics of the thermal environment
 /// - ISO 7933:2023 - Ergonomics of the thermal environment
-pub fn phs(
-    tdb: Temperature,
-    tr: Temperature,
-    v: Speed,
-    rh: Humidity,
-    met: MetabolicRate,
-    clo: ClothingInsulation,
-    posture: PhsPosture,
-    options: PhsOptions,
-) -> PhsResult {
+pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
+    let PhsInputs {
+        tdb,
+        tr,
+        v,
+        rh,
+        met,
+        clo,
+        posture,
+    } = inputs;
     let tdb = tdb.as_celsius();
     let tr = tr.as_celsius();
     let v = v.as_meters_per_second();
@@ -247,25 +320,50 @@ pub fn phs(
     let met = met.as_met();
     let clo = clo.as_clo();
 
-    // Input validation
+    // Water vapour partial pressure [kPa], computed per the selected edition. ISO 7933
+    // additionally bounds it, which the port previously did not check at all: outside
+    // the range pythermalcomfort masks every output to NaN.
+    let p_a = match options.model {
+        Iso7933Model::Iso2023 => 0.6105 * exp(17.27 * tdb / (tdb + 237.3)) * rh / 100.0,
+        Iso7933Model::Iso2004 => {
+            p_sat(Temperature::from_celsius(tdb)).as_pascals() / 1000.0 * rh / 100.0
+        }
+    };
+    // The 2004 edition has no lower bound on p_a; the 2023 edition sets it at 0.5 kPa.
+    let p_a_lower = match options.model {
+        Iso7933Model::Iso2023 => 0.5,
+        Iso7933Model::Iso2004 => 0.0,
+    };
+
+    // ISO 7933 Annex A, Table A.1 metabolic rate range, in W/m². Standard-specific:
+    // the 2023 revision widens the range downward and narrows it at the top.
+    let met_range = match options.model {
+        Iso7933Model::Iso2023 => 56.0..=250.0,
+        Iso7933Model::Iso2004 => 100.0..=450.0,
+    };
+
+    // Input validation. Table A.1 bounds the air-to-radiant *difference*, not `tr`
+    // alone; an earlier version of this port checked raw `tr` against (0, 60), as
+    // pythermalcomfort itself did before 4.4.1.
     if options.limit_inputs
         && (!(15.0..=50.0).contains(&tdb)
-            || !(0.0..=60.0).contains(&tr)
+            || !(0.0..=60.0).contains(&(tr - tdb))
             || !(0.0..=3.0).contains(&v)
-            || !(1.7..=7.5).contains(&met)
-            || !(0.1..=1.0).contains(&clo))
+            || !met_range.contains(&(met * MET_TO_W_M2))
+            || !(0.1..=1.0).contains(&clo)
+            || !(p_a_lower..=4.5).contains(&p_a))
     {
         return PhsResult {
-            t_re: f64::NAN,
-            t_sk: f64::NAN,
-            t_cr: f64::NAN,
-            t_cr_eq: f64::NAN,
+            t_re: Temperature::from_celsius(f64::NAN),
+            t_sk: Temperature::from_celsius(f64::NAN),
+            t_cr: Temperature::from_celsius(f64::NAN),
+            t_cr_eq: Temperature::from_celsius(f64::NAN),
             t_sk_t_cr_wg: f64::NAN,
             d_lim_loss_50: f64::NAN,
             d_lim_loss_95: f64::NAN,
             d_lim_t_re: f64::NAN,
-            sweat_loss_g: f64::NAN,
-            sweat_rate_watt: f64::NAN,
+            sweat_loss_g: Mass::from_grams(f64::NAN),
+            sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
             evap_load_wm2_min: f64::NAN,
         };
     }
@@ -320,7 +418,11 @@ pub fn phs(
     // Maximum sweat rate
     let sw_max = match options.model {
         Iso7933Model::Iso2004 => {
-            let mut sw = (met - 32.0) * a_dubois;
+            // ISO 7933 expresses this in W/m2, not met. With `met` left in met units the
+            // bracket was always negative, so sw_max clamped to its 250 floor (312.5
+            // when acclimatised) instead of tracking metabolic rate - which then bound
+            // the required sweat rate and shifted t_re by ~1 degC.
+            let mut sw = (met * MET_TO_W_M2 - 32.0) * a_dubois;
             sw = sw.clamp(250.0, 400.0);
             if options.acclimatized { sw * 1.25 } else { sw }
         }
@@ -345,28 +447,54 @@ pub fn phs(
     let mut walk_sp = opt_walk_sp;
     let walking = walk_sp > 0.0;
     if !walking {
-        walk_sp = 0.0052 * (met * MET_TO_W_M2 - MET_TO_W_M2);
-        walk_sp = walk_sp.min(0.7);
+        // ISO 7933 uses a literal 58 here, not the 58.15 met->W/m2 factor.
+        walk_sp = 0.0052 * (met * MET_TO_W_M2 - 58.0);
+        // `phs.py:622` is the builtin `min(walk_sp, 0.7)`: NaN in the first argument
+        // propagates, so `f64::min` (which would return 0.7) is the wrong helper.
+        walk_sp = py_min(walk_sp, 0.7);
     }
 
-    // Relative air velocity
+    // Relative air velocity.
+    //
+    // ISO 7933 distinguishes unidirectional walking (theta != 0, where the walking
+    // vector is projected onto the air-speed axis) from omni-directional walking
+    // (theta == 0, where the faster of the two simply wins). The port previously applied
+    // the unidirectional formula unconditionally and then took `v.max(v_diff)` rather
+    // than the projection itself, which changed sweat_loss_g by ~47 g at walk_sp ~1 m/s.
     let v_r = if walking {
-        let theta_rad = options.theta * core::f64::consts::PI / 180.0;
-        let v_diff = (v - walk_sp * cos(theta_rad)).abs();
-        v.max(v_diff)
+        if options.theta != 0.0 {
+            // Unidirectional walking
+            // ISO 7933 (and pythermalcomfort) use a literal 3.14159 here, not PI. The
+            // truncation is part of the standard's arithmetic, so matching it is
+            // required for parity rather than an oversight to be "corrected".
+            #[allow(clippy::approx_constant)]
+            const ISO_PI: f64 = 3.14159;
+            let theta_rad = options.theta * ISO_PI / 180.0;
+            (v - walk_sp * cos(theta_rad)).abs()
+        } else if v < walk_sp {
+            walk_sp
+        } else {
+            v
+        }
     } else {
         v
     };
 
-    // Dynamic insulation corrections
-    let v_ux = v_r.min(3.0);
-    let w_a_ux = walk_sp.min(1.5);
+    // Dynamic insulation corrections.
+    //
+    // `phs.py:625-629` writes these two as `v_ux = v_r; if v_r > 3: v_ux = 3`, which keeps
+    // a NaN `v_r` (the `if` is false) and is therefore the builtin-`min` semantics, not
+    // `f64::min`'s.
+    let v_ux = py_min(v_r, 3.0);
+    let w_a_ux = py_min(walk_sp, 1.5);
 
     let corr_cl = 1.044 * exp((0.066 * v_ux - 0.398) * v_ux + (0.094 * w_a_ux - 0.378) * w_a_ux);
-    let corr_cl = corr_cl.min(1.0);
+    // `phs.py:636` / `:639`: builtin `min(corr_*, 1)`, NaN-propagating in the first
+    // argument.
+    let corr_cl = py_min(corr_cl, 1.0);
 
     let corr_ia = exp((0.047 * v_r - 0.472) * v_r + (0.117 * w_a_ux - 0.342) * w_a_ux);
-    let corr_ia = corr_ia.min(1.0);
+    let corr_ia = py_min(corr_ia, 1.0);
 
     let corr_tot = if clo <= 0.6 {
         ((0.6 - clo) * corr_ia + clo * corr_cl) / 0.6
@@ -379,7 +507,8 @@ pub fn phs(
     let i_cl_dyn = i_tot_dyn - i_a_dyn / fcl;
 
     let corr_e = (2.6 * corr_tot - 6.5) * corr_tot + 4.9;
-    let im_dyn = (options.i_mst * corr_e).min(0.9);
+    // `phs.py:651`: builtin `min(im_dyn, 0.9)`.
+    let im_dyn = py_min(options.i_mst * corr_e, 0.9);
     let r_t_dyn = i_tot_dyn / im_dyn / 16.7;
 
     // Respiratory heat loss
@@ -431,7 +560,9 @@ pub fn phs(
                 2.38 * pow((t_cl_init - tdb).abs(), 0.25)
             }
         };
-        hc_dyn_base.max(z)
+        // `phs.py:669`: builtin `max(hc_dyn, z)`. A NaN `t_sk`/`tdb`/`tr` makes
+        // `hc_dyn_base` NaN and must stay NaN; `f64::max` would return `z`.
+        py_max(hc_dyn_base, z)
     };
 
     // Initialize state
@@ -476,6 +607,12 @@ pub fn phs(
         };
 
         t_sk = t_sk0 * CONST_T_SK + t_sk_eq * (1.0 - CONST_T_SK);
+        if time == 1 && options.model == Iso7933Model::Iso2023 {
+            // ISO 7933:2023 Annex E forces the skin temperature to its equilibrium
+            // value on the first minute, removing the exponential lag for that step.
+            // This special case is not present in the 2004 Annex E reference code.
+            t_sk = t_sk_eq;
+        }
 
         // Clothing surface temperature (iterative)
         let p_sk = 0.6105 * exp(17.27 * t_sk / (t_sk + 237.3));
@@ -501,30 +638,19 @@ pub fn phs(
         // Heat flows
         let convection = fcl * hc_dyn * (t_cl - tdb);
         let radiation = fcl * h_r * (t_cl - tr);
-        let e_max = (p_sk - p_a) / r_t_dyn;
-        let e_req = met * MET_TO_W_M2
+        let e_max_raw = (p_sk - p_a) / r_t_dyn;
+        let e_req_raw = met * MET_TO_W_M2
             - d_stored_eq
             - options.wme.as_met() * MET_TO_W_M2
             - c_res
             - e_res
             - convection
             - radiation;
-        let w_req = e_req / e_max.max(1e-6);
 
-        // Required sweat rate
-        let sw_req = if e_req <= 0.0 {
-            0.0
-        } else if e_max <= 0.0 || w_req >= 1.7 {
-            sw_max
-        } else {
-            let e_v_eff = if w_req > 1.0 {
-                pow(2.0 - w_req, 2.0) / 2.0
-            } else {
-                1.0 - pow(w_req, 2.0) / 2.0
-            };
-            let e_v_eff = e_v_eff.max(0.05);
-            (e_req / e_v_eff).min(sw_max)
-        };
+        // Required sweat rate. `phs_required_sweat_rate` also returns the possibly
+        // mutated `e_req`/`e_max`, which are used downstream (d_storage uses e_req, e_p
+        // uses e_max) exactly as Python's mutated locals are.
+        let (e_req, e_max, sw_req) = phs_required_sweat_rate(e_req_raw, e_max_raw, sw_max);
 
         sweat_rate_watt = sweat_rate_watt * CONST_SW + sw_req * (1.0 - CONST_SW);
 
@@ -532,13 +658,17 @@ pub fn phs(
         let e_p = if sweat_rate_watt <= 0.0 {
             0.0
         } else {
-            let k = e_max / sweat_rate_watt.max(1e-6);
+            // `phs.py:762`: builtin `max(sweat_rate_watt, EPSILON)`. A NaN sweat rate
+            // takes this branch (`NaN <= 0` is false) and must stay NaN; `f64::max` would
+            // silently substitute 1e-6.
+            let k = e_max / py_max(sweat_rate_watt, 1e-6);
             let wp = if k >= 0.5 {
                 -k + sqrt(k * k + 2.0)
             } else {
                 1.0
             };
-            let wp = wp.min(w_max);
+            // `phs.py:766`: builtin `min(wp, w_max)`.
+            let wp = py_min(wp, w_max);
             wp * e_max
         };
 
@@ -619,42 +749,32 @@ pub fn phs(
             x
         }
     };
-    let round_0 = |x: f64| {
-        if options.round_output {
-            if x >= 0.0 {
-                (x + 0.5) as i64 as f64
-            } else {
-                (x - 0.5) as i64 as f64
-            }
-        } else {
-            x
-        }
-    };
 
     // Round t_sk_t_cr_wg to 4 decimal places
     let t_sk_t_cr_wg_rounded = if options.round_output {
-        let scaled = t_sk_t_cr_wg * 10000.0;
+        // pythermalcomfort rounds this to 2 decimals, not 4
+        let scaled = t_sk_t_cr_wg * 100.0;
         let rounded = if scaled >= 0.0 {
             (scaled + 0.5) as i64 as f64
         } else {
             (scaled - 0.5) as i64 as f64
         };
-        rounded / 10000.0
+        rounded / 100.0
     } else {
         t_sk_t_cr_wg
     };
 
     PhsResult {
-        t_re: round_1(t_re),
-        t_sk: round_1(t_sk),
-        t_cr: round_1(t_cr),
-        t_cr_eq: round_1(t_cr_eq),
+        t_re: Temperature::from_celsius(round_1(t_re)),
+        t_sk: Temperature::from_celsius(round_1(t_sk)),
+        t_cr: Temperature::from_celsius(round_1(t_cr)),
+        t_cr_eq: Temperature::from_celsius(round_1(t_cr_eq)),
         t_sk_t_cr_wg: t_sk_t_cr_wg_rounded,
-        d_lim_loss_50: round_0(d_lim_loss_50),
-        d_lim_loss_95: round_0(d_lim_loss_95),
-        d_lim_t_re: round_0(d_lim_t_re),
-        sweat_loss_g: round_0(sweat_loss_g),
-        sweat_rate_watt: round_1(sweat_rate_watt),
+        d_lim_loss_50: round_1(d_lim_loss_50),
+        d_lim_loss_95: round_1(d_lim_loss_95),
+        d_lim_t_re: round_1(d_lim_t_re),
+        sweat_loss_g: Mass::from_grams(round_1(sweat_loss_g)),
+        sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(round_1(sweat_rate_watt)),
         evap_load_wm2_min: round_1(evap_load_wm2_min),
     }
 }
@@ -663,44 +783,55 @@ pub fn phs(
 mod tests {
     use super::*;
 
+    fn inputs(
+        tdb: f64,
+        tr: f64,
+        v: f64,
+        rh: f64,
+        met: f64,
+        clo: f64,
+        posture: PhsPosture,
+    ) -> PhsInputs {
+        PhsInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            v: Speed::from_meters_per_second(v),
+            rh: Humidity::from_percent(rh),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            posture,
+        }
+    }
+
     #[test]
     fn test_phs_basic() {
         let result = phs(
-            Temperature::from_celsius(40.0),
-            Temperature::from_celsius(40.0),
-            Speed::from_meters_per_second(0.3),
-            Humidity::from_percent(33.85),
-            MetabolicRate::from_met(2.5),
-            ClothingInsulation::from_clo(0.5),
-            PhsPosture::Standing,
+            inputs(40.0, 40.0, 0.3, 33.85, 2.5, 0.5, PhsPosture::Standing),
             PhsOptions::default(),
         );
 
         // Should not be NaN
-        assert!(!result.t_re.is_nan());
-        assert!(!result.t_sk.is_nan());
-        assert!(!result.t_cr.is_nan());
+        assert!(!result.t_re.as_celsius().is_nan());
+        assert!(!result.t_sk.as_celsius().is_nan());
+        assert!(!result.t_cr.as_celsius().is_nan());
 
         // Reasonable ranges
-        assert!(result.t_re > 36.0 && result.t_re < 40.0);
-        assert!(result.t_sk > 33.0 && result.t_sk < 38.0);
-        assert!(result.t_cr > 36.0 && result.t_cr < 39.0);
+        let t_re = result.t_re.as_celsius();
+        let t_sk = result.t_sk.as_celsius();
+        let t_cr = result.t_cr.as_celsius();
+        assert!(t_re > 36.0 && t_re < 40.0);
+        assert!(t_sk > 33.0 && t_sk < 38.0);
+        assert!(t_cr > 36.0 && t_cr < 39.0);
     }
 
     #[test]
     fn test_phs_out_of_range() {
         let result = phs(
-            Temperature::from_celsius(10.0), // Too cold
-            Temperature::from_celsius(40.0),
-            Speed::from_meters_per_second(0.3),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(2.5),
-            ClothingInsulation::from_clo(0.5),
-            PhsPosture::Standing,
+            inputs(10.0, 40.0, 0.3, 50.0, 2.5, 0.5, PhsPosture::Standing), // tdb too cold
             PhsOptions::default(),
         );
 
-        assert!(result.t_re.is_nan());
+        assert!(result.t_re.as_celsius().is_nan());
     }
 
     #[test]
@@ -711,17 +842,67 @@ mod tests {
         };
 
         let result = phs(
-            Temperature::from_celsius(35.0),
-            Temperature::from_celsius(35.0),
-            Speed::from_meters_per_second(0.5),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(2.0),
-            ClothingInsulation::from_clo(0.5),
-            PhsPosture::Standing,
+            inputs(35.0, 35.0, 0.5, 50.0, 2.0, 0.5, PhsPosture::Standing),
             options,
         );
 
-        assert!(!result.t_re.is_nan());
-        assert!(result.t_re > 36.0);
+        assert!(!result.t_re.as_celsius().is_nan());
+        assert!(result.t_re.as_celsius() > 36.0);
+    }
+
+    // --- e_max == 0.0 bug pin (see `phs_required_sweat_rate`'s doc comment) --------
+
+    #[test]
+    fn phs_e_max_zero_pins_pythons_branch() {
+        // At e_max == 0.0 exactly, Python (`phs.py:731-736`) substitutes e_max = 0.001
+        // and *keeps that substitution* for the rest of the branch chain, so a small
+        // positive e_req lands in the `else` branch (computing sw_req from e_v_eff)
+        // rather than the `elif e_max <= 0` branch (sw_req = sw_max). The previous
+        // Rust port took the `elif e_max <= 0` branch here instead, because it clamped
+        // e_max only inside the w_req division, not in the variable itself.
+        let sw_max = 500.0;
+        let e_req = 0.001;
+
+        let (e_req_out, e_max_out, sw_req) = phs_required_sweat_rate(e_req, 0.0, sw_max);
+
+        // e_max is left at the substituted 0.001, not reset to 0.0 by the `elif`
+        // branch -- that branch must not be taken.
+        assert!(
+            (e_max_out - 0.001).abs() < 1e-12,
+            "e_max_out = {e_max_out}, expected the substituted 0.001"
+        );
+        assert_eq!(e_req_out, e_req);
+
+        // w_req = e_req / e_max = 0.001 / 0.001 = 1.0 -> e_v_eff = 1 - w_req^2/2 = 0.5
+        // sw_req = e_req / e_v_eff = 0.001 / 0.5 = 0.002
+        assert!(
+            (sw_req - 0.002).abs() < 1e-9,
+            "sw_req = {sw_req}, expected ~0.002 (not sw_max = {sw_max})"
+        );
+        assert_ne!(sw_req, sw_max);
+    }
+
+    #[test]
+    fn phs_e_max_zero_with_large_e_req_still_saturates() {
+        // For a large enough e_req, both the buggy and fixed control flow land on
+        // sw_max, since w_req = e_req / 0.001 easily clears the 1.7 cutoff. This pins
+        // that the fix does not change that ordinary case.
+        let sw_max = 500.0;
+        let (_, _, sw_req) = phs_required_sweat_rate(10.0, 0.0, sw_max);
+        assert_eq!(sw_req, sw_max);
+    }
+
+    #[test]
+    fn phs_negative_e_req_zeroes_it() {
+        let (e_req_out, _, sw_req) = phs_required_sweat_rate(-5.0, 100.0, 500.0);
+        assert_eq!(e_req_out, 0.0);
+        assert_eq!(sw_req, 0.0);
+    }
+
+    #[test]
+    fn phs_negative_e_max_saturates_and_zeroes_e_max() {
+        let (_, e_max_out, sw_req) = phs_required_sweat_rate(5.0, -2.0, 500.0);
+        assert_eq!(e_max_out, 0.0);
+        assert_eq!(sw_req, 500.0);
     }
 }

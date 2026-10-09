@@ -1,5 +1,6 @@
 //! Basic example of PMV/PPD calculation
 
+use thermalcomfort::models::pmv::PmvPpdInputs;
 use thermalcomfort::models::pmv_ppd_iso;
 use thermalcomfort::utilities::v_relative;
 use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
@@ -34,7 +35,17 @@ fn main() {
     );
 
     // Calculate PMV and PPD using measurement types
-    let result = pmv_ppd_iso(tdb, tr, vr, rh, met, clo, Default::default());
+    let result = pmv_ppd_iso(
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
+        },
+        Default::default(),
+    );
 
     println!("\nThermal Comfort Results:");
     println!(

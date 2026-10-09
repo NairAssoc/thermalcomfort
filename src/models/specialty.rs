@@ -2,27 +2,59 @@
 //!
 //! This module contains specialized models for specific comfort assessment scenarios.
 
-use crate::models::pmv::{PmvPpdOptions, pmv_ppd_ashrae};
-use crate::{ClothingInsulation, MetabolicRate};
-use measurements::{Humidity, Length, Speed, Temperature};
+use crate::models::pmv::{PmvPpdAshraeOptions, PmvPpdInputs, pmv_ppd_ashrae};
+use crate::utilities::round_to;
+use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
+use measurements::{Angle, Humidity, Length, Speed, Temperature};
+
+/// The comfort inputs to [`ankle_draft`].
+///
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming
+/// every field forecloses a silent transposition between them.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnkleDraftInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Relative air speed (must be < 0.2 m/s for this equation to apply)
+    pub vr: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation
+    pub clo: ClothingInsulation,
+    /// Air speed at 0.1 m above the floor
+    pub v_ankle: Speed,
+}
+
+/// Optional parameters for [`ankle_draft`], with pythermalcomfort's defaults.
+///
+/// Upstream also accepts `units: {'SI', 'IP'}`, but that parameter only tells Python how
+/// to interpret its raw floats; the [`Temperature`]/[`Speed`] newtypes in
+/// [`AnkleDraftInputs`] already carry that information, so (as with `pmv_ppd_ashrae`) a
+/// `units` flag has nothing left to do here and is not ported.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnkleDraftOptions {
+    /// If true, returns NaN/false when any input is outside the ASHRAE 55
+    /// applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
+    /// 1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
+    pub limit_inputs: bool,
+}
+
+impl Default for AnkleDraftOptions {
+    fn default() -> Self {
+        Self { limit_inputs: true }
+    }
+}
 
 /// Calculate percentage dissatisfied due to ankle draft
 ///
 /// Calculates the percentage of thermally dissatisfied people with the ankle draft
 /// (0.1 m) above floor level. Only applicable for vr < 0.2 m/s.
-///
-/// # Arguments
-///
-/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
-/// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar, must be < 0.2 m/s)
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate
-/// * `clothing_insulation` - Clothing insulation
-/// * `ankle_air_speed` - Air speed at 0.1m above floor (use `Speed::from_meters_per_second()` or similar)
-/// * `limit_inputs` - If true, returns NaN/false when any input is outside the ASHRAE 55
-///   applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
-///   1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
 ///
 /// # Returns
 ///
@@ -31,18 +63,20 @@ use measurements::{Humidity, Length, Speed, Temperature};
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::ankle_draft;
+/// use thermalcomfort::models::specialty::{ankle_draft, AnkleDraftInputs};
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let (ppd, acceptable) = ankle_draft(
-///     Temperature::from_celsius(23.0),
-///     Temperature::from_celsius(23.0),
-///     Speed::from_meters_per_second(0.1),
-///     Humidity::from_percent(45.0),
-///     MetabolicRate::from_met(1.1),
-///     ClothingInsulation::from_clo(0.7),
-///     Speed::from_meters_per_second(0.15),  // ankle draft
-///     true,
+///     AnkleDraftInputs {
+///         tdb: Temperature::from_celsius(23.0),
+///         tr: Temperature::from_celsius(23.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(45.0),
+///         met: MetabolicRate::from_met(1.1),
+///         clo: ClothingInsulation::from_clo(0.7),
+///         v_ankle: Speed::from_meters_per_second(0.15),
+///     },
+///     Default::default(),
 /// );
 /// println!("PPD ankle draft: {:.1}%, Acceptable: {}", ppd, acceptable);
 /// ```
@@ -51,50 +85,45 @@ use measurements::{Humidity, Length, Speed, Temperature};
 ///
 /// - Liu et al. (2017)
 /// - ASHRAE 55-2023
-#[allow(clippy::too_many_arguments)]
-pub fn ankle_draft(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    relative_air_speed: Speed,
-    relative_humidity: Humidity,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
-    ankle_air_speed: Speed,
-    limit_inputs: bool,
-) -> (f64, bool) {
+pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64, bool) {
+    let AnkleDraftInputs {
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
+        v_ankle,
+    } = inputs;
+    let AnkleDraftOptions { limit_inputs } = options;
+
     // Calculate PMV value for use in ankle draft equation.
     // Matches pythermalcomfort behaviour: PMV is computed without input limits so the
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        PmvPpdOptions {
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
+        },
+        PmvPpdAshraeOptions {
             limit_inputs: false,
             ..Default::default()
         },
     );
     let pmv = pmv_result.pmv; // Use PMV value directly, not TSV enum
 
-    let ankle_speed = ankle_air_speed.as_meters_per_second();
+    let ankle_speed = v_ankle.as_meters_per_second();
 
     // Calculate PPD for ankle draft using logistic function
     let exponent = -2.58 + 3.05 * ankle_speed - 1.06 * pmv;
     let ppd_ad = (libm::exp(exponent) / (1.0 + libm::exp(exponent))) * 100.0;
-    let ppd_ad = libm::round(ppd_ad * 10.0) / 10.0;
+    let ppd_ad = crate::utilities::round_half_even(ppd_ad * 10.0) / 10.0;
 
-    if limit_inputs
-        && !ashrae55_ankle_inputs_valid(
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            metabolic_rate,
-            clothing_insulation,
-        )
-    {
+    if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
         return (f64::NAN, false);
     }
 
@@ -104,17 +133,17 @@ pub fn ankle_draft(
 }
 
 fn ashrae55_ankle_inputs_valid(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    relative_air_speed: Speed,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
+    tdb: Temperature,
+    tr: Temperature,
+    vr: Speed,
+    met: MetabolicRate,
+    clo: ClothingInsulation,
 ) -> bool {
-    let tdb = dry_bulb_temp.as_celsius();
-    let tr = mean_radiant_temp.as_celsius();
-    let vr = relative_air_speed.as_meters_per_second();
-    let met = metabolic_rate.as_met();
-    let clo = clothing_insulation.as_clo();
+    let tdb = tdb.as_celsius();
+    let tr = tr.as_celsius();
+    let vr = vr.as_meters_per_second();
+    let met = met.as_met();
+    let clo = clo.as_clo();
     (10.0..=40.0).contains(&tdb)
         && (10.0..=40.0).contains(&tr)
         && (0.0..=0.2).contains(&vr)
@@ -122,23 +151,56 @@ fn ashrae55_ankle_inputs_valid(
         && (0.0..=1.5).contains(&clo)
 }
 
+/// The comfort inputs to [`vertical_tmp_grad_ppd`].
+///
+/// `tdb` and `tr` are consecutive [`Temperature`]s; naming
+/// every field forecloses a silent transposition between them.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VerticalTmpGradPpdInputs {
+    /// Dry bulb air temperature
+    pub tdb: Temperature,
+    /// Mean radiant temperature
+    pub tr: Temperature,
+    /// Relative air speed
+    pub vr: Speed,
+    /// Relative humidity
+    pub rh: Humidity,
+    /// Metabolic rate
+    pub met: MetabolicRate,
+    /// Clothing insulation
+    pub clo: ClothingInsulation,
+    /// Vertical temperature gradient between 1.1 m and 0.1 m (a [`TemperatureDelta`], so
+    /// the unit is explicit rather than implied)
+    pub vertical_tmp_grad: TemperatureDelta,
+}
+
+/// Optional parameters for [`vertical_tmp_grad_ppd`], with pythermalcomfort's defaults.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VerticalTmpGradPpdOptions {
+    /// If true, rounds the returned PPD to one decimal place. Acceptability is always
+    /// judged on the unrounded value, matching upstream.
+    pub round_output: bool,
+    /// If true, returns NaN/false when any input is outside the ASHRAE 55
+    /// applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
+    /// 1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
+    pub limit_inputs: bool,
+}
+
+impl Default for VerticalTmpGradPpdOptions {
+    fn default() -> Self {
+        Self {
+            round_output: true,
+            limit_inputs: true,
+        }
+    }
+}
+
 /// Calculate PPD for vertical air temperature gradient
 ///
 /// Calculates the percentage of thermally dissatisfied people with a vertical
 /// temperature gradient between feet and head.
-///
-/// # Arguments
-///
-/// * `dry_bulb_temp` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-/// * `mean_radiant_temp` - Mean radiant temperature (use `Temperature::from_celsius()` or similar)
-/// * `relative_air_speed` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `relative_humidity` - Relative humidity (use `Humidity::from_percent()` for RH%)
-/// * `metabolic_rate` - Metabolic rate
-/// * `clothing_insulation` - Clothing insulation
-/// * `vertical_temp_gradient` - Vertical temperature gradient between 1.1m and 0.1m [°C]
-/// * `limit_inputs` - If true, returns NaN/false when any input is outside the ASHRAE 55
-///   applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
-///   1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
 ///
 /// # Returns
 ///
@@ -147,18 +209,22 @@ fn ashrae55_ankle_inputs_valid(
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::vertical_tmp_grad_ppd;
-/// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
+/// use thermalcomfort::models::specialty::{vertical_tmp_grad_ppd, VerticalTmpGradPpdInputs};
+/// use thermalcomfort::{
+///     Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation, TemperatureDelta,
+/// };
 ///
 /// let (ppd, acceptable) = vertical_tmp_grad_ppd(
-///     Temperature::from_celsius(25.0),
-///     Temperature::from_celsius(25.0),
-///     Speed::from_meters_per_second(0.1),
-///     Humidity::from_percent(50.0),
-///     MetabolicRate::from_met(1.2),
-///     ClothingInsulation::from_clo(0.5),
-///     2.0,  // 2°C temperature gradient
-///     true,
+///     VerticalTmpGradPpdInputs {
+///         tdb: Temperature::from_celsius(25.0),
+///         tr: Temperature::from_celsius(25.0),
+///         vr: Speed::from_meters_per_second(0.1),
+///         rh: Humidity::from_percent(50.0),
+///         met: MetabolicRate::from_met(1.2),
+///         clo: ClothingInsulation::from_clo(0.5),
+///         vertical_tmp_grad: TemperatureDelta::from_celsius(2.0),
+///     },
+///     Default::default(),
 /// );
 /// println!("PPD vertical gradient: {:.1}%, Acceptable: {}", ppd, acceptable);
 /// ```
@@ -167,66 +233,85 @@ fn ashrae55_ankle_inputs_valid(
 ///
 /// - ISO 7730:2005
 /// - ASHRAE 55-2023
-#[allow(clippy::too_many_arguments)]
 pub fn vertical_tmp_grad_ppd(
-    dry_bulb_temp: Temperature,
-    mean_radiant_temp: Temperature,
-    relative_air_speed: Speed,
-    relative_humidity: Humidity,
-    metabolic_rate: MetabolicRate,
-    clothing_insulation: ClothingInsulation,
-    vertical_temp_gradient: f64,
-    limit_inputs: bool,
+    inputs: VerticalTmpGradPpdInputs,
+    options: VerticalTmpGradPpdOptions,
 ) -> (f64, bool) {
+    let VerticalTmpGradPpdInputs {
+        tdb,
+        tr,
+        vr,
+        rh,
+        met,
+        clo,
+        vertical_tmp_grad,
+    } = inputs;
+    let VerticalTmpGradPpdOptions {
+        round_output,
+        limit_inputs,
+    } = options;
+
     // Calculate PMV value for use in vertical temperature gradient equation.
     // Matches pythermalcomfort behaviour: PMV is computed without input limits so the
     // outer limit_inputs flag governs the final return value.
     let pmv_result = pmv_ppd_ashrae(
-        dry_bulb_temp,
-        mean_radiant_temp,
-        relative_air_speed,
-        relative_humidity,
-        metabolic_rate,
-        clothing_insulation,
-        PmvPpdOptions {
+        PmvPpdInputs {
+            tdb,
+            tr,
+            vr,
+            rh,
+            met,
+            clo,
+        },
+        PmvPpdAshraeOptions {
             limit_inputs: false,
             ..Default::default()
         },
     );
     let pmv = pmv_result.pmv;
+    let vertical_tmp_grad = vertical_tmp_grad.as_celsius();
 
     // PPD calculation for vertical temperature gradient using ASHRAE 55-2023 formula
-    let numerator =
-        libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_temp_gradient - 1.6);
+    let numerator = libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_tmp_grad - 1.6);
     let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
-    let ppd_vtg = libm::round(ppd_vtg * 10.0) / 10.0;
+    // Acceptability is judged on the unrounded value, then the value is rounded.
+    // (ankle_draft rounds first - the port had applied ankle_draft's ordering to both.)
+    let acceptability_raw = ppd_vtg <= 5.0;
+    // Upstream exposes this as `round_output`; rounding unconditionally, as this did
+    // before, left the full-precision value unobtainable.
+    let ppd_vtg = if round_output {
+        crate::utilities::round_half_even(ppd_vtg * 10.0) / 10.0
+    } else {
+        ppd_vtg
+    };
 
-    if limit_inputs
-        && !ashrae55_ankle_inputs_valid(
-            dry_bulb_temp,
-            mean_radiant_temp,
-            relative_air_speed,
-            metabolic_rate,
-            clothing_insulation,
-        )
-    {
+    if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
         return (f64::NAN, false);
     }
 
-    let acceptability = ppd_vtg <= 5.0;
+    let acceptability = acceptability_raw;
 
     (ppd_vtg, acceptability)
+}
+
+/// The inputs to [`f_svv`]: `utilities.py:660` requires all three (no default), and they
+/// are three adjacent same-typed [`Length`]s — precisely the swap hazard this pattern
+/// exists for.
+///
+/// Deliberately has no `Default`: every field must be given explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FSvvInputs {
+    /// Width of the window
+    pub width: Length,
+    /// Height of the window
+    pub height: Length,
+    /// Distance between the occupant and the window
+    pub distance: Length,
 }
 
 /// Calculate sky-vault view fraction
 ///
 /// Calculates the fraction of the sky visible through a window.
-///
-/// # Arguments
-///
-/// * `w` - Width of the window
-/// * `h` - Height of the window
-/// * `d` - Distance between occupant and window
 ///
 /// # Returns
 ///
@@ -235,16 +320,25 @@ pub fn vertical_tmp_grad_ppd(
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::f_svv;
+/// use thermalcomfort::models::{f_svv, FSvvInputs};
 /// use thermalcomfort::Length;
 ///
-/// let svv = f_svv(Length::from_meters(2.0), Length::from_meters(1.5), Length::from_meters(3.0));
+/// let svv = f_svv(FSvvInputs {
+///     width: Length::from_meters(2.0),
+///     height: Length::from_meters(1.5),
+///     distance: Length::from_meters(3.0),
+/// });
 /// assert!(svv > 0.0 && svv <= 1.0);
 /// ```
-pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
-    let w = w.as_meters();
-    let h = h.as_meters();
-    let d = d.as_meters();
+pub fn f_svv(inputs: FSvvInputs) -> f64 {
+    let FSvvInputs {
+        width,
+        height,
+        distance,
+    } = inputs;
+    let w = width.as_meters();
+    let h = height.as_meters();
+    let d = distance.as_meters();
     let angle_h = libm::atan(h / (2.0 * d));
     let angle_w = libm::atan(w / (2.0 * d));
 
@@ -255,40 +349,121 @@ pub fn f_svv(w: Length, h: Length, d: Length) -> f64 {
     (degrees_h * degrees_w) / 16200.0
 }
 
-/// Transpose SHARP solar altitude
+/// Transpose the solar altitude and solar azimuth angles, in plain degrees.
 ///
-/// Converts between solar altitude and SHARP altitude coordinates.
-///
-/// # Arguments
-///
-/// * `sharp` - SHARP altitude (degrees)
-/// * `altitude` - Solar altitude (degrees)
+/// The in-crate entry point for [`crate::models::solar_gain`], which already holds its
+/// `sharp`/`sol_altitude` as unwrapped `f64` degrees (see [`solar_gain`](crate::models::solar_gain::solar_gain)'s
+/// "Convert once here, then calculate in plain f64 throughout"). Going through the
+/// typed [`transpose_sharp_altitude`] wrapper there would mean re-wrapping those `f64`s
+/// into an [`measurements::Angle`] just to call it and unwrap again — exactly the
+/// round-trip anti-pattern that cost a 2 °C bug elsewhere in this crate (28adfa8).
 ///
 /// # Returns
 ///
-/// Tuple of (transposed_sharp, transposed_altitude)
-pub fn transpose_sharp_altitude(sharp: f64, altitude: f64) -> (f64, f64) {
-    // Simple coordinate transformation
-    let t_sharp = sharp + altitude / 2.0;
-    let t_altitude = altitude - sharp / 2.0;
-    (t_sharp, t_altitude)
+/// Tuple of (transposed sharp, transposed altitude) in degrees, each rounded to 3
+/// decimals to match pythermalcomfort.
+pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f64, f64) {
+    let to_rad = core::f64::consts::PI / 180.0;
+    let to_deg = 180.0 / core::f64::consts::PI;
+
+    let altitude_new =
+        libm::asin(libm::sin(libm::fabs(sharp - 90.0) * to_rad) * libm::cos(altitude * to_rad))
+            * to_deg;
+    let sharp_new =
+        libm::atan(libm::sin(sharp * to_rad) * libm::tan((90.0 - altitude) * to_rad)) * to_deg;
+
+    // utilities.py:490's `transpose_sharp_altitude` is `@njit(cache=True)`-decorated.
+    // Numba compiles `round(x, n)` to its own multiply/rint/divide sequence
+    // (numba/cpython/builtins.py:262-278), which is numpy's ties-to-even rule, not
+    // CPython's exact-decimal builtin — confirmed by reading that source and by probing
+    // the compiled function directly: over 2,000,000 engineered tie-adjacent values it
+    // agreed with `np.round` on all of them and disagreed with the plain-Python `round`
+    // builtin on 5. So despite `sharp`/`altitude` being ordinary `float` parameters, the
+    // jit context makes this numpy's rule.
+    (round_to(sharp_new, 3), round_to(altitude_new, 3))
+}
+
+/// Transpose the solar altitude and solar azimuth angles
+///
+/// Used by [`fn@crate::models::solar_gain`] to reuse the standing projected-area table for
+/// a supine occupant, by rotating the sun's position into the body's frame.
+///
+/// A thin newtype wrapper over `transpose_sharp_altitude_degrees`; see that function's
+/// doc comment for why the crate keeps a plain-`f64` core rather than only this typed
+/// entry point.
+///
+/// # Returns
+///
+/// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
+/// match pythermalcomfort.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::models::transpose_sharp_altitude;
+/// use thermalcomfort::Angle;
+///
+/// let (sharp, altitude) = transpose_sharp_altitude(Angle::from_degrees(0.0), Angle::from_degrees(0.0));
+/// assert_eq!((sharp.as_degrees(), altitude.as_degrees()), (0.0, 90.0));
+/// ```
+pub fn transpose_sharp_altitude(sharp: Angle, altitude: Angle) -> (Angle, Angle) {
+    let (sharp_new, altitude_new) =
+        transpose_sharp_altitude_degrees(sharp.as_degrees(), altitude.as_degrees());
+    (
+        Angle::from_degrees(sharp_new),
+        Angle::from_degrees(altitude_new),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// `AnkleDraftInputs` for a case, with options left at their defaults.
+    fn ankle_inputs(
+        tdb: f64,
+        tr: f64,
+        vr: f64,
+        met: f64,
+        clo: f64,
+        v_ankle: f64,
+    ) -> AnkleDraftInputs {
+        AnkleDraftInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            v_ankle: Speed::from_meters_per_second(v_ankle),
+        }
+    }
+
+    /// `VerticalTmpGradPpdInputs` for a case, with options left at their defaults.
+    fn vtg_inputs(
+        tdb: f64,
+        tr: f64,
+        vr: f64,
+        met: f64,
+        clo: f64,
+        grad: f64,
+    ) -> VerticalTmpGradPpdInputs {
+        VerticalTmpGradPpdInputs {
+            tdb: Temperature::from_celsius(tdb),
+            tr: Temperature::from_celsius(tr),
+            vr: Speed::from_meters_per_second(vr),
+            rh: Humidity::from_percent(50.0),
+            met: MetabolicRate::from_met(met),
+            clo: ClothingInsulation::from_clo(clo),
+            vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
+        }
+    }
+
     #[test]
     fn test_ankle_draft() {
         let (ppd, acceptable) = ankle_draft(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Speed::from_meters_per_second(0.3),
-            true,
+            ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.3),
+            Default::default(),
         );
         assert!((0.0..=100.0).contains(&ppd));
         // High ankle draft velocity should cause dissatisfaction
@@ -312,14 +487,8 @@ mod tests {
 
         for &(label, tdb, tr, vr, met, clo) in cases {
             let (ppd, acceptable) = ankle_draft(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(50.0),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                Speed::from_meters_per_second(0.15),
-                true,
+                ankle_inputs(tdb, tr, vr, met, clo, 0.15),
+                AnkleDraftOptions { limit_inputs: true },
             );
             assert!(ppd.is_nan(), "{label}: expected NaN with limit_inputs=true");
             assert!(
@@ -328,14 +497,10 @@ mod tests {
             );
 
             let (ppd_unlimited, _) = ankle_draft(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(50.0),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                Speed::from_meters_per_second(0.15),
-                false,
+                ankle_inputs(tdb, tr, vr, met, clo, 0.15),
+                AnkleDraftOptions {
+                    limit_inputs: false,
+                },
             );
             assert!(
                 !ppd_unlimited.is_nan(),
@@ -345,14 +510,8 @@ mod tests {
 
         // Spot-check that a fully in-range input is not flagged when limits are on.
         let (ppd, _) = ankle_draft(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            Speed::from_meters_per_second(0.15),
-            true,
+            ankle_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 0.15),
+            Default::default(),
         );
         assert!(
             !ppd.is_nan(),
@@ -363,14 +522,8 @@ mod tests {
     #[test]
     fn test_vertical_tmp_grad_ppd() {
         let (ppd, _acceptable) = vertical_tmp_grad_ppd(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            2.0,
-            true,
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0),
+            Default::default(),
         );
         // PPD can be negative for comfortable conditions (formula artifact)
         // but should be within reasonable range
@@ -393,14 +546,11 @@ mod tests {
 
         for &(label, tdb, tr, vr, met, clo) in cases {
             let (ppd, acceptable) = vertical_tmp_grad_ppd(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(50.0),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                2.0,
-                true,
+                vtg_inputs(tdb, tr, vr, met, clo, 2.0),
+                VerticalTmpGradPpdOptions {
+                    round_output: true,
+                    limit_inputs: true,
+                },
             );
             assert!(ppd.is_nan(), "{label}: expected NaN with limit_inputs=true");
             assert!(
@@ -409,14 +559,11 @@ mod tests {
             );
 
             let (ppd_unlimited, _) = vertical_tmp_grad_ppd(
-                Temperature::from_celsius(tdb),
-                Temperature::from_celsius(tr),
-                Speed::from_meters_per_second(vr),
-                Humidity::from_percent(50.0),
-                MetabolicRate::from_met(met),
-                ClothingInsulation::from_clo(clo),
-                2.0,
-                false,
+                vtg_inputs(tdb, tr, vr, met, clo, 2.0),
+                VerticalTmpGradPpdOptions {
+                    round_output: true,
+                    limit_inputs: false,
+                },
             );
             assert!(
                 !ppd_unlimited.is_nan(),
@@ -426,14 +573,8 @@ mod tests {
 
         // Spot-check that fully in-range inputs survive the limit check.
         let (ppd, _) = vertical_tmp_grad_ppd(
-            Temperature::from_celsius(25.0),
-            Temperature::from_celsius(25.0),
-            Speed::from_meters_per_second(0.1),
-            Humidity::from_percent(50.0),
-            MetabolicRate::from_met(1.2),
-            ClothingInsulation::from_clo(0.5),
-            2.0,
-            true,
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 2.0),
+            Default::default(),
         );
         assert!(
             !ppd.is_nan(),
@@ -441,20 +582,62 @@ mod tests {
         );
     }
 
+    /// `round_output` is upstream's, and was hardcoded to `true` here. Turning it off
+    /// must expose digits that rounding to one decimal place would have removed.
+    #[test]
+    fn vertical_tmp_grad_ppd_round_output_can_be_turned_off() {
+        let rounded = vertical_tmp_grad_ppd(
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 3.7),
+            Default::default(),
+        );
+        let exact = vertical_tmp_grad_ppd(
+            vtg_inputs(25.0, 25.0, 0.1, 1.2, 0.5, 3.7),
+            VerticalTmpGradPpdOptions {
+                round_output: false,
+                limit_inputs: true,
+            },
+        );
+
+        let (r, _) = rounded;
+        let (e, _) = exact;
+        assert!(
+            (r * 10.0 - (r * 10.0).round()).abs() < 1e-9,
+            "rounded ppd {r} is not at one decimal"
+        );
+        assert!(
+            (e - r).abs() > 1e-12,
+            "unrounded ppd {e} equals the rounded {r}"
+        );
+        assert!(
+            (e - r).abs() < 0.05,
+            "unrounded ppd {e} is not within rounding of {r}"
+        );
+    }
+
     #[test]
     fn test_f_svv() {
-        let svv = f_svv(
-            Length::from_meters(2.0),
-            Length::from_meters(1.5),
-            Length::from_meters(3.0),
-        );
+        let svv = f_svv(FSvvInputs {
+            width: Length::from_meters(2.0),
+            height: Length::from_meters(1.5),
+            distance: Length::from_meters(3.0),
+        });
         assert!(svv > 0.0 && svv <= 1.0);
     }
 
     #[test]
     fn test_transpose_sharp_altitude() {
-        let (sharp_t, alt_t) = transpose_sharp_altitude(30.0, 45.0);
-        assert!(sharp_t > 0.0);
-        assert!(alt_t > 0.0);
+        let (sharp_t, alt_t) =
+            transpose_sharp_altitude(Angle::from_degrees(30.0), Angle::from_degrees(45.0));
+        assert!(sharp_t.as_degrees() > 0.0);
+        assert!(alt_t.as_degrees() > 0.0);
+    }
+
+    #[test]
+    fn test_transpose_sharp_altitude_degrees_matches_typed_wrapper() {
+        let (sharp_deg, alt_deg) = transpose_sharp_altitude_degrees(30.0, 45.0);
+        let (sharp_t, alt_t) =
+            transpose_sharp_altitude(Angle::from_degrees(30.0), Angle::from_degrees(45.0));
+        assert!((sharp_t.as_degrees() - sharp_deg).abs() < 1e-9);
+        assert!((alt_t.as_degrees() - alt_deg).abs() < 1e-9);
     }
 }
