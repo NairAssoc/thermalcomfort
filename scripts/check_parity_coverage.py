@@ -323,6 +323,10 @@ def check_python_direction() -> tuple[bool, list[str]]:
 
 
 def main() -> int:
+    # The Windows CI runners give Python a cp1252 stdout, which cannot encode the check
+    # marks below; the source files are read as UTF-8 for the same reason.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     missing_files = [p for p in PARITY_TEST_FILES if not p.exists()]
     if missing_files:
         for path in missing_files:
