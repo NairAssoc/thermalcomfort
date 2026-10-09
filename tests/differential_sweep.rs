@@ -17,6 +17,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule, PyTuple};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
+use support::rng::Rng;
 use support::sweep::{import_reference, report_skipped, run_sweep};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
@@ -1470,6 +1471,114 @@ fn sweep_two_nodes_gagge_ji() {
     });
 }
 
+/// pythermalcomfort's `two_nodes_gagge_sleep` call, held so the conditioning probe can
+/// re-issue it with every input moved by a single ULP.
+#[derive(Clone)]
+struct SleepPyCall {
+    /// `tdb, tr, v, rh, clo, thickness_quilt`, one value per minute.
+    schedules: [Vec<f64>; 6],
+    /// `wme, p_atm, height, weight, c_sw, c_dil, c_str, temp_skin_neutral,
+    /// temp_core_neutral, e_skin, alfa, skin_blood_flow, met_shivering`.
+    scalars: [f64; 13],
+    ltime: u32,
+}
+
+/// Call pythermalcomfort's `two_nodes_gagge_sleep`.
+fn two_nodes_gagge_sleep_python_run<'py>(
+    models: &Bound<'py, PyModule>,
+    call: &SleepPyCall,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py = models.py();
+    let names = [
+        "wme",
+        "p_atm",
+        "height",
+        "weight",
+        "c_sw",
+        "c_dil",
+        "c_str",
+        "temp_skin_neutral",
+        "temp_core_neutral",
+        "e_skin",
+        "alfa",
+        "skin_blood_flow",
+        "met_shivering",
+    ];
+    let kwargs = PyDict::new(py);
+    for (name, value) in names.iter().zip(call.scalars.iter()) {
+        kwargs.set_item(*name, *value)?;
+    }
+    kwargs.set_item("ltime", call.ltime)?;
+    let [tdb, tr, v, rh, clo, thickness] = &call.schedules;
+    models.getattr("two_nodes_gagge_sleep")?.call(
+        (
+            tdb.clone(),
+            tr.clone(),
+            v.clone(),
+            rh.clone(),
+            clo.clone(),
+            thickness.clone(),
+        ),
+        Some(&kwargs),
+    )
+}
+
+/// How far pythermalcomfort's own `field` series moves, by `minute`, when every input to
+/// `call` is moved a single ULP at once.
+///
+/// The companion to [`ji_reference_ulp_spread`], which moves one scalar at a time. That
+/// understates this model badly: its inputs are six per-minute schedules, and the
+/// Rust-Python difference it is measured against is the sum of ulp-level differences in
+/// every transcendental call of every minute, not a change to one number. Moving all
+/// inputs together, in random directions, is the cheaper and closer analogue: 64 patterns
+/// against the ~1,400 single-element probes a 120-minute schedule would need, and on the
+/// samples it was calibrated against it reaches the observed gap where the single-element
+/// probe stays a factor of three or four short.
+///
+/// A zero input has no last bit to move (its neighbours are a subnormal and a negative),
+/// and a probe pythermalcomfort rejects contributes nothing rather than failing the sweep.
+fn sleep_reference_ulp_spread(
+    models: &Bound<'_, PyModule>,
+    call: &SleepPyCall,
+    base: &[f64],
+    field: &str,
+    minute: usize,
+) -> Result<f64, String> {
+    let mut rng = Rng::new(0x5EED_u64 ^ minute as u64);
+    let mut nudge = |x: f64| -> f64 {
+        if !x.is_finite() || x <= 0.0 {
+            x
+        } else if rng.bool() {
+            next_up(x)
+        } else {
+            next_down(x)
+        }
+    };
+    let mut spread: f64 = 0.0;
+    for _ in 0..64 {
+        let mut probe = call.clone();
+        for schedule in probe.schedules.iter_mut() {
+            for x in schedule.iter_mut() {
+                *x = nudge(*x);
+            }
+        }
+        for x in probe.scalars.iter_mut() {
+            *x = nudge(*x);
+        }
+        let Ok(result) = two_nodes_gagge_sleep_python_run(models, &probe) else {
+            continue;
+        };
+        let perturbed = py_float_seq(&result, field)?;
+        let last = minute
+            .min(base.len().saturating_sub(1))
+            .min(perturbed.len().saturating_sub(1));
+        for m in 0..=last {
+            spread = spread.max((base[m] - perturbed[m]).abs());
+        }
+    }
+    Ok(spread)
+}
+
 #[test]
 fn sweep_two_nodes_gagge_sleep() {
     // The sleep model's inputs are per-minute schedules, so the sweep samples a base value
@@ -1516,6 +1625,7 @@ fn sweep_two_nodes_gagge_sleep() {
             .expect("failed to import pythermalcomfort.models");
 
         let overflowed = std::cell::Cell::new(0usize);
+        let ill_conditioned = std::cell::Cell::new(0usize);
 
         run_sweep("sweep_two_nodes_gagge_sleep", &domain, |s: &Sample| {
             // Upstream returns scalars rather than arrays for a one-minute night, so the
@@ -1555,49 +1665,33 @@ fn sweep_two_nodes_gagge_sleep() {
             let clo = ramp(s.real("clo"), s.real("clo_drift"), 0.0, 3.0);
             let thickness = ramp(s.real("thickness"), s.real("thickness_drift"), 0.0, 30.0);
 
-            let kwargs = [
-                ("wme", wme.into_pyobject(py).unwrap().into_any()),
-                ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
-                ("ltime", ltime.into_pyobject(py).unwrap().into_any()),
-                ("height", height.into_pyobject(py).unwrap().into_any()),
-                ("weight", weight.into_pyobject(py).unwrap().into_any()),
-                ("c_sw", c_sw.into_pyobject(py).unwrap().into_any()),
-                ("c_dil", c_dil.into_pyobject(py).unwrap().into_any()),
-                ("c_str", c_str.into_pyobject(py).unwrap().into_any()),
-                (
-                    "temp_skin_neutral",
-                    temp_skin_neutral.into_pyobject(py).unwrap().into_any(),
-                ),
-                (
-                    "temp_core_neutral",
-                    temp_core_neutral.into_pyobject(py).unwrap().into_any(),
-                ),
-                ("e_skin", e_skin.into_pyobject(py).unwrap().into_any()),
-                ("alfa", alfa.into_pyobject(py).unwrap().into_any()),
-                (
-                    "skin_blood_flow",
-                    skin_blood_flow.into_pyobject(py).unwrap().into_any(),
-                ),
-                (
-                    "met_shivering",
-                    met_shivering.into_pyobject(py).unwrap().into_any(),
-                ),
-            ]
-            .into_py_dict(py)
-            .unwrap();
-
-            let call = models.getattr("two_nodes_gagge_sleep").unwrap().call(
-                (
+            let py_call = SleepPyCall {
+                schedules: [
                     tdb.clone(),
                     tr.clone(),
                     v.clone(),
                     rh.clone(),
                     clo.clone(),
                     thickness.clone(),
-                ),
-                Some(&kwargs),
-            );
-            let py_result = match call {
+                ],
+                scalars: [
+                    wme,
+                    p_atm,
+                    height,
+                    weight,
+                    c_sw,
+                    c_dil,
+                    c_str,
+                    temp_skin_neutral,
+                    temp_core_neutral,
+                    e_skin,
+                    alfa,
+                    skin_blood_flow,
+                    met_shivering,
+                ],
+                ltime,
+            };
+            let py_result = match two_nodes_gagge_sleep_python_run(&models, &py_call) {
                 Ok(result) => result,
                 // In a hot, humid, heavily quilted corner the model's own exponentials
                 // overflow and CPython raises. There is no reference value to compare
@@ -1667,19 +1761,27 @@ fn sweep_two_nodes_gagge_sleep() {
             .map_err(|e| format!("rust rejected the schedule: {e}"))?;
 
             // Upstream does not round this model, so an absolute 1e-9 is the primary
-            // bound and it holds for the great majority of samples. The relative bound
-            // covers two things an absolute one measures badly over a 120-minute run:
+            // bound. The relative bound exists for the samples where upstream's own SET
+            // secant solve has no physical root and walks out to around 5e7 °C; the port
+            // follows it there (`test_two_nodes_gagge_sleep_follows_upstream_secant_runaway`
+            // pins one), and at that magnitude 1e-9 absolute is a tolerance on the ulp.
             //
-            //   - each minute's state feeds the next, so `math.exp` and `libm::exp`
-            //     differing by an ulp compounds in proportion to the result, exactly as
-            //     it does in the PHS sweep's 480-minute integration;
-            //   - in a low-airspeed, thick-quilt corner upstream's own SET secant solve
-            //     runs away to around 5e7 °C, where 1e-9 absolute is a tolerance on the
-            //     ulp rather than on the physics.
-            //
-            // 1e-9 relative is nine significant figures and cannot absorb a transcription
-            // error; the worst observed here is 2.7e-12, on `disc` at minute 41. The exact
-            // 1e-9 absolute check on short runs lives in the module's unit tests.
+            // Neither bound can be right everywhere, because each minute's state feeds
+            // the next through a step that is locally unstable. In a window of a few
+            // minutes, typically where `e_skin` passes near zero, an ulp-level difference
+            // grows by roughly an order of magnitude per minute before the trajectory
+            // settles again: Rust and Python go into such a window agreeing to ~1e-12 and
+            // can leave it 1e-5 apart without either having taken a different branch. So
+            // on a mismatch the gate below asks pythermalcomfort how far its own answer
+            // moves when every input is moved a single ULP, and excuses the sample only
+            // if that spread is within a factor of four of the Rust-Python gap. The factor
+            // covers what a one-ULP input change understates: the ulp-level differences
+            // between libm and CPython's math library enter at every operation of every
+            // minute, not once. Calibrated on the five such samples in a 25,000-sample
+            // run, where the ratio of spread to gap was 0.75 to 11; a deliberately injected
+            // defect lands many orders of magnitude outside it, because a well-conditioned
+            // sample's spread is ~1e-14 and the port is compared at 1e-9 right up to the
+            // failing minute.
             let series: [(&str, Vec<f64>); 10] = [
                 ("set", rust.set.iter().map(|t| t.as_celsius()).collect()),
                 (
@@ -1724,12 +1826,37 @@ fn sweep_two_nodes_gagge_sleep() {
                 for (minute, (rust_value, py_value)) in
                     rust_series.iter().zip(py_series.iter()).enumerate()
                 {
-                    compare_field(&cmp, *rust_value, *py_value)
-                        .map_err(|e| format!("minute {minute}: {e}"))?;
+                    let Err(mismatch) = compare_field(&cmp, *rust_value, *py_value) else {
+                        continue;
+                    };
+                    let delta = (rust_value - py_value).abs();
+                    let spread =
+                        sleep_reference_ulp_spread(&models, &py_call, &py_series, name, minute)?;
+                    // A NaN `delta` never satisfies `<=`, so a NaN mismatch is reported.
+                    if delta <= 4.0 * spread {
+                        ill_conditioned.set(ill_conditioned.get() + 1);
+                        return Ok(());
+                    }
+                    return Err(format!(
+                        "minute {minute}: {mismatch}; pythermalcomfort's own spread under \
+                         a 1-ULP change to every input is only {spread:e} by here, so this \
+                         is not the reference losing conditioning"
+                    ));
                 }
             }
             Ok(())
         });
+
+        // Measured 5 of 25,000 (0.02%). 0.5% is the floor this file uses for a rate this
+        // small: anything lower would be under one sample at the default `SWEEP_N=500`.
+        report_skipped(
+            "sweep_two_nodes_gagge_sleep",
+            ill_conditioned.get(),
+            0.005,
+            "the reference had already moved at least a quarter as far under a 1-ULP \
+             change to every input as Rust and Python differ; minute-by-minute \
+             integration through a locally unstable step",
+        );
 
         // Measured 0 of 500 and 0 of 3000: the overflow corner exists (it is what the
         // branch above is for) but the sampler does not currently land in it. The ceiling
