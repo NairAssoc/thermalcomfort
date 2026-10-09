@@ -22,19 +22,20 @@ use thermalcomfort::models::specialty::{
 };
 use thermalcomfort::models::{
     AtInputs, CoolingEffectInputs, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs,
-    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, HeatIndexLuInputs, HeatIndexLuOptions,
-    HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs, HumidexModel, HumidexOptions,
-    IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs, PetOptions, PhsInputs, PhsOptions,
-    PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs, SolarGainInputs, SolarGainOptions,
-    SolarGainPosture, SportsHeatStressRiskInputs, ThiInputs, UseFansHeatwavesInputs,
-    UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs,
-    WindChillTemperatureInputs, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae,
-    adaptive_en, ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu,
-    heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb,
-    pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain,
-    thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
-    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
-    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesSleepOptions, HeatIndexLuInputs,
+    HeatIndexLuOptions, HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs,
+    HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs,
+    PetOptions, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs,
+    SolarGainInputs, SolarGainOptions, SolarGainPosture, SportsHeatStressRiskInputs, ThiInputs,
+    UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
+    WbgtOptions, WciInputs, WindChillTemperatureInputs, WorkCapacityIntensityOptions,
+    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
+    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
+    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
+    set_tmp, solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
+    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
+    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
+    work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
     MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
@@ -4772,6 +4773,159 @@ fn test_two_nodes_gagge_sleep_comparison() {
                 }
             }
             println!("  all 10 fields match over {} minutes", tdb.len());
+        }
+    });
+}
+
+/// Where the SET secant solve has no physical root, upstream's second loop does not stop:
+/// it walks `x` out for a few hundred iterations until two successive estimates agree to
+/// 0.01 and reports wherever that happens, here around 6e7 °C. The port used to cap the
+/// solve at 150 iterations and return the estimate it had reached, about -320 °C, so the
+/// two disagreed completely on exactly the samples where upstream's number is least
+/// physical. The number is meaningless either way; what this pins is that the port
+/// reports upstream's, and that the cap only guards a solve that never settles.
+///
+/// The schedule is a 120-minute night from the differential sweep (seed 12648430, sample
+/// 4163), with its inputs rounded to six decimals; the runaway is a region, not a point,
+/// so it survives the rounding. The first assertion guards that it still does.
+#[test]
+fn test_two_nodes_gagge_sleep_follows_upstream_secant_runaway() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let n = 120usize;
+        let ramp = |base: f64, drift: f64, lo: f64, hi: f64| -> Vec<f64> {
+            (0..n)
+                .map(|i| (base + drift * i as f64).clamp(lo, hi))
+                .collect()
+        };
+        let tdb = ramp(33.916413, 0.122756, 5.0, 45.0);
+        let tr = ramp(23.877563, 0.148341, 5.0, 45.0);
+        let v = vec![1.233881; n];
+        let rh = ramp(65.806883, 0.370722, 0.0, 100.0);
+        let clo = ramp(1.806869, -0.007482, 0.0, 3.0);
+        let thickness = ramp(14.248973, 0.092109, 0.0, 30.0);
+        let (wme, p_atm, ltime) = (0.302092_f64, 104_822.403147_f64, 1_u32);
+        let (height, weight) = (150.436955_f64, 68.414867_f64);
+        let (c_sw, c_dil, c_str) = (192.737515_f64, 172.154911_f64, 0.773_f64);
+        let (temp_skin_neutral, temp_core_neutral) = (35.409264_f64, 35.305593_f64);
+        let (e_skin, alfa, skin_blood_flow, met_shivering) =
+            (0.021964_f64, 0.153229_f64, 8.041728_f64, 2.082487_f64);
+
+        let kwargs = [
+            ("wme", wme.into_pyobject(py).unwrap().into_any()),
+            ("p_atm", p_atm.into_pyobject(py).unwrap().into_any()),
+            ("ltime", ltime.into_pyobject(py).unwrap().into_any()),
+            ("height", height.into_pyobject(py).unwrap().into_any()),
+            ("weight", weight.into_pyobject(py).unwrap().into_any()),
+            ("c_sw", c_sw.into_pyobject(py).unwrap().into_any()),
+            ("c_dil", c_dil.into_pyobject(py).unwrap().into_any()),
+            ("c_str", c_str.into_pyobject(py).unwrap().into_any()),
+            (
+                "temp_skin_neutral",
+                temp_skin_neutral.into_pyobject(py).unwrap().into_any(),
+            ),
+            (
+                "temp_core_neutral",
+                temp_core_neutral.into_pyobject(py).unwrap().into_any(),
+            ),
+            ("e_skin", e_skin.into_pyobject(py).unwrap().into_any()),
+            ("alfa", alfa.into_pyobject(py).unwrap().into_any()),
+            (
+                "skin_blood_flow",
+                skin_blood_flow.into_pyobject(py).unwrap().into_any(),
+            ),
+            (
+                "met_shivering",
+                met_shivering.into_pyobject(py).unwrap().into_any(),
+            ),
+        ]
+        .into_py_dict(py)
+        .unwrap();
+        let py_result = pythermal
+            .getattr("two_nodes_gagge_sleep")
+            .unwrap()
+            .call(
+                (
+                    tdb.clone(),
+                    tr.clone(),
+                    v.clone(),
+                    rh.clone(),
+                    clo.clone(),
+                    thickness.clone(),
+                ),
+                Some(&kwargs),
+            )
+            .unwrap();
+        let py_set: Vec<f64> = py_result
+            .getattr("set")
+            .unwrap()
+            .call_method0("tolist")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let runaway = py_set.iter().cloned().fold(0.0_f64, f64::max);
+        assert!(
+            runaway > 1.0e7,
+            "upstream's SET solve no longer runs away on this schedule (max set {runaway}); \
+             the case has stopped demonstrating its own point, find another"
+        );
+
+        let rust_tdb: Vec<Temperature> =
+            tdb.iter().copied().map(Temperature::from_celsius).collect();
+        let rust_tr: Vec<Temperature> = tr.iter().copied().map(Temperature::from_celsius).collect();
+        let rust_v: Vec<Speed> = v
+            .iter()
+            .copied()
+            .map(Speed::from_meters_per_second)
+            .collect();
+        let rust_rh: Vec<Humidity> = rh.iter().copied().map(Humidity::from_percent).collect();
+        let rust_clo: Vec<ClothingInsulation> = clo
+            .iter()
+            .copied()
+            .map(ClothingInsulation::from_clo)
+            .collect();
+        let rust_quilt: Vec<Length> = thickness
+            .iter()
+            .copied()
+            .map(Length::from_centimeters)
+            .collect();
+        let rust_result = two_nodes_gagge_sleep(
+            SleepInputs {
+                tdb: &rust_tdb,
+                tr: &rust_tr,
+                v: &rust_v,
+                rh: &rust_rh,
+                clo: &rust_clo,
+                thickness_quilt: &rust_quilt,
+            },
+            GaggeTwoNodesSleepOptions {
+                wme: MetabolicRate::from_met(wme),
+                p_atm: Pressure::from_pascals(p_atm),
+                ltime,
+                height: Length::from_centimeters(height),
+                weight: Mass::from_kilograms(weight),
+                c_sw,
+                c_dil,
+                c_str,
+                temp_skin_neutral: Temperature::from_celsius(temp_skin_neutral),
+                temp_core_neutral: Temperature::from_celsius(temp_core_neutral),
+                e_skin: HeatFluxDensity::from_watts_per_square_meter(e_skin),
+                alfa,
+                skin_blood_flow,
+                met_shivering: HeatFluxDensity::from_watts_per_square_meter(met_shivering),
+            },
+        )
+        .expect("all six schedules are the same length");
+
+        for (minute, (rust, python)) in rust_result.set.iter().zip(&py_set).enumerate() {
+            let rust = rust.as_celsius();
+            let tolerance = 1e-9 * python.abs().max(1.0);
+            assert!(
+                (rust - python).abs() <= tolerance,
+                "minute {minute}: set Rust {rust} vs Python {python} (tolerance {tolerance:e})"
+            );
         }
     });
 }

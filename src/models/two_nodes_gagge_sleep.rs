@@ -381,17 +381,19 @@ fn sleep_set(
     let h_e_s = 1.0 / (r_ea_s + r_ecl_s);
     let delta = 1e-4;
 
-    // Two secant solves. Upstream's loops are unbounded except for a small-denominator
-    // guard on the first; here both are capped, because a non-converging solve would hang
-    // rather than raise the way Python would.
-    let solve = |h_d: f64, h_e: f64| -> f64 {
+    // Two secant solves, mirroring upstream's `flag1` and `flag2` loops. Only the first
+    // carries upstream's small-denominator guard; the second divides regardless, and a
+    // port that guarded both would stop where upstream keeps walking. Upstream discards
+    // the first solve's result, so it is evaluated here purely to keep the arithmetic
+    // path identical (it has no side effects, so this is belt-and-braces).
+    let solve = |h_d: f64, h_e: f64, guard_small_denominator: bool| -> f64 {
         let mut xold = t_skin - q_skin / h_d;
         let mut x = xold;
         for _ in 0..MAX_SECANT_ITERATIONS {
             let err1 = set_error(xold, q_skin, h_d, t_skin, wet, h_e, p_s_sk);
             let err2 = set_error(xold + delta, q_skin, h_d, t_skin, wet, h_e, p_s_sk);
             let err_diff = err2 - err1;
-            if abs(err_diff) < 1e-10 {
+            if guard_small_denominator && abs(err_diff) < 1e-10 {
                 break;
             }
             x = xold - delta * err1 / err_diff;
@@ -404,8 +406,8 @@ fn sleep_set(
         x
     };
 
-    let _ = solve(h_d, h_e);
-    let set_temp = solve(h_d_s, h_e_s);
+    let _ = solve(h_d, h_e, true);
+    let set_temp = solve(h_d_s, h_e_s, false);
 
     let tbm_l = (0.194 / 58.15) * rn + 36.301;
     let tbm_h = (0.347 / 58.15) * rn + 36.669;
@@ -446,7 +448,13 @@ fn sleep_set(
 }
 
 /// Iteration cap for the SET secant solves.
-const MAX_SECANT_ITERATIONS: usize = 150;
+///
+/// Upstream's loops are unbounded. Where the solve has no physical root they still
+/// terminate, but only after a few hundred iterations spent walking `x` out to around
+/// 6e7 °C, and the port has to follow them there to report the same number. The cap is
+/// therefore well above anything upstream has been observed to need (under 500) and
+/// exists only so a solve that never settles cannot hang the caller.
+const MAX_SECANT_ITERATIONS: usize = 100_000;
 
 /// One minute of results, before they are transposed into the per-field vectors upstream
 /// returns.
