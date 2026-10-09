@@ -110,9 +110,8 @@ pass.
   (`assert_is_really_the_edge`, requiring Python's own verdict to flip across the bound)
   fired immediately on EN and revealed that half the test was vacuous — EN rounds each
   bound *after* unit conversion, so the reported bound is not the one acceptability is
-  evaluated against. And probing EN on the bound surfaced a real divergence from
-  upstream that is nothing to do with banding: see
-  `2-temperature-newtype-is-lossy-at-the-boundary.md`, which needs a decision.
+  evaluated against. And probing EN on the bound surfaced the `Temperature`
+  kelvin round-trip, now a documented divergence in the README's coverage table.
 - ~~`SportsHeatStressRisk.recommendation`~~ — DONE 2026-08-26,
   `test_sports_risk_level_floor_nudge_and_ceiling`. The real hole was not the 2.0/3.0/4.0
   recommendation edges (a 0.1-wide target the sweep hits routinely) but the **`1e-9` nudge
@@ -137,9 +136,8 @@ pass.
   input lands in that window — do not add cases chasing it. And the crossing sits between
   two *adjacent* f64s, which the `Temperature` newtype cannot deliver (it perturbs by
   ~1e-13, millions of ULPs at that magnitude), so the test brackets by 1e-4 instead. That
-  is the sharpest instance yet of
-  `2-temperature-newtype-is-lossy-at-the-boundary.md`: near a discontinuity the crate
-  cannot express the input at all.
+  is the sharpest instance of the `Temperature` kelvin round-trip (README, coverage
+  table): near a discontinuity the crate cannot express the input at all.
 
 ## Gap 2 — closed 2026-08-26
 
@@ -230,9 +228,6 @@ Not "there are no bugs". The reachable claim, and as of 2026-08-26 all four part
   rounded samples. Each is defensible as "one rounding step", but no one has checked that
   each *is* one rounding step for that field's own rounding — `jos3_tolerance` does exactly
   this per field and is the model to copy.
-- **The `Temperature` newtype**, which makes some results differ from upstream at the
-  public boundary regardless of how good the sweeps are. See
-  `2-temperature-newtype-is-lossy-at-the-boundary.md`.
 - **Reachability.** Gap 3 established every *parameter* is varied; it did not establish
   every *branch* is entered. The `PET_MEASURE`-style coverage counters this document
   originally proposed would still be worth having.

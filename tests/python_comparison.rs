@@ -2405,8 +2405,8 @@ fn test_use_fans_heatwaves_strain_flags_at_the_caps() {
 /// `-0.3483882704890675` -- off by ~1e-13, which is millions of ULPs at this magnitude,
 /// so the Rust API cannot deliver an input on the correct side of the crossing at all.
 /// A tighter bracket would test the newtype's representation instead of the ceiling
-/// comparison. See `2-temperature-newtype-is-lossy-at-the-boundary.md`; this is the same
-/// divergence found via `adaptive_en`, in a place where it bites harder.
+/// comparison. This is the `Temperature` kelvin round-trip listed in the README's coverage
+/// table, the same divergence found via `adaptive_en`, in a place where it bites harder.
 #[test]
 fn test_ireq_dle_at_the_eight_hour_ceiling() {
     Python::with_gil(|py| {
@@ -2594,8 +2594,8 @@ fn test_adaptive_acceptability_at_band_bounds() {
         // that half can sit on the edge. EN's cat_i_up at t_rm = 10 is 24.1, and
         // `Temperature::from_celsius(24.1).as_celsius()` is 24.100000000000023 -- above
         // the bound. Probing there would measure the newtype's representation, not the
-        // banding rule this test is for. See the worklist item for that divergence,
-        // which is real and separate.
+        // banding rule this test is for. That divergence is accepted and listed in the
+        // README's coverage table.
         let t_running_mean = 10.0;
         let en_bounds = [
             ("tmp_cmf_cat_i_low", "acceptability_cat_i"),

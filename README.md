@@ -343,7 +343,7 @@ Every public function is checked against pythermalcomfort by `make parity-covera
 every one is driven through the randomised differential sweep. The checker runs in both
 directions, so an upstream release growing a model this port lacks fails the build.
 
-Four divergences are known and deliberate. Each is a case where the two libraries disagree
+Five divergences are known and deliberate. Each is a case where the two libraries disagree
 about an input at the edge of what the model can answer; none affects ordinary results.
 
 | Divergence | Detail |
@@ -351,6 +351,7 @@ about an input at the edge of what the model can answer; none affects ordinary r
 | `pet_steady` returns `NaN` where scipy returns a number | Rust's 3-node Newton demands a 1e-5 residual. scipy's `fsolve` stops on step size and accepts points whose energy balance is still ~0.3 W/m² out. Where no root meets the stricter bar this port reports `NaN` rather than a wrong number. |
 | `two_nodes_gagge_sleep` returns infinity where Python raises `OverflowError` | Hot, humid and heavily quilted, the model's own exponentials overflow. Confined to inputs upstream declines to answer at all. |
 | `JOS3` drift below one rounding step is invisible to the sweep | Upstream rounds its own outputs (2 dp for most fields), so there is no unrounded reference to compare against. |
+| `adaptive_en` acceptability flags can flip on an input sitting exactly on a comfort bound | `Temperature` stores kelvin, so a Celsius input that is not exactly representable comes back changed by up to 2.3e-14 °C (one ULP of the kelvin value; integers and half-integers are exact). EN compares the operative temperature directly against bounds computed from the running mean, so `tdb = tr = 24.1` at `t_running_mean = 10` is category I in Python and not here. Accepted as irrelevant at that magnitude. |
 | One `JOS3` sample in 3000 is skipped as ill-conditioned | The chest segment can sit exactly on the wettedness saturation clip, where the answer stops being a function of the inputs at any resolution the sweep can see. Skipped only after re-running Python against itself with the input moved one ULP confirms upstream's own answer has already moved. |
 
 `two_nodes_gagge_sleep` is a faithful port of the Yan et al. (2022) model: it simulates the
