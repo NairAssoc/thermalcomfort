@@ -57,8 +57,8 @@ jobs:
         shell: bash
         run: make test
 
-  python-comparison:
-    name: Python Comparison Tests
+  verify:
+    name: Verify (what make verify runs locally)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,10 +78,13 @@ jobs:
           echo "Installing pythermalcomfort==${PTC_VERSION}"
           pip install "pythermalcomfort==${PTC_VERSION}"
 
-      # Runs the whole tests/python_comparison.rs suite in both configurations. This
-      # previously ran `cargo test test_compare_with_python`, a single test, so the
-      # cross-library suite never executed in CI at all.
-      - name: Run verification (including Python comparison)
+      # The union of every other job, exactly as a developer runs it. Its job is to
+      # prove that `make verify` and CI check the same things, so that a local pass is
+      # evidence of a CI pass.
+      - name: Install the targets and toolchain verify needs
+        run: make setup-toolchain
+
+      - name: Run make verify
         shell: bash
         run: make verify
 
@@ -110,7 +113,7 @@ jobs:
       # slow. `make sweep` is the deep run for a release check or a bug hunt.
       - name: Run differential sweep
         shell: bash
-        run: make sweep SWEEP_N=2000
+        run: make sweep-ci
 
   check:
     name: Check
@@ -122,7 +125,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run cargo check
-        run: cargo check --all-targets --verbose
+        run: make check
 
   fmt:
     name: Format
@@ -136,7 +139,7 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: make fmt
 
   clippy:
     name: Clippy
@@ -150,7 +153,7 @@ jobs:
           components: clippy
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: make clippy
 
   doc:
     name: Documentation
@@ -162,9 +165,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build documentation
-        run: cargo doc --no-deps --verbose
-        env:
-          RUSTDOCFLAGS: -D warnings
+        run: make doc
 
   examples:
     name: Examples
@@ -175,14 +176,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build examples
-        run: cargo build --examples --verbose
-
-      - name: Run basic_pmv example
-        run: cargo run --example basic_pmv
-
-      - name: Run typed_api example
-        run: cargo run --example typed_api
+      - name: Build and run examples
+        run: make examples
 
   no-std:
     name: no_std compatibility
@@ -193,24 +188,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: thumbv7em-none-eabihf
+          targets: thumbv7em-none-eabihf, wasm32-unknown-unknown
 
-      - name: Check no_std build
-        run: cargo check --target thumbv7em-none-eabihf --verbose
-
-  wasm:
-    name: WASM compatibility
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Check WASM build
-        run: cargo check --target wasm32-unknown-unknown --verbose
-
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --verbose --release
+      - name: Check the no_std targets and build wasm in release
+        run: make no-std-check

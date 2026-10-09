@@ -371,15 +371,27 @@ pyo3, so they need the **exact version this crate ports** to be importable. The 
 version is that version — they are kept in lockstep deliberately.
 
 ```bash
-# One-time: create a venv holding pythermalcomfort==<crate version>
+# One-time: create a venv holding pythermalcomfort==<crate version>, and install the
+# no_std targets and beta toolchain that verify needs
 make setup-parity
+make setup-toolchain
 
-# Run the whole suite, then confirm the crate still builds for a no_std target
+# The quick loop: the full suite against the reference
 make test
 
-# Lint (fmt + clippy + parity coverage) followed by the full suite
+# Everything CI runs, in one command: lint, cargo check, the suite, the no_std and
+# wasm builds, the differential sweep at CI's depth, and lint plus the suite again on
+# the beta toolchain. Half an hour. A tree that passes here cannot fail CI for a
+# reason the tree controls, because CI's jobs invoke these same make targets.
 make verify
 ```
+
+`make verify` fails rather than skips when a target or toolchain is missing: a silent
+skip once let it pass locally on a tree CI rejected. Two CI conditions it cannot
+reproduce: the operating system, for which it stands in by giving the parity-coverage
+script the cp1252 console the Windows runners have, and the Python minor version, which is
+whatever `python3` is locally and 3.11 on CI. Re-run `make setup-parity` now and then; it
+upgrades the reference venv's dependencies to what a fresh CI runner would resolve.
 
 `make` wires up the venv for you. To drive cargo directly, point `PYTHONPATH` at it:
 
