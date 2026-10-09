@@ -145,7 +145,7 @@ pub(crate) fn validate_body_parameters(
 /// [`super::jos3::PerBodyPart::BySegment`].)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPartsInputError {
-    /// [`to_array_body_parts_by_name`] was missing a required body-part name.
+    /// `to_array_body_parts_by_name` was missing a required body-part name.
     /// Python: dict subscript `inp[key]` raises `KeyError` for a missing key.
     MissingKey(&'static str),
 }

@@ -184,7 +184,7 @@ pub struct PmvPpdAshraeOptions {
     /// additionally NaN the result whenever elevated air speed is combined with low
     /// clothing (clo < 0.7) and low activity (met < 1.3) — either unconditionally above
     /// 0.8 m/s, or above a `to`-dependent limit inside/below the comfort band. See
-    /// [`check_ashrae55_compliance`].
+    /// `check_ashrae55_compliance`.
     pub airspeed_control: bool,
     /// Round output values
     pub round_output: bool,
@@ -273,7 +273,7 @@ fn check_ashrae55_compliance(
 /// - 0 < vr [m/s] < 1
 /// - 0.8 < met < 4
 /// - 0 < clo < 2
-/// - 0 < pa [Pa] < 2700 (water vapour partial pressure, derived from tdb and rh)
+/// - 0 < pa \[Pa\]] < 2700 (water vapour partial pressure, derived from tdb and rh)
 /// - -2 < PMV < 2
 ///
 /// # Example
@@ -460,7 +460,7 @@ pub(crate) fn pmv_ppd_iso_celsius(
 ///
 /// When additionally `airspeed_control` is false, `§7.2.1.2`'s cross-variable rules
 /// also NaN the result for elevated air speed combined with low clothing/activity; see
-/// [`check_ashrae55_compliance`].
+/// `check_ashrae55_compliance`.
 ///
 /// # Example
 ///

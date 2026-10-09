@@ -107,7 +107,7 @@ pub struct UtciInputs {
 pub struct UtciOptions {
     /// Unit system the result is expressed in.
     ///
-    /// Unlike [`cooling_effect`](crate::models::cooling_effect)'s `Units::IP`, which
+    /// Unlike [`cooling_effect`](fn@crate::models::cooling_effect)'s `Units::IP`, which
     /// rescales a delta by a non-physical literal factor, `utci.py:89-90,126-130` does a
     /// genuine SI/IP temperature conversion: it converts typed inputs from °F before
     /// computing (moot here -- typed [`Temperature`]/[`Speed`] inputs already carry
@@ -144,7 +144,7 @@ impl Default for UtciOptions {
 /// in outdoor spaces, taking into account dry bulb temperature, mean radiation temperature,
 /// water vapor pressure (via relative humidity), and wind speed at 10m elevation.
 ///
-/// UTCI is returned as `f64`, not [`Temperature`]: like [`wbgt`](crate::models::wbgt) and
+/// UTCI is returned as `f64`, not [`Temperature`]: like [`wbgt`](fn@crate::models::wbgt) and
 /// [`pet_steady`](crate::models::pet::pet_steady), it is a 6th-order polynomial
 /// regression producing an equivalent temperature, not a literal physical temperature
 /// solved from an energy balance. That also keeps `options.units` meaningful: Python's

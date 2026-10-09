@@ -385,7 +385,7 @@ pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f6
 
 /// Transpose the solar altitude and solar azimuth angles
 ///
-/// Used by [`crate::models::solar_gain`] to reuse the standing projected-area table for
+/// Used by [`fn@crate::models::solar_gain`] to reuse the standing projected-area table for
 /// a supine occupant, by rotating the sun's position into the body's frame.
 ///
 /// A thin newtype wrapper over `transpose_sharp_altitude_degrees`; see that function's

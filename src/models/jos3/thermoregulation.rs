@@ -95,8 +95,8 @@ use crate::{BmrEquation, Sex, Temperature};
 /// exactly these three postures, so the public field is this enum. Every model with its own
 /// coefficient table carries its own posture enum for the same reason.
 ///
-/// Python: a `posture: str` argument to [`natural_convection`], [`conv_coef`], and
-/// [`rad_coef`], validated against `pythermalcomfort.utilities.Postures`. See the
+/// Python: a `posture: str` argument to `natural_convection`, `conv_coef`, and
+/// `rad_coef`, validated against `pythermalcomfort.utilities.Postures`. See the
 /// module docs for why this is an enum (and why `sitting`/`sedentary` and
 /// `lying`/`supine` are collapsed into one variant each) rather than a string.
 ///
@@ -128,13 +128,13 @@ pub enum Posture {
 /// Python: these functions raise `ValueError` for each of these cases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThermoregulationError {
-    /// [`dry_r`] was given a negative `hc` or `hr` value.
+    /// `dry_r` was given a negative `hc` or `hr` value.
     /// Python: `ValueError("Input parameters hc and hr must be non-negative.")`.
     NegativeConvectiveOrRadiativeCoefficient,
-    /// [`wet_r`] was given a negative `hc` value.
+    /// `wet_r` was given a negative `hc` value.
     /// Python: `ValueError("Input parameters hc must be non-negative.")`.
     NegativeConvectiveCoefficient,
-    /// [`local_q_work`] was given `par < 1`.
+    /// `local_q_work` was given `par < 1`.
     /// Python: `ValueError("par must be 1 or more")`.
     ParTooSmall,
 }

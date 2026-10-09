@@ -42,7 +42,7 @@ endif
 help:
 	@echo "Available targets:"
 	@echo "  make setup-parity   - Create the reference venv with pythermalcomfort==$(PTC_VERSION)"
-	@echo "  make lint           - Run fmt + clippy + parity coverage check"
+	@echo "  make lint           - Run fmt + clippy + rustdoc + examples + parity coverage check"
 	@echo "  make test           - Run the full suite in both no_std and std configurations"
 	@echo "  make sweep          - Deep randomised differential sweep (SWEEP_N=$(SWEEP_N))"
 	@echo "  make no-std-check   - Build for $(NO_STD_TARGET) to prove no_std still holds"
@@ -51,6 +51,8 @@ help:
 	@echo "  make parity-version - Print the pythermalcomfort version this port targets"
 	@echo "  make fmt            - Check code formatting"
 	@echo "  make clippy         - Run clippy linter"
+	@echo "  make doc            - Build the docs with rustdoc warnings as errors"
+	@echo "  make examples       - Build and run the examples"
 	@echo "  make clean-parity   - Remove the reference venv"
 
 parity-version:
@@ -79,6 +81,19 @@ clippy:
 	@echo "Running clippy..."
 	@cargo clippy --all-targets --all-features -- -D warnings
 
+# CI builds the docs with warnings denied, so a public doc comment linking to a private
+# item fails there; run the same check here so `make verify` catches it first.
+doc:
+	@echo "Building docs with rustdoc warnings as errors..."
+	@RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --quiet
+
+# CI builds every example and runs the two documented ones.
+examples:
+	@echo "Building and running examples..."
+	@cargo build --examples --quiet
+	@cargo run --quiet --example basic_pmv > /dev/null
+	@cargo run --quiet --example typed_api > /dev/null
+
 # Every public model/utility must have a cross-library parity test, and every
 # pythermalcomfort name must have a Rust port. The second direction needs the reference
 # package importable, hence PARITY_ENV: it inventories the *installed* API, because only
@@ -88,7 +103,7 @@ parity-coverage:
 	@$(PARITY_ENV) PTC_VERSION=$(PTC_VERSION) $(PYTHON) scripts/check_parity_coverage.py
 
 # Lint target: formatting, clippy, and parity coverage
-lint: fmt clippy parity-coverage
+lint: fmt clippy doc examples parity-coverage
 	@echo "✓ All linting checks passed!"
 
 # The crate has one configuration. It used to have two - a no_std default and a std

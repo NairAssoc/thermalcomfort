@@ -120,7 +120,7 @@ pub struct ClothingEnsemble {
     pub name: &'static str,
     /// Whole-body clothing insulation, \[clo\].
     pub whole_body: f64,
-    /// Per-segment clothing insulation, \[clo\], in [`BODY_PART_NAMES`] order.
+    /// Per-segment clothing insulation, \[clo\], in `BODY_PART_NAMES` order.
     pub local_body_part: [f64; NUM_BODY_PARTS],
 }
 
@@ -128,8 +128,8 @@ pub struct ClothingEnsemble {
 ///
 /// A lookup table of measured per-body-segment clo values for 52 named clothing
 /// ensembles, plus each ensemble's whole-body clo value. Each entry's
-/// [`ClothingEnsemble::local_body_part`] has exactly [`NUM_BODY_PARTS`] (17) values, in
-/// [`BODY_PART_NAMES`] order. This is distinct from [`crate::utilities::CLO_TYPICAL_ENSEMBLES`],
+/// [`ClothingEnsemble::local_body_part`] has exactly `NUM_BODY_PARTS` (17) values, in
+/// `BODY_PART_NAMES` order. This is distinct from [`crate::utilities::CLO_TYPICAL_ENSEMBLES`],
 /// which only gives the whole-body value for the same ensembles.
 ///
 /// Based on the study by Juyoun et al. (<https://escholarship.org/uc/item/18f0r375>)

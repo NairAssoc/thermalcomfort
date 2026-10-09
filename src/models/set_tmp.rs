@@ -50,7 +50,7 @@ pub struct SetOptions {
     /// at higher air speeds and metabolic rates. Only [`cooling_effect`] should enable
     /// it, which is exactly what Python does.
     ///
-    /// [`cooling_effect`]: crate::models::cooling_effect
+    /// [`cooling_effect`]: fn@crate::models::cooling_effect
     pub calculate_ce: bool,
 }
 

@@ -1,15 +1,15 @@
 //! JOS3 thermoregulation model.
 //!
 //! The full port of `pythermalcomfort.models.jos3` / `pythermalcomfort.jos3_functions`:
-//! [`parameters`] (constant tables and default coefficients), [`construction`]
+//! `parameters` (constant tables and default coefficients), `construction`
 //! (body-parameter validation and the thermal conductance and capacity matrices),
-//! [`matrix`] (the 85-node index layout and the blood-flow coefficient matrices),
-//! [`thermoregulation`] (the physiology: basal metabolism, shivering, sweating,
-//! vasomotion and the heat-transfer coefficients), and [`jos3`] (the simulation loop
+//! `matrix` (the 85-node index layout and the blood-flow coefficient matrices),
+//! `thermoregulation` (the physiology: basal metabolism, shivering, sweating,
+//! vasomotion and the heat-transfer coefficients), and `jos3` (the simulation loop
 //! and public surface — [`jos3::Jos3Builder`], [`jos3::Jos3Model`], and
 //! [`jos3::Jos3Results`]).
 //!
-//! [`matrix`] owns the node layout — `IDICT` and `NUM_NODES` — and every other module
+//! `matrix` owns the node layout — `IDICT` and `NUM_NODES` — and every other module
 //! here reads it from there rather than keeping its own copy.
 
 // The sub-modules are implementation detail. pythermalcomfort's public surface for this

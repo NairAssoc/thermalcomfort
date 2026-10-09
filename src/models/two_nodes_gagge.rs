@@ -19,7 +19,7 @@ use libm::{exp, fabs as abs, pow, sqrt};
 /// (radiating-area ratio 0.7) versus not (0.77), so the two standing strings are the same
 /// calculation and share one variant here. Models with a different coefficient table carry
 /// their own enum: [`PhsPosture`](crate::models::PhsPosture),
-/// [`Jos3Posture`](crate::models::Jos3Posture), [`PetPosture`](crate::models::PetPosture)
+/// [`Jos3Posture`](crate::models::jos3::Jos3Posture), [`PetPosture`](crate::models::PetPosture)
 /// and [`SolarGainPosture`](crate::models::SolarGainPosture).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaggePosture {
@@ -666,7 +666,7 @@ pub struct GaggeTwoNodesJiInputs {
     pub clo: ClothingInsulation,
     /// Vapor pressure
     ///
-    /// pythermalcomfort's `two_nodes_gagge_ji` takes `vapor_pressure` [torr] directly
+    /// pythermalcomfort's `two_nodes_gagge_ji` takes `vapor_pressure` \[torr\]] directly
     /// rather than deriving it from relative humidity, so a caller with a measured vapour
     /// pressure can supply it exactly. Use [`crate::utilities::p_sat_torr`] combined with
     /// a relative humidity fraction to derive it from RH, matching upstream's documented

@@ -102,14 +102,14 @@ pub const NUM_MUSCLE_FAT_PARTS: usize = 2;
 /// A value for all 17 body segments, given in one of the three forms Python's
 /// `to_array_body_parts` dispatches on at runtime: a single value broadcast to every
 /// segment, an explicit value per segment, or a name/value mapping. Rust's type system
-/// makes the choice static instead, mirroring how [`construction`] already splits
+/// makes the choice static instead, mirroring how `construction` already splits
 /// `to_array_body_parts` into named functions per case (see
-/// [`construction::to_array_body_parts_scalar`], [`construction::to_array_body_parts_by_name`]).
+/// `construction::to_array_body_parts_scalar`, `construction::to_array_body_parts_by_name`).
 ///
 /// [`BySegment`](PerBodyPart::BySegment) carries an owned `[f64; 17]` rather than
 /// borrowing a slice: a fixed-size array already statically has the length Python's
 /// runtime check enforces, so there is nothing left to validate — no
-/// `to_array_body_parts_from_slice` function exists in [`construction`] for this case,
+/// `to_array_body_parts_from_slice` function exists in `construction` for this case,
 /// unlike the other two. Owning the array also keeps [`Jos3Conditions`] free of
 /// self-referential borrows of a [`Jos3Model`] it was built from (see
 /// [`Jos3Model::conditions`]).
@@ -118,16 +118,16 @@ pub enum PerBodyPart<'a> {
     /// The same value for every body segment. Python: `to_array_body_parts(inp)` for
     /// `inp: int | float`.
     Uniform(f64),
-    /// One value per body segment, in [`BODY_PART_NAMES`] order. Python:
+    /// One value per body segment, in `BODY_PART_NAMES` order. Python:
     /// `to_array_body_parts(inp)` for `inp: list | np.ndarray`.
     BySegment([f64; NUM_BODY_PARTS]),
-    /// Name/value pairs, order-independent, one for every entry in [`BODY_PART_NAMES`].
+    /// Name/value pairs, order-independent, one for every entry in `BODY_PART_NAMES`.
     /// Python: `to_array_body_parts(inp)` for `inp: dict`.
     ByName(&'a [(&'a str, f64)]),
 }
 
 impl<'a> PerBodyPart<'a> {
-    /// Resolve to a `[f64; 17]` in [`BODY_PART_NAMES`] order.
+    /// Resolve to a `[f64; 17]` in `BODY_PART_NAMES` order.
     ///
     /// # Errors
     ///
@@ -809,7 +809,7 @@ impl Jos3Model {
     }
 
     /// Superficial vein temperature of the 12 limb segments that have one, °C, in
-    /// [`BODY_PART_NAMES`] order restricted to those segments. Python:
+    /// `BODY_PART_NAMES` order restricted to those segments. Python:
     /// `JOS3.t_superficial_vein`.
     #[must_use]
     pub fn t_superficial_vein(&self) -> [f64; NUM_SFVEIN_PARTS] {
