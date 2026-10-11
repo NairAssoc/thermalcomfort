@@ -70,9 +70,9 @@ pub fn seed() -> u64 {
 /// serial one (see [`SERIALISE_NUMBA`]).
 pub fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'py, PyModule>> {
     static LOADED: Once = Once::new();
-    py.allow_threads(|| {
+    py.detach(|| {
         LOADED.call_once(|| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 assert_reference_version(py);
                 for name in ["pythermalcomfort.models", "pythermalcomfort.utilities"] {
                     if let Err(e) = PyModule::import(py, name) {

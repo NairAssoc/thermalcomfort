@@ -15,7 +15,7 @@ use core::time::Duration;
 use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule, PyTuple};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::rng::Rng;
@@ -119,7 +119,7 @@ fn sweep_pmv_ppd_iso() {
     // caught rather than silently passing because Rust never exercised it.
     let domain = pmv_domain().enumerated("model", 2);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -212,7 +212,7 @@ fn sweep_pmv_ppd_ashrae() {
     // (see `check_ashrae55_compliance`), previously unreachable from Rust.
     let domain = pmv_domain().enumerated("model", 1).flag("airspeed_control");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -373,7 +373,7 @@ fn sweep_two_nodes_gagge() {
         .flag("calculate_ce")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Field set is built per sample: the tolerance depends on whether
@@ -532,7 +532,7 @@ fn sweep_set_tmp() {
         .flag("calculate_ce")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -627,7 +627,7 @@ fn sweep_utci() {
         .flag("round_output")
         .enumerated("units", 2);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -713,7 +713,7 @@ fn sweep_cooling_effect() {
         .real("wme", 0.0, 1.0)
         .enumerated("units", 2);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field_si = FieldCmp::new("ce", 0.011);
@@ -803,7 +803,7 @@ fn sweep_use_fans_heatwaves() {
         .flag("limit_inputs")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -983,7 +983,7 @@ fn sweep_phs() {
         .flag("acclimatized")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // Built per sample; see `rounding_aware`.
@@ -1295,7 +1295,7 @@ fn sweep_two_nodes_gagge_ji() {
         .enumerated("position", 3)
         .flag("acclimatized");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let utilities = import_reference(py, "pythermalcomfort.utilities")
@@ -1632,7 +1632,7 @@ fn sweep_two_nodes_gagge_sleep() {
         .real("skin_blood_flow", 3.0, 12.0)
         .real("met_shivering", 0.0, 20.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
 
@@ -2406,7 +2406,7 @@ fn sweep_jos3() {
         .real("dtime", 30.0, 120.0)
         .enumerated("duration", 4);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
 
@@ -2644,7 +2644,7 @@ fn sweep_pmv_a() {
     // `pmv_domain()` but simply unused.
     let domain = pmv_domain().real("a_coefficient", 0.0, 1.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("a_pmv", 1e-9);
@@ -2704,7 +2704,7 @@ fn sweep_pmv_e() {
     // See `sweep_pmv_a`: `PmvEOptions` likewise has no `round_output` or `model`.
     let domain = pmv_domain().real("e_coefficient", 0.0, 1.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("e_pmv", 1e-9);
@@ -2773,7 +2773,7 @@ fn sweep_pmv_athb() {
         .real("t_running_mean", -10.0, 35.0)
         .flag("supply_clo");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("athb_pmv", 1e-9);
@@ -2907,7 +2907,7 @@ fn sweep_heat_index_lu() {
         .real("rh", 0.0, 100.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("hi", 1e-9);
@@ -2951,7 +2951,7 @@ fn sweep_heat_index_lu() {
 fn sweep_heat_index_rothfusz() {
     let domain = tdb_rh_domain().flag("limit_inputs");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("hi", 1e-9);
@@ -3003,7 +3003,7 @@ fn sweep_heat_index_rothfusz() {
 
 #[test]
 fn sweep_heat_index_schoen() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("hi", 1e-9);
@@ -3051,7 +3051,7 @@ fn sweep_humidex() {
     // `humidex`/`humidex_masterson` functions this used to sweep independently.
     let domain = tdb_rh_domain().enumerated("model", 2);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("humidex", 1e-9);
@@ -3103,7 +3103,7 @@ fn sweep_humidex() {
 
 #[test]
 fn sweep_thi() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("thi", 1e-9);
@@ -3145,7 +3145,7 @@ fn sweep_discomfort_index() {
         .real("tdb", -20.0, 55.0)
         .real("rh", 0.0, 100.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("di", 1e-9);
@@ -3181,7 +3181,7 @@ fn sweep_wci() {
         .real("v", 0.0, 30.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("wci", 1e-9);
@@ -3227,7 +3227,7 @@ fn sweep_wind_chill_temperature() {
         .real("v", 0.0, 30.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("wct", 1e-9);
@@ -3271,7 +3271,7 @@ fn sweep_net() {
         .real("v", 0.0, 20.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("net", 1e-9);
@@ -3318,7 +3318,7 @@ fn sweep_at() {
         .flag("supply_q")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("at", 1e-9);
@@ -3374,7 +3374,7 @@ fn sweep_esi() {
         .real("sol_radiation_global", 0.0, 1200.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("esi", 1e-9);
@@ -3421,7 +3421,7 @@ fn sweep_wbgt() {
         .flag("with_solar_load")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("wbgt", 1e-9);
@@ -3508,7 +3508,7 @@ fn sweep_pet_steady() {
         // per-sample match below for how Sitting stays a no-op.
         .flag("forced_convection");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // Force the version guard before the shim imports pythermalcomfort itself.
         import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
@@ -3774,7 +3774,7 @@ fn work_intensity_at(index: usize) -> (WorkIntensity, &'static str) {
 
 #[test]
 fn sweep_work_capacity_iso() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("capacity", 1e-9);
@@ -3799,7 +3799,7 @@ fn sweep_work_capacity_iso() {
 
 #[test]
 fn sweep_work_capacity_niosh() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("capacity", 1e-9);
@@ -3824,7 +3824,7 @@ fn sweep_work_capacity_niosh() {
 
 #[test]
 fn sweep_work_capacity_dunne() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("capacity", 1e-9);
@@ -3860,7 +3860,7 @@ fn sweep_work_capacity_dunne() {
 
 #[test]
 fn sweep_work_capacity_hothaps() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("capacity", 1e-9);
@@ -3933,7 +3933,7 @@ fn adaptive_domain() -> Domain {
 
 #[test]
 fn sweep_adaptive_ashrae() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let tol_si = 1e-9;
@@ -4042,7 +4042,7 @@ fn sweep_adaptive_ashrae() {
 
 #[test]
 fn sweep_adaptive_en() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let tol_si = 1e-9;
@@ -4175,7 +4175,7 @@ fn sweep_ankle_draft() {
         .real("v_ankle", 0.0, 1.0)
         .flag("limit_inputs");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field = FieldCmp::new("ppd_ad", 1e-9);
@@ -4237,7 +4237,7 @@ fn sweep_vertical_tmp_grad_ppd() {
         .flag("limit_inputs")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
 
@@ -4319,7 +4319,7 @@ fn sweep_solar_gain() {
         .enumerated("posture", 3)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
 
@@ -4454,7 +4454,7 @@ fn sweep_ireq() {
         .flag("limit_inputs")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         // 1e-6 absolute, not 1e-9: IREQ is solved iteratively and reaches into the
@@ -4623,7 +4623,7 @@ fn sweep_sports_heat_stress_risk() {
         .real("vr", 0.0, 5.0)
         .enumerated("sport", SPORT_NAMES.len());
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
@@ -4719,7 +4719,7 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
         .flag("limit_inputs")
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
 
@@ -4820,10 +4820,10 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
 }
 
 /// Call a `pythermalcomfort.utilities` function and read its scalar result.
-fn py_util(
-    utils: &Bound<'_, PyAny>,
+fn py_util<'py>(
+    utils: &Bound<'py, PyAny>,
     name: &str,
-    args: impl for<'p> IntoPyObject<'p, Target = PyTuple>,
+    args: impl pyo3::call::PyCallArgs<'py>,
 ) -> Result<f64, String> {
     let value = utils
         .getattr(name)
@@ -4843,7 +4843,7 @@ fn sweep_saturation_pressures() {
     // normalises the first two to a `Pressure`, so the conversions belong in the test.
     let domain = Domain::new().real("tdb", -40.0, 90.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -4888,7 +4888,7 @@ fn sweep_v_relative_and_clo_dynamic() {
         .enumerated("ashrae_model", 1)
         .enumerated("iso9920_model", 1);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -4954,7 +4954,7 @@ fn sweep_clo_insulation_helpers() {
         .real("i_t", 0.0, 4.0)
         .real("tout", -30.0, 40.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
         let models = import_reference(py, "pythermalcomfort.models")
@@ -5042,7 +5042,7 @@ fn sweep_body_surface_area_and_hr_to_rh() {
         .real("p_atm", 80_000.0, 105_000.0)
         .enumerated("formula", 4);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -5123,7 +5123,7 @@ fn sweep_running_mean_and_ensemble() {
         .real("g1", 0.0, 1.0)
         .real("g2", 0.0, 1.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -5208,7 +5208,7 @@ fn sweep_f_svv_and_transpose_sharp_altitude() {
         .real("sharp", -20.0, 200.0)
         .real("altitude", -20.0, 110.0);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -5266,7 +5266,7 @@ fn sweep_f_svv_and_transpose_sharp_altitude() {
 fn sweep_clo_lookup_tables() {
     // Not randomised: every entry of both tables is checked, because a transcription
     // slip in one row is exactly what a sampled sweep would miss.
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -5322,7 +5322,7 @@ fn sweep_psychrometrics() {
         .flag("use_iso")
         .flag("use_ashrae");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("failed to import pythermalcomfort.utilities");
 
@@ -5449,7 +5449,7 @@ fn sweep_scale_wind_speed_log() {
         .real("d", -0.5, 3.0)
         .flag("round_output");
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let environment = import_reference(py, "pythermalcomfort.environment")
             .expect("failed to import pythermalcomfort.environment");
         let py_scale = environment.getattr("scale_wind_speed_log").unwrap();

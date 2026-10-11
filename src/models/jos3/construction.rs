@@ -389,10 +389,10 @@ pub(crate) fn conductance(
         cdt_whole[mat_index(vein, core)] = cdt_ves_cr[i]; // vein to cr
 
         // Only limbs
-        if i >= 5 {
-            if let Some(sfvein) = li.sfvein {
-                cdt_whole[mat_index(sfvein, skin)] = cdt_sfv_sk[i]; // sfv to sk
-            }
+        if i >= 5
+            && let Some(sfvein) = li.sfvein
+        {
+            cdt_whole[mat_index(sfvein, skin)] = cdt_sfv_sk[i]; // sfv to sk
         }
 
         // If the segment has a muscle or fat layer
@@ -505,10 +505,10 @@ pub(crate) fn capacity(
         cap_whole[skin] = cap_sk[i];
 
         // Only limbs
-        if i >= 5 {
-            if let Some(sfvein) = li.sfvein {
-                cap_whole[sfvein] = cap_sfv[i];
-            }
+        if i >= 5
+            && let Some(sfvein) = li.sfvein
+        {
+            cap_whole[sfvein] = cap_sfv[i];
         }
 
         // If the segment has a muscle or fat layer
