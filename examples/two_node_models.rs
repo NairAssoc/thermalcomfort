@@ -6,8 +6,8 @@
 
 use thermalcomfort::models::{
     GaggePosture, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, SetInputs, SetOptions, SleepInputs,
-    UseFansHeatwavesInputs, set_tmp, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
-    use_fans_heatwaves,
+    SleepScheduleError, UseFansHeatwavesInputs, set_tmp, two_nodes_gagge, two_nodes_gagge_ji,
+    two_nodes_gagge_sleep, use_fans_heatwaves,
 };
 use thermalcomfort::psychrometrics::p_sat_torr;
 use thermalcomfort::{
@@ -186,6 +186,42 @@ fn main() {
             sleep.disc[i]
         );
     }
+
+    // The model only runs on a night it can simulate: every schedule the same length
+    // and at least one minute long. Both faults are reported rather than guessed around.
+    let short_night = &tr_night[..minutes - 1];
+    match two_nodes_gagge_sleep(
+        SleepInputs {
+            tdb: &tdb_night,
+            tr: short_night,
+            v: &v_night,
+            rh: &rh_night,
+            clo: &clo_night,
+            thickness_quilt: &quilt,
+        },
+        Default::default(),
+    ) {
+        Ok(_) => println!("  (unexpected: a short tr schedule was accepted)"),
+        Err(SleepScheduleError::MismatchedLengths { lengths }) => {
+            println!("  One schedule a minute short: rejected, lengths {lengths:?}")
+        }
+        Err(e) => println!("  Rejected: {e}"),
+    }
+    let empty = two_nodes_gagge_sleep(
+        SleepInputs {
+            tdb: &[],
+            tr: &[],
+            v: &[],
+            rh: &[],
+            clo: &[],
+            thickness_quilt: &[],
+        },
+        Default::default(),
+    );
+    println!(
+        "  Empty schedules: {}",
+        empty.map_or_else(|e| format!("rejected ({e})"), |_| "accepted".to_string())
+    );
 
     // --- Fans during heat waves ---
     println!("\n--- Use of fans during heat waves ---");

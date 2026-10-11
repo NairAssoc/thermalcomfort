@@ -41,6 +41,25 @@ fn main() {
         println!("  (outside applicability range)");
     }
 
+    // The category is judged on the unrounded index, so an index that rounds onto a
+    // band edge still carries the band it is really in: 30.645 °C at 50 % RH gives a
+    // heat index of 31.95 °C, reported as 32.0, in "extreme caution" rather than the
+    // "caution" a reading of 32.0 would suggest.
+    let on_the_edge = heat_index_rothfusz(
+        HeatIndexRothfuszInputs {
+            tdb: Temperature::from_celsius(30.645),
+            rh: Humidity::from_percent(50.0),
+        },
+        Default::default(),
+    );
+    println!(
+        "  At 30.645°C: {:.1}°C, {}",
+        on_the_edge.hi,
+        on_the_edge
+            .stress_category
+            .map_or("(uncategorised)", |c| c.as_str())
+    );
+
     // Humidex
     let humidex_result = humidex(
         HumidexInputs {

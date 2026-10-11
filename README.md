@@ -154,11 +154,12 @@ function appears in none, so they cannot drift from the API. Run one with
 | `two_node_models` | The Gagge two-node model, SET, the Ji variant, the sleep model's minute-by-minute night, and fan use in heatwaves |
 | `jos3` | The 17-segment JOS3 model: build, advance through phases, read segment and whole-body results |
 | `heat_strain` | PHS (ISO 7933), IREQ (ISO 11079), PET, and sports heat stress risk |
-| `outdoor_comfort` | UTCI and WBGT, with the wet-bulb temperature they rest on, and a station wind scaled to pedestrian height |
+| `outdoor_comfort` | UTCI and WBGT, with the wet-bulb temperature they rest on |
 | `stress_indices` | Heat index in three forms, humidex, discomfort index, apparent temperature, net effective temperature, THI, ESI, and wind chill in two forms |
 | `work_capacity` | Work capacity under four models, and the ridge-regression skin and rectal temperature predictor |
 | `solar_and_specialty` | Solar gain on the body, ankle draft, vertical temperature gradient, and sky-view fraction |
-| `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, mean radiant and operative temperature, body surface area |
+| `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, body surface area |
+| `environment` | A station wind scaled to pedestrian height over four terrains (and one where the profile is undefined), the running mean outdoor temperature, mean radiant and operative temperature, relative air speed, sky-vault view and sun position |
 
 The modules mirror pythermalcomfort's: `models`, `environment`, `psychrometrics`, `clothing` and `utilities`. The names 4.6.0 moved out of `utilities` are still reachable there, deprecated, for two minor releases, as upstream's are.
 | `clothing` | Garment and ensemble lookups; intrinsic, total and dynamic insulation; air-layer and area factors; outdoor clothing estimate |
