@@ -31,6 +31,8 @@ REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 # Both targets count as parity coverage: the hand-written cases pin specific known bugs,
 # the randomised sweep covers the space. A function verified by either is verified.
+EXAMPLES = REPO / "examples"
+
 PARITY_TEST_FILES = [
     REPO / "tests" / "python_comparison.rs",
     REPO / "tests" / "differential_sweep.rs",
@@ -230,6 +232,69 @@ PYTHON_EXEMPT: dict[str, str] = {
     "psychrometric helpers - so there is no one type to map it to",
 }
 
+# Public functions that need no example: internal helpers a user never calls directly.
+# Everything else must be called, by name, in some program under examples/.
+EXAMPLE_EXEMPT: dict[str, str] = {
+    "brentq": "numerical root-finder used inside the models",
+    "round_to": "formatting helper used inside the models",
+    "round_half_even": "rounding helper used inside the models",
+    "round_to_exact_decimal": "rounding helper used inside the models",
+    "valid_range": "applicability helper used inside the models",
+    "celsius_to_temp": "measurement-type adapter used inside the models",
+    "temp_to_celsius": "measurement-type adapter used inside the models",
+    "ms_to_speed": "measurement-type adapter used inside the models",
+    "speed_to_ms": "measurement-type adapter used inside the models",
+}
+
+# Public entry points that are types rather than free functions, and so are invisible to
+# the function inventory, but still need an example.
+EXAMPLE_TYPES: dict[str, str] = {
+    "Jos3Builder": "JOS3 is driven through a builder, not a free function",
+}
+
+
+def check_examples_direction(functions: set[str]) -> bool:
+    """Every public function and entry-point type must appear in a program under examples/.
+
+    Returns True on failure. The README points users at examples/ instead of carrying its
+    own code blocks for each model, so a function with no example is undocumented.
+    """
+    sources = sorted(EXAMPLES.glob("*.rs"))
+    text = "\n".join(executable_test_source(p.read_text(encoding="utf-8")) for p in sources)
+
+    def is_shown(name: str) -> bool:
+        return bool(re.search(rf"\b{re.escape(name)}\s*\(", text))
+
+    failed = False
+    stale = sorted(n for n in EXAMPLE_EXEMPT if n not in functions)
+    if stale:
+        failed = True
+        print(
+            "Stale entries in EXAMPLE_EXEMPT (no longer a public function, remove them):",
+            file=sys.stderr,
+        )
+        for name in stale:
+            print(f"  - {name}", file=sys.stderr)
+
+    missing = sorted(n for n in functions if n not in EXAMPLE_EXEMPT and not is_shown(n))
+    missing += sorted(t for t in EXAMPLE_TYPES if not re.search(rf"\b{t}\b", text))
+    if missing:
+        failed = True
+        print(
+            f"\n{len(missing)} public function(s) are called in no program under examples/:\n",
+            file=sys.stderr,
+        )
+        for name in missing:
+            print(f"  - {name}", file=sys.stderr)
+        print(
+            "\nAdd a call to an existing example or a new one (and list it in the README's "
+            "examples table). If it is an internal helper, add it to EXAMPLE_EXEMPT with a "
+            "reason.\n",
+            file=sys.stderr,
+        )
+    return failed
+
+
 # pythermalcomfort API with no Rust port yet. A backlog, not an exemption: reported on
 # every run but does not fail, so that pre-existing gaps cannot mask a NEW one appearing
 # upstream. Entries should only ever be removed.
@@ -397,6 +462,9 @@ def main() -> int:
     py_failed, py_outstanding = check_python_direction()
     failed = failed or py_failed
 
+    # And the documentation direction: is every public function shown in an example?
+    failed = check_examples_direction(functions) or failed
+
     if failed:
         return 1
 
@@ -407,6 +475,10 @@ def main() -> int:
     print("✓ every pythermalcomfort name has a Rust port or a recorded reason")
     if py_outstanding:
         print(f"  {len(py_outstanding)} not ported yet: {', '.join(py_outstanding)}")
+    print(
+        f"✓ every public function is called in an example under examples/, "
+        f"{len(EXAMPLE_EXEMPT)} internal helpers exempt"
+    )
     return 0
 
 

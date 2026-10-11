@@ -4148,10 +4148,12 @@ fn test_compare_clo_tout() {
 }
 
 // ============================================================================
-// README Example Tests
+// Fixed-scenario cross-library checks
 // ============================================================================
-// These tests verify that all examples shown in README.md work correctly
-// and produce results matching the Python implementation.
+// `test_readme_example_basic_pmv_ppd` pins the README's quick-start block, including the
+// values its comments quote. The rest pin one hand-picked scenario per model against
+// pythermalcomfort; the runnable walkthroughs live under examples/ and are kept honest by
+// `make examples` and the example-coverage half of `make parity-coverage`.
 
 #[test]
 fn test_readme_example_basic_pmv_ppd() {
@@ -4206,12 +4208,12 @@ fn test_readme_example_basic_pmv_ppd() {
 }
 
 #[test]
-fn test_readme_example_psychrometric() {
+fn test_scenario_psychrometric() {
     Python::with_gil(|py| {
         let pyutil = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
-        // Example from README: Psychrometric Calculations
+        // Scenario: Psychrometric Calculations
         let tdb = 25.0; // dry bulb temperature [°C]
         let rh = 50.0; // relative humidity [%]
         let p_atm = 101325.0; // atmospheric pressure [Pa]
@@ -4261,12 +4263,12 @@ fn test_readme_example_psychrometric() {
 }
 
 #[test]
-fn test_readme_example_custom_pmv_options() {
+fn test_scenario_custom_pmv_options() {
     Python::with_gil(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Example from README: Custom PMV/PPD Options
+        // Scenario: Custom PMV/PPD Options
         let options = PmvPpdIsoOptions {
             wme: MetabolicRate::from_met(0.0), // external work [met]
             model: Default::default(),
@@ -4301,12 +4303,12 @@ fn test_readme_example_custom_pmv_options() {
 }
 
 #[test]
-fn test_readme_example_set() {
+fn test_scenario_set() {
     Python::with_gil(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Example from README: Standard Effective Temperature (SET)
+        // Scenario: Standard Effective Temperature (SET)
         let tdb = 25.0; // dry bulb temperature [°C]
         let tr = 25.0; // mean radiant temperature [°C]
         let v = 0.3; // air speed [m/s]
@@ -4342,12 +4344,12 @@ fn test_readme_example_set() {
 }
 
 #[test]
-fn test_readme_example_cooling_effect() {
+fn test_scenario_cooling_effect() {
     Python::with_gil(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Example from README: Cooling Effect
+        // Scenario: Cooling Effect
         let tdb = 28.0; // dry bulb temperature [°C]
         let tr = 28.0; // mean radiant temperature [°C]
         let vr = 0.8; // relative air speed [m/s]
@@ -4381,12 +4383,12 @@ fn test_readme_example_cooling_effect() {
 }
 
 #[test]
-fn test_readme_example_utci() {
+fn test_scenario_utci() {
     Python::with_gil(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
-        // Example from README: UTCI (Universal Thermal Climate Index)
+        // Scenario: UTCI (Universal Thermal Climate Index)
         let tdb = 25.0; // dry bulb temperature [°C]
         let tr = 27.0; // mean radiant temperature [°C]
         let v = 1.0; // wind speed at 10m [m/s]

@@ -3,9 +3,10 @@
 //! Demonstrates various thermal stress indices for extreme conditions.
 
 use thermalcomfort::models::{
-    DiscomfortIndexInputs, HeatIndexRothfuszInputs, HumidexInputs, ThiInputs, WciInputs,
-    WindChillTemperatureInputs, discomfort_index, heat_index_rothfusz, humidex, thi, wci,
-    wind_chill_temperature,
+    AtInputs, AtOptions, DiscomfortIndexInputs, EsiInputs, HeatIndexLuInputs,
+    HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs, NetInputs, ThiInputs, WciInputs,
+    WindChillTemperatureInputs, at, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
+    heat_index_schoen, humidex, net, thi, wci, wind_chill_temperature,
 };
 use thermalcomfort::{Humidity, Speed, Temperature};
 
@@ -80,6 +81,97 @@ fn main() {
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di_result.di);
     println!("  {}", di_result.discomfort_condition.as_str());
+
+    // Heat Index (Schoen): the same apparent-temperature idea as Rothfusz, fitted
+    // through the dew point, with no dry-bulb applicability gate so the category is
+    // always available.
+    let schoen = heat_index_schoen(
+        HeatIndexSchoenInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+        },
+        Default::default(),
+    );
+    println!("\nHeat Index (Schoen):");
+    println!("  {:.1}°C", schoen.hi);
+    println!(
+        "  {}",
+        schoen
+            .stress_category
+            .map_or("(uncategorised)", |c| c.as_str())
+    );
+
+    // Heat Index (Lu & Romps): a physically based extension of Steadman's model
+    // that stays defined in the extreme heat where the empirical fits break down.
+    // It reports a temperature only, with no stress category.
+    let lu = heat_index_lu(
+        HeatIndexLuInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+        },
+        Default::default(),
+    );
+    println!("\nHeat Index (Lu & Romps):");
+    println!("  {:.1}°C", lu.hi);
+
+    // Wind-dependent heat indices: a light breeze at 1.2 m (NET) / 10 m (AT)
+    let hot_wind = Speed::from_meters_per_second(1.0);
+    println!("\nWith {:.1} m/s wind:", hot_wind.as_meters_per_second());
+
+    // Normal Effective Temperature (Missenard)
+    let net_val = net(
+        NetInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+            v: hot_wind,
+        },
+        Default::default(),
+    );
+    println!("  Normal Effective Temperature: {net_val:.1}°C");
+    if net_val > 27.0 {
+        println!("    Hot");
+    } else if net_val > 23.0 {
+        println!("    Warm");
+    } else {
+        println!("    Comfortable or cooler");
+    }
+
+    // Apparent Temperature (Steadman / Australian BoM), in shade and in sun.
+    // `q` is the net radiation absorbed per unit body surface [W/m²].
+    let at_shade = at(
+        AtInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+            v: hot_wind,
+        },
+        Default::default(),
+    );
+    let at_sun = at(
+        AtInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+            v: hot_wind,
+        },
+        AtOptions {
+            q: Some(200.0),
+            ..Default::default()
+        },
+    );
+    println!("  Apparent Temperature (shade):      {at_shade:.1}°C");
+    println!("  Apparent Temperature (200 W/m² sun): {at_sun:.1}°C");
+
+    // Environmental Stress Index (Moran): temperature, humidity and global solar
+    // radiation, designed to track WBGT without a globe thermometer.
+    let sol_radiation_global = 800.0; // W/m², clear midday sky
+    let esi_val = esi(
+        EsiInputs {
+            tdb: hot_temp,
+            rh: hot_rh,
+            sol_radiation_global,
+        },
+        Default::default(),
+    );
+    println!("  Environmental Stress Index ({sol_radiation_global:.0} W/m² solar): {esi_val:.1}");
 
     // COLD STRESS INDICES
     println!("\n\n--- Cold Stress Assessment ---\n");
