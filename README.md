@@ -175,7 +175,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 All models produce results identical to pythermalcomfort v4.6.1 across the swept input
 space, in the one build configuration the crate has. There is no accuracy trade-off to
-choose between. The four edge-case divergences that remain are listed under
+choose between. The five edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
 
 Verification is a randomised differential sweep (see [Testing](#testing)) that drives

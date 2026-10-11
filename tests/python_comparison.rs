@@ -1852,16 +1852,19 @@ fn test_banded_indices_at_exact_edges() {
             .expect("Failed to import pythermalcomfort.models");
 
         // (tdb, the index value it produces, the category on that edge)
+        // Scanned against 4.6.1, whose corrected vapour-pressure term moved every edge
+        // input by a few hundredths of a degree; each sits mid-way through the ~0.1 °C
+        // window of inputs that round onto the edge.
         let utci_cases = [
-            (-39.320, -40.0, "extreme cold stress"),
-            (-25.654, -27.0, "very strong cold stress"),
-            (-11.208, -13.0, "strong cold stress"),
-            (0.694, 0.0, "moderate cold stress"),
-            (9.284, 9.0, "slight cold stress"),
-            (26.188, 26.0, "no thermal stress"),
-            (31.332, 32.0, "moderate heat stress"),
-            (36.054, 38.0, "strong heat stress"),
-            (41.312, 46.0, "very strong heat stress"),
+            (-39.273, -40.0, "extreme cold stress"),
+            (-25.603, -27.0, "very strong cold stress"),
+            (-11.157, -13.0, "strong cold stress"),
+            (0.750, 0.0, "moderate cold stress"),
+            (9.346, 9.0, "slight cold stress"),
+            (26.259, 26.0, "no thermal stress"),
+            (31.406, 32.0, "moderate heat stress"),
+            (36.135, 38.0, "strong heat stress"),
+            (41.417, 46.0, "very strong heat stress"),
         ];
         for (tdb, edge, expected) in utci_cases {
             let label = format!("utci edge {edge}");
@@ -1947,6 +1950,10 @@ fn test_banded_indices_at_exact_edges() {
             );
         }
 
+        // Since 4.6.0 the heat index bands the *unrounded* value, so a rounded value on
+        // the edge no longer proves inclusivity: these inputs sit just below each edge
+        // (26.95, 31.95, ...) and pin the lower band; the just-above side is pinned by
+        // `test_heat_index_categories_use_unrounded_value`.
         let hi_cases = [
             (26.4790, 27.0, "no risk"),
             (30.5885, 32.0, "caution"),
@@ -2612,8 +2619,8 @@ fn test_adaptive_acceptability_at_band_bounds() {
 }
 
 /// `discomfort_index` bands the *unrounded* DI and rounds only the reported value --
-/// the opposite order from `utci`, `humidex` and `heat_index_rothfusz`, which round
-/// first and band the rounded value.
+/// the opposite order from `utci` and `humidex`, which round first and band the rounded
+/// value (the heat indices switched to the unrounded order in 4.6.0).
 ///
 /// Both inputs below report `di = 21.0` and yet fall in **different** bands, because
 /// their unrounded DI straddles 21.0. A port that banded the rounded value would give
