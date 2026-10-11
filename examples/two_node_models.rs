@@ -9,7 +9,7 @@ use thermalcomfort::models::{
     UseFansHeatwavesInputs, set_tmp, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
     use_fans_heatwaves,
 };
-use thermalcomfort::utilities::p_sat_torr;
+use thermalcomfort::psychrometrics::p_sat_torr;
 use thermalcomfort::{
     ClothingInsulation, Humidity, Length, MetabolicRate, Pressure, Speed, Temperature,
 };

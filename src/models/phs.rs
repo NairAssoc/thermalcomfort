@@ -37,7 +37,8 @@
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::utilities::{body_surface_area_dubois, minutes, p_sat, py_max, py_min, whole_minutes};
+use crate::psychrometrics::p_sat;
+use crate::utilities::{body_surface_area_dubois, minutes, py_max, py_min, whole_minutes};
 use crate::{
     Angle, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Speed,
     Temperature,

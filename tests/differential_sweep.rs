@@ -20,14 +20,27 @@ use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
 use support::rng::Rng;
 use support::sweep::{import_reference, report_skipped, run_sweep};
+use thermalcomfort::clothing::{
+    Ashrae55Model, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
+    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
+    CloInsulationAirLayerInputs, CloTotalInsulationInputs, Iso9920Model, clo_area_factor,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
+    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation,
+};
+use thermalcomfort::environment::{
+    FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
+    OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
+    ScaleWindSpeedLogInputs, ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature,
+    operative_temperature, running_mean_outdoor_temperature, scale_wind_speed_log,
+    transpose_sharp_altitude, v_relative,
+};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
     Iso7730Model, PmvAInputs, PmvAOptions, PmvAthbInputs, PmvAthbOptions, PmvEInputs, PmvEOptions,
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
-    VerticalTmpGradPpdOptions,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
 use thermalcomfort::models::two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
@@ -51,21 +64,13 @@ use thermalcomfort::models::{
     use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
     work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
-use thermalcomfort::models::{f_svv, transpose_sharp_altitude};
 use thermalcomfort::psychrometrics::{
-    MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
-    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
-    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
+    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    Ashrae55Model, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula,
-    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
-    CloDynamicIsoInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
-    CloTotalInsulationInputs, Iso9920Model, RunningMeanOutdoorTemperatureOptions, Units, antoine,
-    body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
-    clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
-    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, Units, body_surface_area,
+    clo_individual_garment, clo_tout, clo_typical_ensemble,
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
@@ -5427,6 +5432,78 @@ fn sweep_psychrometrics() {
                 )?;
             }
             Ok(())
+        });
+    });
+}
+
+/// `scale_wind_speed_log` over the geometries a user might ask for, including ones that
+/// violate upstream's constraints: a Python `ValueError` is agreement only if Rust also
+/// rejected the sample, and a Rust `Err` is a divergence unless Python raised.
+#[test]
+fn sweep_scale_wind_speed_log() {
+    let domain = Domain::new()
+        .real("v_z1", -0.5, 30.0)
+        .real("z2", -0.5, 120.0)
+        .real("z1", -0.5, 60.0)
+        .real("z0", -0.01, 2.0)
+        .real("d", -0.5, 3.0)
+        .flag("round_output");
+
+    Python::with_gil(|py| {
+        let environment = import_reference(py, "pythermalcomfort.environment")
+            .expect("failed to import pythermalcomfort.environment");
+        let py_scale = environment.getattr("scale_wind_speed_log").unwrap();
+
+        run_sweep("sweep_scale_wind_speed_log", &domain, |s: &Sample| {
+            let (v_z1, z2, z1, z0, d) = (
+                s.real("v_z1"),
+                s.real("z2"),
+                s.real("z1"),
+                s.real("z0"),
+                s.real("d"),
+            );
+            let round_output = s.flag("round_output");
+
+            let rust = scale_wind_speed_log(
+                ScaleWindSpeedLogInputs {
+                    v_z1: Speed::from_meters_per_second(v_z1),
+                    z2: Length::from_meters(z2),
+                },
+                ScaleWindSpeedLogOptions {
+                    z1: Length::from_meters(z1),
+                    z0: Length::from_meters(z0),
+                    d: Length::from_meters(d),
+                    round_output,
+                },
+            );
+
+            let kwargs = [("round_output", round_output)].into_py_dict(py).unwrap();
+            let py_v = match py_scale.call((v_z1, z2, z1, z0, d), Some(&kwargs)) {
+                Ok(result) => result
+                    .getattr("v_z2")
+                    .map_err(|e| e.to_string())?
+                    .call_method0("item")
+                    .map_err(|e| e.to_string())?
+                    .extract::<f64>()
+                    .map_err(|e| e.to_string())?,
+                Err(e) if e.is_instance_of::<PyValueError>(py) => {
+                    return match rust {
+                        Err(_) => Ok(()),
+                        Ok(ok) => Err(format!(
+                            "python raised ValueError but rust returned {} m/s",
+                            ok.as_meters_per_second()
+                        )),
+                    };
+                }
+                Err(e) => return Err(format!("python raised: {e}")),
+            };
+            let rust_v =
+                rust.map_err(|e| format!("rust rejected a sample python accepted: {e}"))?;
+            compare_field(
+                &FieldCmp::new("v_z2", 1e-9),
+                rust_v.as_meters_per_second(),
+                py_v,
+            )
         });
     });
 }

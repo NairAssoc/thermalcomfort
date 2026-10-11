@@ -177,7 +177,7 @@ pub struct GaggeTwoNodesSleepResult {
 
 /// Saturation vapour pressure in torr, mirroring upstream's `_fnsvp`.
 ///
-/// Deliberately local rather than reusing [`crate::utilities::p_sat_torr`], which returns
+/// Deliberately local rather than reusing [`crate::psychrometrics::p_sat_torr`], which returns
 /// a [`Pressure`]: reaching torr back out of it means multiplying by 133.322 and dividing
 /// again, and that round trip is not the identity in floating point. The sleep model feeds
 /// this straight into a Newton solve, so the last bits matter for parity.

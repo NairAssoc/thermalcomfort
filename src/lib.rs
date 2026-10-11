@@ -59,17 +59,19 @@
 #[doc = include_str!("../README.md")]
 pub struct ReadmeExamples;
 
+pub mod clothing;
 pub mod constants;
+pub mod environment;
 pub mod models;
 pub mod numerical;
 pub mod psychrometrics;
 pub mod utilities;
 
 // Re-export commonly used items
+pub use environment::v_relative;
 pub use models::pmv::{PmvPpdResult, pmv_ppd_iso};
 pub use utilities::{
     CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, clo_individual_garment, clo_typical_ensemble,
-    v_relative,
 };
 
 // Re-export measurements types for convenience

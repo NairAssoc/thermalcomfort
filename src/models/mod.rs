@@ -48,9 +48,11 @@ pub use solar_gain::{
     SolarGainInputs, SolarGainOptions, SolarGainPosture, SolarGainResult, solar_gain,
 };
 pub use specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
-    VerticalTmpGradPpdOptions, ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+    ankle_draft, vertical_tmp_grad_ppd,
 };
+#[allow(deprecated)]
+pub use specialty::{FSvvInputs, f_svv, transpose_sharp_altitude};
 pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsHeatStressRiskError, SportsHeatStressRiskInputs,
     SportsValues, sports_heat_stress_risk,

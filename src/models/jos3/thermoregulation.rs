@@ -19,7 +19,7 @@
 //!
 //! - **`tetens`.** Dead code in the Python source too: `thermoregulation.py` defines
 //!   `tetens(x)` (a saturated-vapor-pressure formula) but never calls it anywhere in
-//!   that module or `jos3.py`; [`evaporation`] uses [`crate::utilities::antoine`]
+//!   that module or `jos3.py`; [`evaporation`] uses [`crate::psychrometrics::antoine`]
 //!   instead, matching Python's actual (not merely documented) behavior.
 //!
 //! # Deviations from the Python source
@@ -65,7 +65,8 @@ use libm::{fabs, pow};
 use super::construction;
 use super::matrix::IDICT;
 use super::parameters::{NUM_BODY_PARTS, defaults};
-use crate::utilities::{BsaFormula, antoine, np_maximum, np_minimum, py_max, py_min};
+use crate::psychrometrics::antoine;
+use crate::utilities::{BsaFormula, np_maximum, np_minimum, py_max, py_min};
 use crate::{BmrEquation, Sex, Temperature};
 
 // ---------------------------------------------------------------------------

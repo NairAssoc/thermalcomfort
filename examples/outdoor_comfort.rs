@@ -3,9 +3,10 @@
 //! Demonstrates UTCI (Universal Thermal Climate Index) and WBGT (Wet Bulb Globe Temperature)
 //! for assessing outdoor thermal conditions and heat stress.
 
+use thermalcomfort::environment::{ScaleWindSpeedLogInputs, scale_wind_speed_log};
 use thermalcomfort::models::{UtciInputs, WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
-use thermalcomfort::{Humidity, Speed, Temperature};
+use thermalcomfort::{Humidity, Length, Speed, Temperature};
 
 fn main() {
     println!("=== Outdoor Thermal Comfort Assessment ===\n");
@@ -80,15 +81,30 @@ fn main() {
     println!("\n\n--- Example 2: Hot and Humid Day ---");
     let tdb2 = Temperature::from_celsius(35.0);
     let tr2 = Temperature::from_celsius(40.0); // very high radiant temperature
-    let v2 = Speed::from_meters_per_second(0.5); // low wind
     let rh2 = Humidity::from_percent(70.0); // high humidity
+
+    // The weather station reports wind at 10 m; a person feels it at about 1.1 m, so
+    // bring it down with the logarithmic wind profile over cropland (z0 = 0.1 m).
+    let v_10m = Speed::from_meters_per_second(1.0);
+    let v2 = scale_wind_speed_log(
+        ScaleWindSpeedLogInputs {
+            v_z1: v_10m,
+            z2: Length::from_meters(1.1),
+        },
+        thermalcomfort::environment::ScaleWindSpeedLogOptions {
+            z0: Length::from_meters(0.1),
+            ..Default::default()
+        },
+    )
+    .expect("1.1 m clears a 0.1 m roughness length");
 
     println!("Conditions:");
     println!("  Dry bulb temperature: {:.1}°C", tdb2.as_celsius());
     println!("  Mean radiant temp:    {:.1}°C", tr2.as_celsius());
     println!(
-        "  Wind speed:           {:.1} m/s",
-        v2.as_meters_per_second()
+        "  Wind speed:           {:.2} m/s at 1.1 m (from {:.1} m/s at 10 m)",
+        v2.as_meters_per_second(),
+        v_10m.as_meters_per_second()
     );
     println!("  Relative humidity:    {:.0}%\n", rh2.as_percent());
 

@@ -3,7 +3,7 @@
 //! Adaptive models relate indoor design temperatures to outdoor climate parameters.
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
-use crate::psychrometrics::operative_temperature_celsius;
+use crate::environment::operative_temperature_celsius;
 use crate::utilities::{Units, round_to};
 use measurements::{Speed, Temperature};
 

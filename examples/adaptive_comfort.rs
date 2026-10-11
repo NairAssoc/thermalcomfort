@@ -3,10 +3,10 @@
 //! Demonstrates the use of adaptive comfort models (ASHRAE 55 and EN 16798-1)
 //! for naturally ventilated buildings.
 
-use thermalcomfort::models::{AdaptiveInputs, adaptive_ashrae, adaptive_en};
-use thermalcomfort::utilities::{
+use thermalcomfort::environment::{
     RunningMeanOutdoorTemperatureOptions, running_mean_outdoor_temperature,
 };
+use thermalcomfort::models::{AdaptiveInputs, adaptive_ashrae, adaptive_en};
 use thermalcomfort::{Speed, Temperature};
 
 fn main() {

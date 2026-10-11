@@ -1,9 +1,8 @@
 //! Psychrometric functions for calculating properties of moist air
 
 use crate::constants::*;
-use crate::utilities::{np_maximum, p_sat};
-use libm::{atan, exp, fabs as abs, log, pow, sqrt};
-use measurements::{Humidity, Length, Pressure, Speed, Temperature};
+use libm::{atan, exp, log, pow};
+use measurements::{Humidity, Pressure, Temperature};
 
 /// The comfort inputs to [`psy_ta_rh`]: pythermalcomfort requires both (no default).
 ///
@@ -196,217 +195,166 @@ pub fn dew_point_temperature(tdb: Temperature, rh: Humidity) -> Temperature {
     Temperature::from_celsius(t_dp_celsius)
 }
 
-/// The comfort inputs to [`mean_radiant_temperature`]: pythermalcomfort requires all
-/// three (no default).
+/// Saturation vapour pressure by the Antoine equation
 ///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MeanRadiantTemperatureInputs {
-    /// Globe temperature
-    pub tg: Temperature,
-    /// Air temperature
-    pub tdb: Temperature,
-    /// Air speed
-    pub v: Speed,
-}
-
-/// Optional parameters for [`mean_radiant_temperature`], with pythermalcomfort's
-/// defaults.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MeanRadiantTemperatureOptions {
-    /// Globe diameter, default 0.15 m
-    pub d: Length,
-    /// Globe emissivity, default 0.95
-    pub emissivity: f64,
-    /// If true, use ISO 7726:1998 formula; if false, use Mixed Convection.
-    ///
-    /// Matches pythermalcomfort's `standard` string ("Mixed Convection" / "ISO");
-    /// defaults to `false` (Mixed Convection).
-    pub use_iso: bool,
-}
-
-impl Default for MeanRadiantTemperatureOptions {
-    fn default() -> Self {
-        Self {
-            d: Length::from_meters(0.15),
-            emissivity: 0.95,
-            use_iso: false,
-        }
-    }
-}
-
-/// Calculate mean radiant temperature from globe temperature
+/// pythermalcomfort's `antoine` returns kPa; read the result in whatever unit the caller
+/// needs with [`Pressure::as_kilopascals`] or [`Pressure::as_pascals`].
 ///
-/// Converts globe temperature reading to mean radiant temperature using either
-/// Mixed Convection or ISO 7726:1998 standard
+/// # Arguments
+///
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
-/// Mean radiant temperature
+/// Saturation vapour pressure
 ///
-/// # Note
+/// # Examples
 ///
-/// The Mixed Convection formulation by Teitelbaum et al. (2022) is only
-/// validated for globe diameters between 0.04 and 0.15 m
-pub fn mean_radiant_temperature(
-    inputs: MeanRadiantTemperatureInputs,
-    options: MeanRadiantTemperatureOptions,
-) -> Temperature {
-    let MeanRadiantTemperatureInputs { tg, tdb, v } = inputs;
-    let tg_celsius = tg.as_celsius();
+/// ```
+/// use thermalcomfort::psychrometrics::antoine;
+/// use thermalcomfort::Temperature;
+///
+/// let p = antoine(Temperature::from_celsius(25.0));
+/// assert!((p.as_kilopascals() - 3.167).abs() < 0.01); // ~3.167 kPa at 25°C
+/// ```
+#[inline]
+pub fn antoine(tdb: Temperature) -> Pressure {
     let tdb_celsius = tdb.as_celsius();
-    let v_ms = v.as_meters_per_second();
-    let d_m = options.d.as_meters();
-
-    let tr_celsius = if options.use_iso {
-        mean_radiant_temperature_iso(tg_celsius, tdb_celsius, v_ms, d_m, options.emissivity)
-    } else {
-        mean_radiant_temperature_mixed(tg_celsius, tdb_celsius, v_ms, d_m, options.emissivity)
-    };
-    Temperature::from_celsius(tr_celsius)
+    let p_kpa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0));
+    Pressure::from_kilopascals(p_kpa)
 }
 
-/// Calculate mean radiant temperature using ISO 7726:1998 method
-fn mean_radiant_temperature_iso(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
-    let tg_k = tg + C_TO_K;
-    let tdb_k = tdb + C_TO_K;
-
-    // Heat transfer coefficients (ISO 7726:1998)
-    // Natural convection: h_n = 1.4 * (ΔT/d)^0.25
-    // - 1.4 W/(m²·K): natural convection coefficient
-    // - 0.25: exponent for natural convection correlation
-    let h_n = 1.4 * pow(abs(tg_k - tdb_k) / d, 0.25); // natural convection
-
-    // Forced convection: h_f = 6.3 * v^0.6 / d^0.4
-    // - 6.3 W/(m²·K): forced convection coefficient
-    // - 0.6: velocity exponent
-    // - 0.4: diameter exponent
-    let h_f = 6.3 * pow(v, 0.6) / pow(d, 0.4); // forced convection
-
-    // Use maximum of the two. Python (`utilities.py:450`) is `np.maximum(h_f, h_n)`,
-    // which propagates a NaN from either coefficient — `h_n` is NaN whenever `tg` or
-    // `tdb` is, and `h_f` whenever `v` is.
-    let h = np_maximum(h_f, h_n);
-
-    pow(
-        pow(tg_k, 4.0) + h * (tg_k - tdb_k) / (emissivity * 5.67e-8),
-        0.25,
-    ) - C_TO_K
-}
-
-/// Calculate mean radiant temperature using Mixed Convection method
-fn mean_radiant_temperature_mixed(tg: f64, tdb: f64, v: f64, d: f64, emissivity: f64) -> f64 {
-    // Check diameter validity
-    if !(0.04..=0.15).contains(&d) {
-        return f64::NAN;
-    }
-
-    const MU: f64 = 0.0000181; // Pa·s
-    const K_AIR: f64 = 0.02662; // W/(m·K)
-    const BETA: f64 = 0.0034; // 1/K
-    const NU: f64 = 0.0000148; // m²/s
-    const ALPHA: f64 = 0.00002591; // m²/s
-
-    let pr = CP_AIR * MU / K_AIR; // Prandtl number
-
-    let o = 5.67e-8; // Stefan-Boltzmann constant
-    let n = 1.27 * d + 0.57;
-
-    let ra = G * BETA * abs(tg - tdb) * pow(d, 3.0) / NU / ALPHA;
-    let re = v * d / NU;
-
-    let nu_natural =
-        2.0 + (0.589 * pow(ra, 0.25)) / pow(1.0 + pow(0.469 / pr, 9.0 / 16.0), 4.0 / 9.0);
-
-    let nu_forced = 2.0 + (0.4 * pow(re, 0.5) + 0.06 * pow(re, 2.0 / 3.0)) * pow(pr, 0.4);
-
-    let nu_combined = pow(pow(nu_forced, n) + pow(nu_natural, n), 1.0 / n);
-
-    pow(
-        pow(tg + C_TO_K, 4.0) - ((nu_combined * K_AIR / d) * (-tg + tdb)) / emissivity / o,
-        0.25,
-    ) - C_TO_K
-}
-
-/// The comfort inputs to [`operative_temperature`]: pythermalcomfort requires all
-/// three (no default).
+/// Saturation vapor pressure using exponential equation
 ///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct OperativeTemperatureInputs {
-    /// Air temperature
-    pub tdb: Temperature,
-    /// Mean radiant temperature
-    pub tr: Temperature,
-    /// Air speed
-    pub v: Speed,
-}
-
-/// Optional parameters for [`operative_temperature`], with pythermalcomfort's
-/// defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct OperativeTemperatureOptions {
-    /// If true, use the ASHRAE method; if false, the ISO method.
-    ///
-    /// Mirrors pythermalcomfort's `standard` string ("ISO" / "ASHRAE"), whose default is
-    /// "ISO" — which is `false` here, and so happens to coincide with `bool`'s own
-    /// default. Derived rather than written out for that reason; if upstream ever
-    /// defaults to ASHRAE, this needs a manual impl again.
-    pub use_ashrae: bool,
-}
-
-/// Calculate operative temperature
+/// This is used in the two-node Gagge model and related calculations.
+/// Returns pressure in torr units.
+///
+/// # Arguments
+///
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
 ///
 /// # Returns
 ///
-/// Operative temperature
-pub fn operative_temperature(
-    inputs: OperativeTemperatureInputs,
-    options: OperativeTemperatureOptions,
-) -> Temperature {
-    let OperativeTemperatureInputs { tdb, tr, v } = inputs;
-    Temperature::from_celsius(operative_temperature_celsius(
-        tdb.as_celsius(),
-        tr.as_celsius(),
-        v.as_meters_per_second(),
-        options.use_ashrae,
-    ))
+/// Saturation vapor pressure (torr)
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::psychrometrics::p_sat_torr;
+/// use thermalcomfort::Temperature;
+///
+/// let p = p_sat_torr(Temperature::from_celsius(25.0));
+/// assert!((p.as_torrs() - 23.8).abs() < 0.1);
+/// ```
+#[inline]
+pub fn p_sat_torr(tdb: Temperature) -> Pressure {
+    let tdb_celsius = tdb.as_celsius();
+    let p_torr = exp(18.6686 - 4030.183 / (tdb_celsius + 235.0));
+    // Built from torr so `.as_torrs()` returns upstream's value exactly; a hand-rolled
+    // torr-to-pascal factor would disagree with the one `Pressure` converts back with.
+    Pressure::from_torrs(p_torr)
 }
 
-/// Plain-`f64` core of [`operative_temperature`], in °C throughout.
+/// Calculate saturation vapor pressure
 ///
-/// In-crate callers must use this rather than [`operative_temperature`]. `Temperature`
-/// stores kelvin, so `from_celsius(x).as_celsius()` is not the identity -- 24.1 comes
-/// back as 24.100000000000023. That is harmless for a reported value and *not* harmless
-/// where the result feeds a comparison against a band edge: it made `adaptive_ashrae` and
-/// `adaptive_en` disagree with pythermalcomfort on `acceptability_*` for an operative
-/// temperature sitting exactly on a comfort bound, the same mechanism as the JOS3
-/// ISO-7730-limit bug fixed in 28adfa8.
-pub(crate) fn operative_temperature_celsius(
-    tdb_celsius: f64,
-    tr_celsius: f64,
-    v_ms: f64,
-    use_ashrae: bool,
-) -> f64 {
-    if use_ashrae {
-        // ASHRAE 55 method with speed-dependent weighting factor
-        // Thresholds and weights:
-        // v < 0.2 m/s: a = 0.5 (equal weighting of air and radiant temp)
-        // 0.2 ≤ v < 0.6 m/s: a = 0.6 (slightly favor air temperature)
-        // v ≥ 0.6 m/s: a = 0.7 (favor air temperature more at higher speeds)
-        let a = if v_ms < 0.2 {
-            0.5
-        } else if v_ms < 0.6 {
-            0.6
-        } else {
-            0.7
-        };
-        a * tdb_celsius + (1.0 - a) * tr_celsius
+/// Uses different formulas for temperatures above and below freezing
+///
+/// # Arguments
+///
+/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
+///
+/// # Returns
+///
+/// Saturation vapor pressure
+pub fn p_sat(tdb: Temperature) -> Pressure {
+    const C1: f64 = -5674.5359;
+    const C2: f64 = 6.3925247;
+    const C3: f64 = -0.9677843e-2;
+    const C4: f64 = 0.62215701e-6;
+    const C5: f64 = 0.20747825e-8;
+    const C6: f64 = -0.9484024e-12;
+    const C7: f64 = 4.1635019;
+    const C8: f64 = -5800.2206;
+    const C9: f64 = 1.3914993;
+    const C10: f64 = -0.048640239;
+    const C11: f64 = 0.41764768e-4;
+    const C12: f64 = -0.14452093e-7;
+    const C13: f64 = 6.5459673;
+
+    let ta_k = tdb.as_celsius() + C_TO_K;
+    let log_ta_k = log(ta_k);
+
+    let p_pa = if ta_k < C_TO_K {
+        exp(C1 / ta_k + C2 + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k))) + C7 * log_ta_k)
     } else {
-        // ISO 7730 method
-        // 10.0 = velocity scaling factor for convective heat transfer
-        (tdb_celsius * sqrt(10.0 * v_ms) + tr_celsius) / (1.0 + sqrt(10.0 * v_ms))
-    }
+        exp(C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k)
+    };
+    Pressure::from_pascals(p_pa)
+}
+
+/// Convert humidity ratio to relative humidity
+///
+/// Algebraic inverse of the humidity-ratio formula used by
+/// [`crate::psychrometrics::psy_ta_rh`].
+///
+/// # Arguments
+///
+/// * `hr` - Humidity ratio [kg water / kg dry air]
+/// * `tdb` - Dry bulb air temperature
+/// * `p_atm` - Atmospheric pressure
+///
+/// # Returns
+///
+/// Relative humidity
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::psychrometrics::hr_to_rh;
+/// use thermalcomfort::{Temperature, Pressure};
+///
+/// let rh = hr_to_rh(0.01, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
+/// assert!((rh.as_percent() - 50.5).abs() < 0.5);
+/// ```
+pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
+    // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
+    let p_vap = hr * p_atm.as_pascals() / (0.62198 + hr);
+    Humidity::from_percent(p_vap / p_sat(tdb).as_pascals() * 100.0)
+}
+
+// ---------------------------------------------------------------------------
+// Paths pythermalcomfort 4.6.0 moved elsewhere. Each forwards to its new home and is
+// removed after two minor releases, as upstream's compatibility shims are.
+// ---------------------------------------------------------------------------
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+pub type MeanRadiantTemperatureInputs = crate::environment::MeanRadiantTemperatureInputs;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+pub type MeanRadiantTemperatureOptions = crate::environment::MeanRadiantTemperatureOptions;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+pub type OperativeTemperatureInputs = crate::environment::OperativeTemperatureInputs;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+pub type OperativeTemperatureOptions = crate::environment::OperativeTemperatureOptions;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+#[inline]
+pub fn mean_radiant_temperature(
+    inputs: crate::environment::MeanRadiantTemperatureInputs,
+    options: crate::environment::MeanRadiantTemperatureOptions,
+) -> Temperature {
+    crate::environment::mean_radiant_temperature(inputs, options)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+#[inline]
+pub fn operative_temperature(
+    inputs: crate::environment::OperativeTemperatureInputs,
+    options: crate::environment::OperativeTemperatureOptions,
+) -> Temperature {
+    crate::environment::operative_temperature(inputs, options)
 }
 
 #[cfg(test)]
@@ -487,53 +435,34 @@ mod tests {
     }
 
     #[test]
-    fn test_mean_radiant_temperature_defaults() {
-        // Python defaults d=0.15, emissivity=0.95, standard="Mixed Convection".
-        let result = mean_radiant_temperature(
-            MeanRadiantTemperatureInputs {
-                tg: Temperature::from_celsius(30.0),
-                tdb: Temperature::from_celsius(25.0),
-                v: Speed::from_meters_per_second(0.3),
-            },
-            Default::default(),
-        );
-        let explicit = mean_radiant_temperature(
-            MeanRadiantTemperatureInputs {
-                tg: Temperature::from_celsius(30.0),
-                tdb: Temperature::from_celsius(25.0),
-                v: Speed::from_meters_per_second(0.3),
-            },
-            MeanRadiantTemperatureOptions {
-                d: Length::from_meters(0.15),
-                emissivity: 0.95,
-                use_iso: false,
-            },
-        );
-        assert_eq!(result.as_celsius(), explicit.as_celsius());
+    fn test_hr_to_rh_matches_python() {
+        // Reference values from pythermalcomfort 4.4.0 hr_to_rh
+        for (hr, tdb, expected) in [
+            (0.01, 25.0, 50.589615),
+            (0.005, 20.0, 34.549292),
+            (0.02, 30.0, 74.343333),
+        ] {
+            let got = hr_to_rh(
+                hr,
+                Temperature::from_celsius(tdb),
+                Pressure::from_pascals(101325.0),
+            )
+            .as_percent();
+            assert!(
+                (got - expected).abs() < 1e-4,
+                "hr_to_rh({hr}, {tdb}) = {got}, expected {expected}"
+            );
+        }
     }
 
     #[test]
-    fn test_operative_temperature() {
-        // ISO method (default)
-        let t_op = operative_temperature(
-            OperativeTemperatureInputs {
-                tdb: Temperature::from_celsius(25.0),
-                tr: Temperature::from_celsius(25.0),
-                v: Speed::from_meters_per_second(0.1),
-            },
-            Default::default(),
-        );
-        assert!((t_op.as_celsius() - 25.0).abs() < 0.01);
+    fn test_antoine() {
+        let p_kpa = antoine(Temperature::from_celsius(25.0)).as_kilopascals();
+        // At 25°C, saturated vapor pressure is ~3.167 kPa
+        assert!((p_kpa - 3.167).abs() < 0.01);
 
-        // ASHRAE method
-        let t_op2 = operative_temperature(
-            OperativeTemperatureInputs {
-                tdb: Temperature::from_celsius(22.0),
-                tr: Temperature::from_celsius(26.0),
-                v: Speed::from_meters_per_second(0.1),
-            },
-            OperativeTemperatureOptions { use_ashrae: true },
-        );
-        assert!(t_op2.as_celsius() > 22.0 && t_op2.as_celsius() < 26.0);
+        let p_kpa_0 = antoine(Temperature::from_celsius(0.0)).as_kilopascals();
+        // At 0°C, saturated vapor pressure is ~0.609 kPa
+        assert!((p_kpa_0 - 0.609).abs() < 0.01);
     }
 }

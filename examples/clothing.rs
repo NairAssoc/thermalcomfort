@@ -3,13 +3,13 @@
 //! Demonstrates building a clothing ensemble from garment tables, the area factor, and
 //! the dynamic corrections for body movement and air speed from ASHRAE 55 and ISO 9920.
 
-use thermalcomfort::utilities::{
+use thermalcomfort::clothing::{
     CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicIsoInputs,
     CloDynamicIsoOptions, CloInsulationAirLayerInputs, CloTotalInsulationInputs, clo_area_factor,
-    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso, clo_individual_garment,
-    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout,
-    clo_typical_ensemble,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
+    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation,
 };
+use thermalcomfort::utilities::{clo_individual_garment, clo_tout, clo_typical_ensemble};
 use thermalcomfort::{ClothingInsulation, MetabolicRate, Speed, Temperature};
 
 fn main() {

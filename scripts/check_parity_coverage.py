@@ -184,11 +184,22 @@ def python_public_api() -> dict[str, str]:
     *upstream* grows something the port does not have, and only the installed package
     knows that.
     """
+    import pythermalcomfort.clothing as py_clothing
+    import pythermalcomfort.environment as py_environment
     import pythermalcomfort.models as py_models
+    import pythermalcomfort.psychrometrics as py_psychrometrics
     import pythermalcomfort.utilities as py_utilities
 
     api: dict[str, str] = {}
-    for label, module in (("models", py_models), ("utilities", py_utilities)):
+    # `utilities` first: it still lists the names 4.6.0 moved out of it, as deprecated
+    # shims, and the module that now defines each name should be the one reported.
+    for label, module in (
+        ("utilities", py_utilities),
+        ("models", py_models),
+        ("environment", py_environment),
+        ("psychrometrics", py_psychrometrics),
+        ("clothing", py_clothing),
+    ):
         for name in dir(module):
             if name.startswith("_"):
                 continue

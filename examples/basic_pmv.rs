@@ -1,8 +1,8 @@
 //! Basic example of PMV/PPD calculation
 
+use thermalcomfort::environment::v_relative;
 use thermalcomfort::models::pmv::PmvPpdInputs;
 use thermalcomfort::models::pmv_ppd_iso;
-use thermalcomfort::utilities::v_relative;
 use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 fn main() {

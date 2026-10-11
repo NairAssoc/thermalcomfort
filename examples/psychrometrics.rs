@@ -5,14 +5,17 @@
 //! derived environmental temperatures (mean radiant and operative), and body surface
 //! area.
 
-use thermalcomfort::psychrometrics::{
+use thermalcomfort::environment::{
     MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
-    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
-    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
+    OperativeTemperatureOptions, mean_radiant_temperature, operative_temperature,
+};
+use thermalcomfort::psychrometrics::{
+    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
+    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, antoine, body_surface_area,
-    body_surface_area_dubois, hr_to_rh, p_sat, p_sat_torr,
+    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, body_surface_area,
+    body_surface_area_dubois,
 };
 use thermalcomfort::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 

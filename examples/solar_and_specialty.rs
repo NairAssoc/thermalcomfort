@@ -4,10 +4,10 @@
 //! and the supine angle transposition it depends on) and the local discomfort models
 //! for ankle draft and vertical temperature gradient.
 
+use thermalcomfort::environment::{FSvvInputs, f_svv, transpose_sharp_altitude};
 use thermalcomfort::models::{
-    AnkleDraftInputs, FSvvInputs, SolarGainInputs, SolarGainOptions, SolarGainPosture,
-    VerticalTmpGradPpdInputs, ankle_draft, f_svv, solar_gain, transpose_sharp_altitude,
-    vertical_tmp_grad_ppd,
+    AnkleDraftInputs, SolarGainInputs, SolarGainOptions, SolarGainPosture,
+    VerticalTmpGradPpdInputs, ankle_draft, solar_gain, vertical_tmp_grad_ppd,
 };
 use thermalcomfort::{
     Angle, ClothingInsulation, HeatFluxDensity, Humidity, Length, MetabolicRate, Speed,

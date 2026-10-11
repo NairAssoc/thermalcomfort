@@ -13,6 +13,20 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
 use support::sweep::{assert_reference_version, import_reference};
+use thermalcomfort::clothing::{
+    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
+    CloDynamicIsoInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
+    CloTotalInsulationInputs, clo_area_factor, clo_correction_factor_environment,
+    clo_dynamic_ashrae, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
+    clo_total_insulation,
+};
+use thermalcomfort::environment::{
+    FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
+    OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
+    ScaleWindSpeedLogInputs, ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature,
+    operative_temperature, running_mean_outdoor_temperature, scale_wind_speed_log,
+    transpose_sharp_altitude, v_relative,
+};
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
@@ -20,8 +34,7 @@ use thermalcomfort::models::pmv::{
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
-    VerticalTmpGradPpdOptions, f_svv,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
 use thermalcomfort::models::{
     AtInputs, CoolingEffectInputs, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs,
@@ -35,25 +48,18 @@ use thermalcomfort::models::{
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
     phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    set_tmp, solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
+    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
+    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
-    MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
-    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
-    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
+    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
     BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
-    CLO_TYPICAL_ENSEMBLES, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
-    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
-    CloInsulationAirLayerInputs, CloTotalInsulationInputs, RunningMeanOutdoorTemperatureOptions,
-    Units, antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
-    clo_dynamic_ashrae, clo_individual_garment, clo_insulation_air_layer,
-    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    CLO_TYPICAL_ENSEMBLES, Units, body_surface_area, clo_individual_garment, clo_tout,
+    clo_typical_ensemble,
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
@@ -1109,7 +1115,7 @@ fn test_compare_clo_dynamic_iso() {
                 .extract()
                 .unwrap();
 
-            let rust_clo_dyn = thermalcomfort::utilities::clo_dynamic_iso(
+            let rust_clo_dyn = thermalcomfort::clothing::clo_dynamic_iso(
                 CloDynamicIsoInputs {
                     clo: ClothingInsulation::from_clo(clo),
                     met: MetabolicRate::from_met(met),
@@ -6970,4 +6976,133 @@ fn test_two_nodes_gagge_ji_upstream_fixture() {
             35.81939854020882,
         ],
     );
+}
+
+/// `scale_wind_speed_log` arrived in pythermalcomfort 4.x under `utils` and became
+/// public API in 4.6.0 under `environment`. Upstream's fixtures, the rounding default, and
+/// every geometry it rejects, checked against the live reference.
+#[test]
+fn test_compare_scale_wind_speed_log() {
+    Python::with_gil(|py| {
+        let environment = import_reference(py, "pythermalcomfort.environment")
+            .expect("Failed to import pythermalcomfort.environment");
+        let py_scale = environment.getattr("scale_wind_speed_log").unwrap();
+
+        // (v_z1, z2, z1, z0, d, round_output)
+        let cases = [
+            (5.0, 2.0, 10.0, 0.01, 0.0, true),
+            (5.0, 2.0, 10.0, 0.01, 0.0, false),
+            (5.0, 2.0, 10.0, 0.1, 0.0, false),
+            (7.69, 2.0, 10.0, 0.1, 0.0, false),
+            (5.0, 90.0, 10.0, 0.1, 0.0, false),
+            (5.0, 2.0, 10.0, 0.1, 0.5, false),
+            (3.0, 1.5, 10.0, 0.02, 0.0, true),
+            (5.0, 2.0, 10.0, 1e-6, 0.0, false),
+            (5.0, 2.0, 10.0, 1.0, 0.0, false),
+            (0.0, 2.0, 10.0, 0.01, 0.0, true),
+        ];
+        for (v_z1, z2, z1, z0, d, round_output) in cases {
+            let kwargs = [("round_output", round_output)].into_py_dict(py).unwrap();
+            let py_v: f64 = py_scale
+                .call((v_z1, z2, z1, z0, d), Some(&kwargs))
+                .unwrap()
+                .getattr("v_z2")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let rust_v = scale_wind_speed_log(
+                ScaleWindSpeedLogInputs {
+                    v_z1: Speed::from_meters_per_second(v_z1),
+                    z2: Length::from_meters(z2),
+                },
+                ScaleWindSpeedLogOptions {
+                    z1: Length::from_meters(z1),
+                    z0: Length::from_meters(z0),
+                    d: Length::from_meters(d),
+                    round_output,
+                },
+            )
+            .unwrap_or_else(|e| panic!("rust rejected ({v_z1}, {z2}, {z1}, {z0}, {d}): {e}"));
+            assert_abs_diff_eq!(rust_v.as_meters_per_second(), py_v, epsilon = 1e-12);
+        }
+
+        // The documented default: 5 m/s at 10 m is 3.84 m/s at 2 m over open terrain.
+        let default_v: f64 = py_scale
+            .call1((5.0, 2.0))
+            .unwrap()
+            .getattr("v_z2")
+            .unwrap()
+            .call_method0("item")
+            .unwrap()
+            .extract()
+            .unwrap();
+        assert_eq!(default_v, 3.84);
+        assert_eq!(
+            scale_wind_speed_log(
+                ScaleWindSpeedLogInputs {
+                    v_z1: Speed::from_meters_per_second(5.0),
+                    z2: Length::from_meters(2.0),
+                },
+                Default::default(),
+            )
+            .unwrap()
+            .as_meters_per_second(),
+            3.84
+        );
+
+        // Every geometry upstream rejects, rejected here with the matching variant.
+        use thermalcomfort::environment::ScaleWindSpeedLogError::*;
+        let rejected = [
+            (-1.0, 2.0, 10.0, 0.01, 0.0, NegativeWindSpeed),
+            (5.0, -2.0, 10.0, 0.01, 0.0, NonPositiveTargetHeight),
+            (5.0, 2.0, 10.0, 0.0, 0.0, NonPositiveRoughness),
+            (5.0, 2.0, 10.0, -0.1, 0.0, NonPositiveRoughness),
+            (
+                5.0,
+                2.0,
+                10.0,
+                0.01,
+                2.0,
+                TargetMinusDisplacementNotAboveRoughness,
+            ),
+            (
+                5.0,
+                2.0,
+                1.0,
+                0.01,
+                1.0,
+                ReferenceMinusDisplacementNotAboveRoughness,
+            ),
+            (5.0, 0.01, 10.0, 0.01, 0.0, TargetNotAboveRoughness),
+            (5.0, 2.0, 0.01, 0.01, 0.0, ReferenceNotAboveRoughness),
+        ];
+        for (v_z1, z2, z1, z0, d, expected) in rejected {
+            let kwargs = [("round_output", false)].into_py_dict(py).unwrap();
+            let err = py_scale
+                .call((v_z1, z2, z1, z0, d), Some(&kwargs))
+                .expect_err("upstream rejects this geometry");
+            assert!(
+                err.is_instance_of::<PyValueError>(py),
+                "({v_z1}, {z2}, {z1}, {z0}, {d}) raised {err}"
+            );
+            assert_eq!(
+                scale_wind_speed_log(
+                    ScaleWindSpeedLogInputs {
+                        v_z1: Speed::from_meters_per_second(v_z1),
+                        z2: Length::from_meters(z2),
+                    },
+                    ScaleWindSpeedLogOptions {
+                        z1: Length::from_meters(z1),
+                        z0: Length::from_meters(z0),
+                        d: Length::from_meters(d),
+                        round_output: false,
+                    },
+                ),
+                Err(expected),
+                "({v_z1}, {z2}, {z1}, {z0}, {d})"
+            );
+        }
+    });
 }

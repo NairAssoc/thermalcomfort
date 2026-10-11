@@ -2,8 +2,9 @@
 //!
 //! Implementation of thermal comfort models according to ISO 7730 and ASHRAE 55 standards
 
+use crate::clothing::Ashrae55Model;
 use crate::constants::*;
-use crate::utilities::{Ashrae55Model, py_max, round_to, valid_range};
+use crate::utilities::{py_max, round_to, valid_range};
 use crate::{ClothingInsulation, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Humidity, Speed, Temperature};
@@ -280,7 +281,7 @@ fn check_ashrae55_compliance(
 ///
 /// ```
 /// use thermalcomfort::models::pmv::{pmv_ppd_iso, PmvPpdInputs, PmvPpdIsoOptions};
-/// use thermalcomfort::utilities::v_relative;
+/// use thermalcomfort::environment::v_relative;
 /// use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
 ///
 /// let tdb = Temperature::from_celsius(25.0);
