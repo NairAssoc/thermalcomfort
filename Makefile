@@ -40,7 +40,14 @@ CI_SWEEP_N ?= 2000
 # tries to execute the second one as a command.
 PARITY_SITE_PACKAGES = $(shell $(PARITY_VENV)/bin/python -c \
 	'import site; print(site.getsitepackages()[0])' 2>/dev/null)
-PARITY_ENV = $(if $(PARITY_SITE_PACKAGES),PYTHONPATH=$(PARITY_SITE_PACKAGES),)
+PARITY_ENV = $(if $(PARITY_SITE_PACKAGES),PYTHONPATH=$(PARITY_SITE_PACKAGES),) \
+	NUMBA_THREADING_LAYER=workqueue
+
+# NUMBA_THREADING_LAYER is pinned to `workqueue`, the only layer numba has on the macOS
+# runners and the one that aborts the process if two parallel regions overlap. The test
+# harness re-compiles pythermalcomfort's parallel functions as serial ones precisely so that
+# this cannot happen; pinning the layer here means a regression in that guard fails on
+# Linux too, instead of being absorbed by OpenMP until it reaches macOS.
 
 ifeq ($(strip $(PTC_VERSION)),)
 $(error Could not determine the crate version from cargo metadata. The parity \
