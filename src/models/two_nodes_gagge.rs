@@ -7,7 +7,8 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::utilities::{p_sat_torr, py_max, py_min, round_to, whole_minutes};
+use crate::psychrometrics::p_sat_torr;
+use crate::utilities::{py_max, py_min, round_to, whole_minutes};
 use crate::{ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate};
 use core::time::Duration;
 use libm::{exp, fabs as abs, pow, sqrt};
@@ -216,7 +217,7 @@ pub fn two_nodes_gagge(
     let speed_mps = v.as_meters_per_second();
     let rh_percent = rh.as_percent();
 
-    let p_sat_torr_val = p_sat_torr(tdb).as_pascals() / 133.322; // Convert Pa back to torr
+    let p_sat_torr_val = p_sat_torr(tdb).as_torrs();
     let vapor_pressure = rh_percent * p_sat_torr_val / 100.0;
 
     let raw = gagge_two_nodes_optimized(
@@ -669,7 +670,7 @@ pub struct GaggeTwoNodesJiInputs {
     ///
     /// pythermalcomfort's `two_nodes_gagge_ji` takes `vapor_pressure` \[torr\]] directly
     /// rather than deriving it from relative humidity, so a caller with a measured vapour
-    /// pressure can supply it exactly. Use [`crate::utilities::p_sat_torr`] combined with
+    /// pressure can supply it exactly. Use [`crate::psychrometrics::p_sat_torr`] combined with
     /// a relative humidity fraction to derive it from RH, matching upstream's documented
     /// `rh * p_sat_torr(tdb) / 100` recipe.
     pub vapor_pressure: Pressure,

@@ -1,8 +1,8 @@
 [package]
 name = "thermalcomfort"
-version = "4.4.2"
+version = "4.6.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 authors = ["Thermal Comfort Contributors"]
 description = "A Rust port of pythermalcomfort for thermal comfort calculations (no_std, WASM-compatible)"
 license = "MIT"
@@ -18,18 +18,18 @@ exclude = ["docs/", ".github/", "scripts/", "Makefile"]
 [dependencies]
 libm = "0.2"
 measurements = { version = "0.11", default-features = false }
-heapless = "0.8"
+heapless = "0.9"
 
 # Dense linear algebra, used by PET's 3-node solve. Built against `alloc` + `libm` rather
 # than `std`: nalgebra has supported no_std since 0.15, so this is a normal dependency of
 # a no_std crate, not a std opt-in. It was previously pinned to `features = ["std"]` and
 # documented as "breaks no_std compatibility", which was never true and cost the crate a
 # duplicated hand-rolled solver plus a feature flag that gated nothing.
-nalgebra = { version = "0.33", default-features = false, features = ["alloc", "libm", "macros"] }
+nalgebra = { version = "0.35", default-features = false, features = ["alloc", "libm", "macros"] }
 
 [dev-dependencies]
 approx = "0.5"
-pyo3 = { version = "0.23", features = ["auto-initialize"] }
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
 
 [features]
 default = []

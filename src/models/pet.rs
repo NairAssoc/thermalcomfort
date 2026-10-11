@@ -927,7 +927,7 @@ fn p_sat_hpa(t: f64) -> f64 {
     // pythermalcomfort's pet_steady calls utilities.p_sat, the ASHRAE Hyland-Wexler
     // formulation, not the Magnus/Tetens approximation this used to hardcode. The two
     // differ by enough to move PET in the second decimal.
-    crate::utilities::p_sat(Temperature::from_celsius(t)).as_pascals() / 100.0
+    crate::psychrometrics::p_sat(Temperature::from_celsius(t)).as_pascals() / 100.0
 }
 
 #[cfg(test)]

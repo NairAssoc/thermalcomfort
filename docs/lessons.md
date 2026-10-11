@@ -37,3 +37,12 @@ boundary the sweep had implicitly assumed nothing reached.
 sweep *does* fail on a rounded field, distinguish a real defect from chaos by perturbing
 **Python against Python** by one ULP: if upstream's own series moves the same way, no
 implementation can match it there.
+
+**Two conversion factors for one unit is the same bug as two helpers for one function.**
+`p_sat_torr` built its `Pressure` with a hand-written 133.322 Pa/torr while `Pressure`
+converts back with 101325/760, so a torr value round-tripped through the type came back
+2.8e-6 too small — enough to move the Ji model's first minute by 1.5e-9 °C and fail a
+fixture upstream pins at 1e-12. **Build a typed quantity with the constructor for the unit
+you have, and read it back with the matching accessor; never inline the factor.** The
+sweep had been comparing `as_pascals() / 133.322`, which cancels the error exactly, so it
+could not see it.

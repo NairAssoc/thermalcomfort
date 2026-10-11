@@ -19,7 +19,7 @@
 //!
 //! - **`tetens`.** Dead code in the Python source too: `thermoregulation.py` defines
 //!   `tetens(x)` (a saturated-vapor-pressure formula) but never calls it anywhere in
-//!   that module or `jos3.py`; [`evaporation`] uses [`crate::utilities::antoine`]
+//!   that module or `jos3.py`; [`evaporation`] uses [`crate::psychrometrics::antoine`]
 //!   instead, matching Python's actual (not merely documented) behavior.
 //!
 //! # Deviations from the Python source
@@ -65,7 +65,8 @@ use libm::{fabs, pow};
 use super::construction;
 use super::matrix::IDICT;
 use super::parameters::{NUM_BODY_PARTS, defaults};
-use crate::utilities::{BsaFormula, antoine, np_maximum, np_minimum, py_max, py_min};
+use crate::psychrometrics::antoine;
+use crate::utilities::{BsaFormula, np_maximum, np_minimum, py_max, py_min};
 use crate::{BmrEquation, Sex, Temperature};
 
 // ---------------------------------------------------------------------------
@@ -811,23 +812,23 @@ pub(crate) fn shivering(
     let mut sig_shiv = 24.36 * clds * (-err_cr[0]);
     sig_shiv = py_max(sig_shiv, 0.0);
 
-    if let Some(opts) = options {
-        if opts.shivering_threshold {
-            // Asaka, 2016
-            // Threshold of starting shivering
-            let tskm = weighted_average(&t_skin, &defaults::LOCAL_BSA); // Mean skin temp.
-            let thres = if tskm < 31.0 {
-                36.6
-            } else {
-                match sex {
-                    Sex::Male => -0.2436 * tskm + 44.10,
-                    Sex::Female => -0.2250 * tskm + 43.05,
-                }
-            };
-            // Second threshold of starting shivering
-            if thres < t_core[0] {
-                sig_shiv = 0.0;
+    if let Some(opts) = options
+        && opts.shivering_threshold
+    {
+        // Asaka, 2016
+        // Threshold of starting shivering
+        let tskm = weighted_average(&t_skin, &defaults::LOCAL_BSA); // Mean skin temp.
+        let thres = if tskm < 31.0 {
+            36.6
+        } else {
+            match sex {
+                Sex::Male => -0.2436 * tskm + 44.10,
+                Sex::Female => -0.2250 * tskm + 43.05,
             }
+        };
+        // Second threshold of starting shivering
+        if thres < t_core[0] {
+            sig_shiv = 0.0;
         }
     }
 

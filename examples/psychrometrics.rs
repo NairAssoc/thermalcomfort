@@ -1,20 +1,18 @@
 //! Psychrometrics and body geometry example
 //!
 //! Demonstrates the moist-air property functions (saturation pressure in its several
-//! forms, wet-bulb and dew-point temperature, humidity ratio and enthalpy), the
-//! derived environmental temperatures (mean radiant and operative), and body surface
-//! area.
+//! forms, wet-bulb and dew-point temperature, humidity ratio and enthalpy) and body
+//! surface area. The environmental temperatures derived from them (mean radiant and
+//! operative) are in the `environment` example.
 
 use thermalcomfort::psychrometrics::{
-    MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
-    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
-    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat, p_sat_torr,
+    psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, antoine, body_surface_area,
-    body_surface_area_dubois, hr_to_rh, p_sat, p_sat_torr,
+    BodySurfaceAreaOptions, BsaFormula, body_surface_area, body_surface_area_dubois,
 };
-use thermalcomfort::{Humidity, Length, Mass, Pressure, Speed, Temperature};
+use thermalcomfort::{Humidity, Length, Mass, Pressure, Temperature};
 
 fn main() {
     println!("=== Psychrometrics ===\n");
@@ -46,7 +44,7 @@ fn main() {
 
     // --- Full psychrometric state ---
     println!("\n--- Psychrometric state (psy_ta_rh) ---");
-    let state = psy_ta_rh(PsyTaRhInputs { tdb, rh }, Default::default());
+    let state = psy_ta_rh(tdb, rh, Default::default());
     println!("  Vapour pressure:      {:.1} Pa", state.p_vap.as_pascals());
     println!("  Humidity ratio:       {:.4} kg/kg dry air", state.hr);
     println!("  Wet-bulb temperature: {:.1}°C", state.t_wb.as_celsius());
@@ -59,10 +57,7 @@ fn main() {
     // The same air at 1500 m altitude: a lower atmospheric pressure raises the
     // humidity ratio for the same relative humidity.
     let p_altitude = Pressure::from_pascals(84_556.0);
-    let state_altitude = psy_ta_rh(
-        PsyTaRhInputs { tdb, rh },
-        PsyTaRhOptions { p_atm: p_altitude },
-    );
+    let state_altitude = psy_ta_rh(tdb, rh, PsyTaRhOptions { p_atm: p_altitude });
     println!(
         "  At {:.1} kPa (1500 m): humidity ratio {:.4} kg/kg",
         p_altitude.as_pascals() / 1000.0,
@@ -90,53 +85,6 @@ fn main() {
         rh.as_percent()
     );
 
-    // --- Mean radiant temperature from a globe thermometer ---
-    println!("\n--- Mean radiant temperature from a globe reading ---");
-    // A 150 mm black globe reads 30 °C in 26 °C air moving at 0.5 m/s. The default
-    // method is the mixed-convection correlation; ISO 7726's forced/natural split is
-    // available as an option.
-    let globe = MeanRadiantTemperatureInputs {
-        tg: Temperature::from_celsius(30.0),
-        tdb: Temperature::from_celsius(26.0),
-        v: Speed::from_meters_per_second(0.5),
-    };
-    println!(
-        "Globe {:.0}°C, air {:.0}°C, {:.1} m/s, 150 mm globe\n",
-        globe.tg.as_celsius(),
-        globe.tdb.as_celsius(),
-        globe.v.as_meters_per_second()
-    );
-    let tr_mixed = mean_radiant_temperature(globe, Default::default());
-    let tr_iso = mean_radiant_temperature(
-        globe,
-        MeanRadiantTemperatureOptions {
-            use_iso: true,
-            ..Default::default()
-        },
-    );
-    println!("  Mixed convection: {:.1}°C", tr_mixed.as_celsius());
-    println!("  ISO 7726:         {:.1}°C", tr_iso.as_celsius());
-
-    // --- Operative temperature ---
-    println!("\n--- Operative temperature ---");
-    // Air and radiant temperature weighted by air speed. The ISO form weights by
-    // sqrt(10 v); ASHRAE 55 uses stepped coefficients.
-    for v_ms in [0.1, 0.4, 1.0] {
-        let inputs = OperativeTemperatureInputs {
-            tdb: Temperature::from_celsius(24.0),
-            tr: tr_mixed,
-            v: Speed::from_meters_per_second(v_ms),
-        };
-        let to_iso = operative_temperature(inputs, Default::default());
-        let to_ashrae =
-            operative_temperature(inputs, OperativeTemperatureOptions { use_ashrae: true });
-        println!(
-            "  {v_ms:.1} m/s: ISO {:.1}°C, ASHRAE {:.1}°C",
-            to_iso.as_celsius(),
-            to_ashrae.as_celsius()
-        );
-    }
-
     // --- Body surface area ---
     println!("\n--- Body surface area ---");
     let weight = Mass::from_kilograms(70.0);
@@ -156,10 +104,7 @@ fn main() {
         BsaFormula::Fujimoto,
         BsaFormula::Kurazumi,
     ] {
-        let bsa = body_surface_area(
-            BodySurfaceAreaInputs { weight, height },
-            BodySurfaceAreaOptions { formula },
-        );
+        let bsa = body_surface_area(weight, height, BodySurfaceAreaOptions { formula });
         println!(
             "  {:<9}         {:.3} m²",
             format!("{formula:?}"),

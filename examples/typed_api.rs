@@ -4,9 +4,9 @@
 //! actually measured in, read results back in the units you want, and comparisons that would
 //! be unit errors elsewhere are either impossible to write or converted for you.
 
+use thermalcomfort::environment::v_relative;
 use thermalcomfort::models::pmv::PmvPpdInputs;
 use thermalcomfort::models::{pmv_ppd_ashrae, pmv_ppd_iso};
-use thermalcomfort::utilities::v_relative;
 use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 fn main() {

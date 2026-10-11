@@ -6,12 +6,25 @@
 mod support;
 
 use approx::assert_abs_diff_eq;
+use core::num::NonZeroU32;
 use core::time::Duration;
 use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
 use support::sweep::{assert_reference_version, import_reference};
+use thermalcomfort::clothing::{
+    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeOptions, CloDynamicIsoOptions,
+    CloInsulationAirLayerInputs, CloTotalInsulationInputs, clo_area_factor,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation,
+};
+use thermalcomfort::environment::{
+    FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
+    OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
+    ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature, operative_temperature,
+    running_mean_outdoor_temperature, scale_wind_speed_log, transpose_sharp_altitude, v_relative,
+};
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
@@ -19,40 +32,29 @@ use thermalcomfort::models::pmv::{
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions,
 };
 use thermalcomfort::models::specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
-    VerticalTmpGradPpdOptions, f_svv,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
 use thermalcomfort::models::{
-    AtInputs, CoolingEffectInputs, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs,
-    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesSleepOptions, HeatIndexLuInputs,
-    HeatIndexLuOptions, HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs,
-    HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs,
-    PetOptions, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs,
-    SolarGainInputs, SolarGainOptions, SolarGainPosture, SportsHeatStressRiskInputs, ThiInputs,
+    CoolingEffectInputs, DurationLimitedExposure, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs,
+    GaggeTwoNodesSleepOptions, HeatIndexLuOptions, HumidexModel, HumidexOptions, IreqInputs,
+    IreqOptions, Iso7933Model, PetInputs, PetOptions, PhsInputs, PhsOptions, PhsPosture, SetInputs,
+    SleepInputs, SolarGainInputs, SolarGainOptions, SolarGainPosture, SportsHeatStressRiskInputs,
     UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
-    WbgtOptions, WciInputs, WindChillTemperatureInputs, WorkCapacityIntensityOptions,
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
-    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, thi, transpose_sharp_altitude, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci,
-    wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps, work_capacity_iso,
-    work_capacity_niosh,
+    WbgtOptions, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en,
+    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
+    heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, two_nodes_gagge,
+    two_nodes_gagge_ji, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd,
+    wbgt, wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps,
+    work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
-    MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions, OperativeTemperatureInputs,
-    OperativeTemperatureOptions, PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature,
-    enthalpy_air, mean_radiant_temperature, operative_temperature, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat, p_sat_torr,
+    psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
-    CLO_TYPICAL_ENSEMBLES, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
-    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
-    CloInsulationAirLayerInputs, CloTotalInsulationInputs, RunningMeanOutdoorTemperatureOptions,
-    Units, antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
-    clo_dynamic_ashrae, clo_individual_garment, clo_insulation_air_layer,
-    clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Units,
+    body_surface_area, clo_individual_garment, clo_tout, clo_typical_ensemble,
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
@@ -71,7 +73,7 @@ use thermalcomfort::{
 /// version-bump workflow), so `CARGO_PKG_VERSION` is the single source of truth.
 #[test]
 fn test_pythermalcomfort_version_matches_crate() {
-    Python::with_gil(assert_reference_version);
+    Python::attach(assert_reference_version);
 }
 
 /// Extract a category/label field from a pythermalcomfort result.
@@ -90,17 +92,17 @@ fn extract_category(obj: &Bound<'_, PyAny>) -> Option<String> {
         if let Ok(s) = item.extract::<String>() {
             return Some(s);
         }
-        if let Ok(f) = item.extract::<f64>() {
-            if f.is_nan() {
-                return None;
-            }
+        if let Ok(f) = item.extract::<f64>()
+            && f.is_nan()
+        {
+            return None;
         }
     }
     // Bare float nan
-    if let Ok(f) = obj.extract::<f64>() {
-        if f.is_nan() {
-            return None;
-        }
+    if let Ok(f) = obj.extract::<f64>()
+        && f.is_nan()
+    {
+        return None;
     }
     panic!(
         "could not interpret category field: {obj:?}.\n\
@@ -167,7 +169,7 @@ fn describe_field(obj: &Bound<'_, PyAny>) -> String {
 
 #[test]
 fn test_pmv_ppd_iso_standard_conditions() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -248,7 +250,7 @@ fn test_pmv_ppd_iso_standard_conditions() {
 
 #[test]
 fn test_pmv_ppd_iso_extreme_conditions() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -327,7 +329,7 @@ fn test_pmv_ppd_iso_extreme_conditions() {
 
 #[test]
 fn test_pmv_ppd_ashrae() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -396,7 +398,7 @@ fn test_pmv_ppd_ashrae() {
 
 #[test]
 fn test_compare_heat_index_schoen() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -422,10 +424,8 @@ fn test_compare_heat_index_schoen() {
             let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
             let rust_result = heat_index_schoen(
-                HeatIndexSchoenInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -441,7 +441,7 @@ fn test_compare_heat_index_schoen() {
 
 #[test]
 fn test_compare_ireq() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -527,7 +527,7 @@ fn test_compare_ireq() {
 
 #[test]
 fn test_compare_transpose_sharp_altitude() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -559,7 +559,7 @@ fn test_compare_transpose_sharp_altitude() {
 
 #[test]
 fn test_compare_saturation_pressures() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -580,11 +580,11 @@ fn test_compare_saturation_pressures() {
                 call("p_sat"),
                 epsilon = 0.1
             );
-            // Python returns torr here; the Rust port normalises to Pa
+            // Python returns torr here; the Rust port returns a `Pressure`, read back in torr
             assert_abs_diff_eq!(
-                p_sat_torr(Temperature::from_celsius(tdb)).as_pascals(),
-                call("p_sat_torr") * 133.322,
-                epsilon = 0.1
+                p_sat_torr(Temperature::from_celsius(tdb)).as_torrs(),
+                call("p_sat_torr"),
+                epsilon = 1e-9
             );
             // Python's antoine returns kPa; the Rust port returns a `Pressure`
             assert_abs_diff_eq!(
@@ -598,7 +598,7 @@ fn test_compare_saturation_pressures() {
 
 #[test]
 fn test_compare_enthalpy_air() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -625,7 +625,7 @@ fn test_compare_enthalpy_air() {
 
 #[test]
 fn test_compare_f_svv() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -656,7 +656,7 @@ fn test_compare_f_svv() {
 
 #[test]
 fn test_compare_clo_area_factor() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -677,7 +677,7 @@ fn test_compare_clo_area_factor() {
 
 #[test]
 fn test_compare_operative_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -715,7 +715,7 @@ fn test_compare_operative_temperature() {
 
 #[test]
 fn test_compare_body_surface_area() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -735,10 +735,8 @@ fn test_compare_body_surface_area() {
                     .unwrap();
 
                 let rust_bsa = body_surface_area(
-                    BodySurfaceAreaInputs {
-                        weight: Mass::from_kilograms(weight),
-                        height: Length::from_meters(height),
-                    },
+                    Mass::from_kilograms(weight),
+                    Length::from_meters(height),
                     BodySurfaceAreaOptions { formula },
                 );
                 assert_abs_diff_eq!(rust_bsa.as_square_meters(), py_bsa, epsilon = 1e-6);
@@ -749,7 +747,7 @@ fn test_compare_body_surface_area() {
 
 #[test]
 fn test_compare_clo_insulation_helpers() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -821,7 +819,7 @@ fn test_compare_clo_insulation_helpers() {
 
 #[test]
 fn test_compare_clo_dynamic_ashrae() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -843,10 +841,8 @@ fn test_compare_clo_dynamic_ashrae() {
                 .unwrap();
 
             let rust_clo = clo_dynamic_ashrae(
-                CloDynamicAshraeInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                },
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
                 CloDynamicAshraeOptions::default(),
             );
             assert_abs_diff_eq!(rust_clo.as_clo(), py_clo, epsilon = 1e-6);
@@ -856,7 +852,7 @@ fn test_compare_clo_dynamic_ashrae() {
 
 #[test]
 fn test_compare_mean_radiant_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -907,7 +903,7 @@ fn test_compare_mean_radiant_temperature() {
 
 #[test]
 fn test_compare_running_mean_outdoor_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -961,7 +957,7 @@ fn test_compare_running_mean_outdoor_temperature() {
 
 #[test]
 fn test_compare_use_fans_heatwaves() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1049,7 +1045,7 @@ fn test_compare_use_fans_heatwaves() {
 
 #[test]
 fn test_compare_hr_to_rh() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1084,7 +1080,7 @@ fn test_compare_hr_to_rh() {
 
 #[test]
 fn test_compare_clo_dynamic_iso() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1108,12 +1104,10 @@ fn test_compare_clo_dynamic_iso() {
                 .extract()
                 .unwrap();
 
-            let rust_clo_dyn = thermalcomfort::utilities::clo_dynamic_iso(
-                CloDynamicIsoInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                    v: Speed::from_meters_per_second(v),
-                },
+            let rust_clo_dyn = thermalcomfort::clothing::clo_dynamic_iso(
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+                Speed::from_meters_per_second(v),
                 CloDynamicIsoOptions::default(),
             );
 
@@ -1124,7 +1118,7 @@ fn test_compare_clo_dynamic_iso() {
 
 #[test]
 fn test_v_relative() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1165,7 +1159,7 @@ fn test_v_relative() {
 
 #[test]
 fn test_wet_bulb_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1204,7 +1198,7 @@ fn test_wet_bulb_temperature() {
 
 #[test]
 fn test_dew_point_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1242,7 +1236,7 @@ fn test_dew_point_temperature() {
 
 #[test]
 fn test_psychrometrics() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal_utils = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -1283,10 +1277,8 @@ fn test_psychrometrics() {
 
             // Call Rust function
             let rust_result = psy_ta_rh(
-                PsyTaRhInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 PsyTaRhOptions {
                     p_atm: Pressure::from_pascals(p_atm),
                 },
@@ -1327,7 +1319,7 @@ fn test_psychrometrics() {
 
 #[test]
 fn test_pmv_ppd_iso_outside_limits() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1404,7 +1396,7 @@ fn test_pmv_ppd_iso_outside_limits() {
 /// quietly testing an interior point.
 #[test]
 fn test_pmv_tsv_band_edges_iso_versus_ashrae() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1511,7 +1503,7 @@ fn test_pmv_tsv_band_edges_iso_versus_ashrae() {
 /// substitution is untestable rather than untested; do not add a case chasing it.
 #[test]
 fn test_pmv_compliance_band_edges() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1607,7 +1599,7 @@ fn test_pmv_compliance_band_edges() {
 
 #[test]
 fn test_pmv_sequential_scenarios() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1648,7 +1640,7 @@ fn test_pmv_sequential_scenarios() {
 
 #[test]
 fn test_compare_two_nodes_gagge() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1761,7 +1753,7 @@ fn test_compare_two_nodes_gagge() {
 
 #[test]
 fn test_compare_utci() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -1840,21 +1832,24 @@ fn test_compare_utci() {
 /// Every band here is right-inclusive: the value on the edge belongs to the *lower* band.
 #[test]
 fn test_banded_indices_at_exact_edges() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
         // (tdb, the index value it produces, the category on that edge)
+        // Scanned against 4.6.1, whose corrected vapour-pressure term moved every edge
+        // input by a few hundredths of a degree; each sits mid-way through the ~0.1 °C
+        // window of inputs that round onto the edge.
         let utci_cases = [
-            (-39.320, -40.0, "extreme cold stress"),
-            (-25.654, -27.0, "very strong cold stress"),
-            (-11.208, -13.0, "strong cold stress"),
-            (0.694, 0.0, "moderate cold stress"),
-            (9.284, 9.0, "slight cold stress"),
-            (26.188, 26.0, "no thermal stress"),
-            (31.332, 32.0, "moderate heat stress"),
-            (36.054, 38.0, "strong heat stress"),
-            (41.312, 46.0, "very strong heat stress"),
+            (-39.273, -40.0, "extreme cold stress"),
+            (-25.603, -27.0, "very strong cold stress"),
+            (-11.157, -13.0, "strong cold stress"),
+            (0.750, 0.0, "moderate cold stress"),
+            (9.346, 9.0, "slight cold stress"),
+            (26.259, 26.0, "no thermal stress"),
+            (31.406, 32.0, "moderate heat stress"),
+            (36.135, 38.0, "strong heat stress"),
+            (41.417, 46.0, "very strong heat stress"),
         ];
         for (tdb, edge, expected) in utci_cases {
             let label = format!("utci edge {edge}");
@@ -1917,10 +1912,8 @@ fn test_banded_indices_at_exact_edges() {
             let py_category = extract_category(&py_result.getattr("discomfort").unwrap());
 
             let rust = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(50.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(50.0),
                 HumidexOptions::default(),
             );
 
@@ -1940,6 +1933,10 @@ fn test_banded_indices_at_exact_edges() {
             );
         }
 
+        // Since 4.6.0 the heat index bands the *unrounded* value, so a rounded value on
+        // the edge no longer proves inclusivity: these inputs sit just below each edge
+        // (26.95, 31.95, ...) and pin the lower band; the just-above side is pinned by
+        // `test_heat_index_categories_use_unrounded_value`.
         let hi_cases = [
             (26.4790, 27.0, "no risk"),
             (30.5885, 32.0, "caution"),
@@ -1960,10 +1957,8 @@ fn test_banded_indices_at_exact_edges() {
             let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
             let rust = heat_index_rothfusz(
-                HeatIndexRothfuszInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(50.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(50.0),
                 thermalcomfort::models::HeatIndexRothfuszOptions {
                     limit_inputs: false,
                     ..Default::default()
@@ -2056,7 +2051,7 @@ fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
     use thermalcomfort::models::GaggePosture;
     use thermalcomfort::models::GaggeTwoNodesOptions;
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2156,7 +2151,7 @@ fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
 fn test_sports_risk_level_floor_nudge_and_ceiling() {
     use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
             .expect("Failed to import sports_heat_stress_risk");
         let py_func = sports_mod.getattr("sports_heat_stress_risk").unwrap();
@@ -2240,7 +2235,7 @@ fn test_sports_risk_level_floor_nudge_and_ceiling() {
 ///   that discriminates -- any tolerance down to 1e-4 flips it.
 #[test]
 fn test_use_fans_heatwaves_strain_flags_at_the_caps() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2351,7 +2346,7 @@ fn test_use_fans_heatwaves_strain_flags_at_the_caps() {
 /// table, the same divergence found via `adaptive_en`, in a place where it bites harder.
 #[test]
 fn test_ireq_dle_at_the_eight_hour_ceiling() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2455,7 +2450,7 @@ fn test_ireq_dle_at_the_eight_hour_ceiling() {
 /// exactly, which is the failure mode this whole worklist item exists to prevent.
 #[test]
 fn test_adaptive_acceptability_at_band_bounds() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2605,8 +2600,8 @@ fn test_adaptive_acceptability_at_band_bounds() {
 }
 
 /// `discomfort_index` bands the *unrounded* DI and rounds only the reported value --
-/// the opposite order from `utci`, `humidex` and `heat_index_rothfusz`, which round
-/// first and band the rounded value.
+/// the opposite order from `utci` and `humidex`, which round first and band the rounded
+/// value (the heat indices switched to the unrounded order in 4.6.0).
 ///
 /// Both inputs below report `di = 21.0` and yet fall in **different** bands, because
 /// their unrounded DI straddles 21.0. A port that banded the rounded value would give
@@ -2622,7 +2617,7 @@ fn test_adaptive_acceptability_at_band_bounds() {
 /// written down as intentional rather than incidental.
 #[test]
 fn test_discomfort_index_bands_before_rounding() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2642,10 +2637,8 @@ fn test_discomfort_index_bands_before_rounding() {
             let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
             let py_category = extract_category(&py_result.getattr("discomfort_condition").unwrap());
 
-            let rust = discomfort_index(DiscomfortIndexInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(50.0),
-            });
+            let rust =
+                discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(50.0));
 
             assert_eq!(
                 py_di, 21.0,
@@ -2675,7 +2668,7 @@ fn test_discomfort_index_bands_before_rounding() {
 /// return NaN and the comparison is vacuous.
 #[test]
 fn test_compare_utci_ip_units() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2716,7 +2709,7 @@ fn test_compare_utci_ip_units() {
 
 #[test]
 fn test_compare_pmv_a() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2755,7 +2748,7 @@ fn test_compare_pmv_a() {
 
 #[test]
 fn test_compare_pmv_e() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2794,7 +2787,7 @@ fn test_compare_pmv_e() {
 
 #[test]
 fn test_compare_pmv_athb() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2833,7 +2826,7 @@ fn test_compare_pmv_athb() {
 
 #[test]
 fn test_compare_set_tmp() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2876,7 +2869,7 @@ fn test_compare_set_tmp() {
 
 #[test]
 fn test_compare_cooling_effect() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -2913,7 +2906,7 @@ fn test_compare_cooling_effect() {
 
 #[test]
 fn test_compare_adaptive_ashrae() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3017,7 +3010,7 @@ fn test_compare_adaptive_ashrae() {
 
 #[test]
 fn test_compare_adaptive_en() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3155,7 +3148,7 @@ fn test_compare_adaptive_round_output_false() {
     // round_output=False the unrounded t_cmf and derived bounds must agree with
     // pythermalcomfort. Inputs are chosen so the unrounded value differs from
     // the rounded one (e.g. trm=27 → ashrae t_cmf=26.17, not 26.2).
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3311,7 +3304,7 @@ fn test_compare_adaptive_round_output_false() {
 /// pythermalcomfort rather than trusting a derived Celsius comparison.
 #[test]
 fn test_compare_adaptive_ip_units() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3382,7 +3375,7 @@ fn test_compare_adaptive_ip_units() {
 
 #[test]
 fn test_compare_wbgt() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3415,7 +3408,7 @@ fn test_compare_wbgt() {
 
 #[test]
 fn test_compare_heat_index_rothfusz() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3443,10 +3436,8 @@ fn test_compare_heat_index_rothfusz() {
                 py_result.getattr("stress_category").unwrap().extract().ok();
 
             let rust_result = heat_index_rothfusz(
-                HeatIndexRothfuszInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3464,7 +3455,7 @@ fn test_compare_heat_index_rothfusz() {
 
 #[test]
 fn test_compare_heat_index_lu() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3480,10 +3471,8 @@ fn test_compare_heat_index_lu() {
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
             let rust_result = heat_index_lu(
-                HeatIndexLuInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3499,7 +3488,7 @@ fn test_compare_heat_index_lu() {
 /// pythermalcomfort's `round_output` keyword.
 #[test]
 fn test_compare_heat_index_lu_round_output() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3517,10 +3506,8 @@ fn test_compare_heat_index_lu_round_output() {
                 let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
                 let rust_result = heat_index_lu(
-                    HeatIndexLuInputs {
-                        tdb: Temperature::from_celsius(tdb),
-                        rh: Humidity::from_percent(rh),
-                    },
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(rh),
                     HeatIndexLuOptions { round_output },
                 );
 
@@ -3532,7 +3519,7 @@ fn test_compare_heat_index_lu_round_output() {
 
 #[test]
 fn test_compare_humidex() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3559,10 +3546,8 @@ fn test_compare_humidex() {
                 .expect("humidex always yields a discomfort category");
 
             let rust_result = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3583,7 +3568,7 @@ fn test_compare_humidex() {
 /// here. Keep it covered alongside the default Rana model above.
 #[test]
 fn test_compare_humidex_masterson() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3608,10 +3593,8 @@ fn test_compare_humidex_masterson() {
                 .expect("humidex always yields a discomfort category");
 
             let rust_result = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HumidexOptions {
                     model: HumidexModel::Masterson,
                     round_output: true,
@@ -3632,7 +3615,7 @@ fn test_compare_humidex_masterson() {
 
 #[test]
 fn test_compare_thi() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3644,10 +3627,8 @@ fn test_compare_thi() {
             let py_thi: f64 = py_result.getattr("thi").unwrap().extract().unwrap();
 
             let rust_result = thi(
-                ThiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3658,7 +3639,7 @@ fn test_compare_thi() {
 
 #[test]
 fn test_compare_discomfort_index() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3688,10 +3669,8 @@ fn test_compare_discomfort_index() {
                 .extract()
                 .unwrap();
 
-            let rust_result = discomfort_index(DiscomfortIndexInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(rh),
-            });
+            let rust_result =
+                discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             assert_abs_diff_eq!(rust_result.di, py_di, epsilon = 0.1);
             assert_eq!(
@@ -3707,7 +3686,7 @@ fn test_compare_discomfort_index() {
 
 #[test]
 fn test_compare_at() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3723,11 +3702,9 @@ fn test_compare_at() {
             let py_at: f64 = py_result.getattr("at").unwrap().extract().unwrap();
 
             let rust_result = at(
-                AtInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3738,7 +3715,7 @@ fn test_compare_at() {
 
 #[test]
 fn test_compare_net() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3754,11 +3731,9 @@ fn test_compare_net() {
             let py_net: f64 = py_result.getattr("net").unwrap().extract().unwrap();
 
             let rust_result = net(
-                NetInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3769,7 +3744,7 @@ fn test_compare_net() {
 
 #[test]
 fn test_compare_esi() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3785,11 +3760,9 @@ fn test_compare_esi() {
             let py_esi: f64 = py_result.getattr("esi").unwrap().extract().unwrap();
 
             let rust_result = esi(
-                EsiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(0.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                HeatFluxDensity::from_watts_per_square_meter(0.0),
                 Default::default(),
             );
 
@@ -3800,7 +3773,7 @@ fn test_compare_esi() {
 
 #[test]
 fn test_compare_wci() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3812,10 +3785,8 @@ fn test_compare_wci() {
             let py_wci: f64 = py_result.getattr("wci").unwrap().extract().unwrap();
 
             let rust_result = wci(
-                WciInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3830,7 +3801,7 @@ fn test_compare_wci() {
 
 #[test]
 fn test_compare_wind_chill_temperature() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3846,10 +3817,8 @@ fn test_compare_wind_chill_temperature() {
             let py_wct: f64 = py_result.getattr("wct").unwrap().extract().unwrap();
 
             let rust_result = wind_chill_temperature(
-                WindChillTemperatureInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_kilometers_per_hour(v), // Python expects km/h
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_kilometers_per_hour(v),
                 Default::default(),
             );
 
@@ -3860,7 +3829,7 @@ fn test_compare_wind_chill_temperature() {
 
 #[test]
 fn test_compare_work_capacity_iso() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3885,7 +3854,7 @@ fn test_compare_work_capacity_iso() {
 
 #[test]
 fn test_compare_work_capacity_niosh() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3910,7 +3879,7 @@ fn test_compare_work_capacity_niosh() {
 
 #[test]
 fn test_compare_work_capacity_dunne() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3946,7 +3915,7 @@ fn test_compare_work_capacity_dunne() {
 
 #[test]
 fn test_compare_work_capacity_hothaps() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -3982,7 +3951,7 @@ fn test_compare_work_capacity_hothaps() {
 
 #[test]
 fn test_compare_ankle_draft() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4020,7 +3989,7 @@ fn test_compare_ankle_draft() {
 
 #[test]
 fn test_compare_vertical_tmp_grad_ppd() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4061,7 +4030,7 @@ fn test_compare_vertical_tmp_grad_ppd() {
 
 #[test]
 fn test_compare_solar_gain() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4141,7 +4110,7 @@ fn test_compare_solar_gain() {
 
 #[test]
 fn test_compare_clo_tout() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4173,7 +4142,7 @@ fn test_compare_clo_tout() {
 
 #[test]
 fn test_readme_example_basic_pmv_ppd() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4225,7 +4194,7 @@ fn test_readme_example_basic_pmv_ppd() {
 
 #[test]
 fn test_scenario_psychrometric() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pyutil = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -4253,10 +4222,8 @@ fn test_scenario_psychrometric() {
 
         // Rust calculation
         let psychro = psy_ta_rh(
-            PsyTaRhInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(rh),
-            },
+            Temperature::from_celsius(tdb),
+            Humidity::from_percent(rh),
             PsyTaRhOptions {
                 p_atm: Pressure::from_pascals(p_atm),
             },
@@ -4280,7 +4247,7 @@ fn test_scenario_psychrometric() {
 
 #[test]
 fn test_scenario_custom_pmv_options() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4320,7 +4287,7 @@ fn test_scenario_custom_pmv_options() {
 
 #[test]
 fn test_scenario_set() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4361,7 +4328,7 @@ fn test_scenario_set() {
 
 #[test]
 fn test_scenario_cooling_effect() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4400,7 +4367,7 @@ fn test_scenario_cooling_effect() {
 
 #[test]
 fn test_scenario_utci() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4449,13 +4416,13 @@ fn test_scenario_utci() {
 
 #[test]
 fn test_clothing_typical_ensembles() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
         // Get Python's typical ensembles dictionary
         let ensembles_obj = pythermal.getattr("clo_typical_ensembles").unwrap();
-        let py_ensembles = ensembles_obj.downcast::<pyo3::types::PyDict>().unwrap();
+        let py_ensembles = ensembles_obj.cast::<pyo3::types::PyDict>().unwrap();
 
         // Test all ensembles match
         for (name, clo) in CLO_TYPICAL_ENSEMBLES.iter() {
@@ -4487,13 +4454,13 @@ fn test_clothing_typical_ensembles() {
 
 #[test]
 fn test_clothing_individual_garments() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
         // Get Python's individual garments dictionary
         let garments_obj = pythermal.getattr("clo_individual_garments").unwrap();
-        let py_garments = garments_obj.downcast::<pyo3::types::PyDict>().unwrap();
+        let py_garments = garments_obj.cast::<pyo3::types::PyDict>().unwrap();
 
         // Test all garments match
         for (name, clo) in CLO_INDIVIDUAL_GARMENTS.iter() {
@@ -4520,7 +4487,7 @@ fn test_clothing_individual_garments() {
 
 #[test]
 fn test_clo_intrinsic_insulation_ensemble_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -4573,7 +4540,7 @@ type SleepCase = (
 
 #[test]
 fn test_two_nodes_gagge_sleep_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4747,7 +4714,7 @@ fn test_two_nodes_gagge_sleep_comparison() {
 /// so it survives the rounding. The first assertion guards that it still does.
 #[test]
 fn test_two_nodes_gagge_sleep_follows_upstream_secant_runaway() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4860,7 +4827,7 @@ fn test_two_nodes_gagge_sleep_follows_upstream_secant_runaway() {
             GaggeTwoNodesSleepOptions {
                 wme: MetabolicRate::from_met(wme),
                 p_atm: Pressure::from_pascals(p_atm),
-                ltime,
+                ltime: NonZeroU32::new(ltime).unwrap(),
                 height: Length::from_centimeters(height),
                 weight: Mass::from_kilograms(weight),
                 c_sw,
@@ -4889,7 +4856,7 @@ fn test_two_nodes_gagge_sleep_follows_upstream_secant_runaway() {
 
 #[test]
 fn test_clo_tout_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4924,7 +4891,7 @@ fn test_clo_tout_comparison() {
 
 #[test]
 fn test_antoine_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.utilities")
             .expect("Failed to import pythermalcomfort.utilities");
 
@@ -4957,7 +4924,7 @@ fn test_antoine_comparison() {
 
 #[test]
 fn test_ridge_regression_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -4982,15 +4949,13 @@ fn test_ridge_regression_comparison() {
 
         // Call Rust function
         let rust_result = ridge_regression_predict_t_re_t_sk(
-            RidgeRegressionInputs {
-                sex: Sex::Male,
-                age: Age::from_years(60.0),
-                height: Length::from_meters(1.8),
-                weight: Mass::from_kilograms(75.0),
-                tdb: Temperature::from_celsius(35.0),
-                rh: Humidity::from_percent(60.0),
-                duration: Duration::from_secs(60 * 60),
-            },
+            Sex::Male,
+            Age::from_years(60.0),
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(60.0),
+            Duration::from_secs(60 * 60),
             Default::default(),
         );
 
@@ -5045,7 +5010,7 @@ fn test_ridge_regression_comparison() {
 
 #[test]
 fn test_two_nodes_gagge_ji_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
         let pyutil = import_reference(py, "pythermalcomfort.utilities")
@@ -5139,7 +5104,7 @@ fn test_two_nodes_gagge_ji_comparison() {
 
 #[test]
 fn test_pet_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5205,7 +5170,7 @@ fn test_pet_comparison() {
 /// unreachable before `PetOptions::forced_convection` existed.
 #[test]
 fn test_pet_forced_convection_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5249,7 +5214,7 @@ fn test_pet_forced_convection_comparison() {
 
 #[test]
 fn test_phs_iso2023_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5338,7 +5303,7 @@ fn test_phs_iso2023_comparison() {
 
 #[test]
 fn test_phs_iso2004_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5403,7 +5368,7 @@ fn test_phs_iso2004_comparison() {
 
 #[test]
 fn test_phs_short_duration() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5483,7 +5448,7 @@ fn test_phs_short_duration() {
 /// case fires on minute 1 exactly, not minute 0 or 2.
 #[test]
 fn test_phs_minute_one_skin_temperature_special_case() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let pythermal = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -5565,7 +5530,7 @@ fn test_phs_minute_one_skin_temperature_special_case() {
 fn test_sports_heat_stress_risk_comparison() {
     use thermalcomfort::models::sports_heat_stress_risk::{Sports, sports_heat_stress_risk};
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
             .expect("Failed to import sports_heat_stress_risk module");
         let py_sports_class = sports_mod
@@ -5695,7 +5660,7 @@ fn test_sports_heat_stress_risk_nan_tdb_matches_python_raise() {
         Sports, SportsHeatStressRiskError, sports_heat_stress_risk,
     };
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let sports_mod = import_reference(py, "pythermalcomfort.models.sports_heat_stress_risk")
             .expect("Failed to import sports_heat_stress_risk module");
         let py_sports_class = sports_mod
@@ -6126,7 +6091,7 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
 /// for every combination, not just the constructor's own steady-state search.
 #[test]
 fn test_jos3_constructor_variation_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -6270,7 +6235,7 @@ fn test_jos3_constructor_variation_comparison() {
 /// the collapsed variant is what keeps that claim under test.
 #[test]
 fn test_jos3_posture_variants_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -6333,7 +6298,7 @@ fn test_jos3_posture_variants_comparison() {
 /// untouched between `simulate` calls.
 #[test]
 fn test_jos3_multiphase_run_comparison() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("Failed to import pythermalcomfort.models");
 
@@ -6494,6 +6459,596 @@ fn test_jos3_multiphase_run_comparison() {
                 .unwrap_or_else(|e| panic!("{}: phase 3 advance failed: {e}", subject.label));
 
             assert_jos3_matches_python(&py_model, rust_model.results(), subject.label);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------------------
+// Fixtures introduced by pythermalcomfort 4.4.3 – 4.6.1. Each pins the behaviour that
+// release changed, against upstream's own expected values as well as the live reference,
+// so a regression to the earlier behaviour fails without the sweep having to find it.
+// ---------------------------------------------------------------------------------------
+
+/// 4.4.3 replaced `log1p` with `log` in the Hardy/Wexler saturation vapour pressure,
+/// which moved every UTCI value upstream had documented. These are the IP expectations
+/// from upstream's `test_utci.py`, where the 0.1 °C change is visible after rounding.
+#[test]
+fn test_utci_hardy_wexler_fixtures() {
+    Python::attach(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+        let kwargs = [("units", "IP")].into_py_dict(py).unwrap();
+
+        for (tdb_f, expected) in [(77.0, 76.3), (104.0, 110.5)] {
+            let py_utci: f64 = pythermal
+                .getattr("utci")
+                .unwrap()
+                .call((tdb_f, tdb_f, 3.28084, 50.0), Some(&kwargs))
+                .unwrap()
+                .getattr("utci")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let rust = utci(
+                UtciInputs {
+                    tdb: Temperature::from_fahrenheit(tdb_f),
+                    tr: Temperature::from_fahrenheit(tdb_f),
+                    v: Speed::from_meters_per_second(3.28084 * 0.3048),
+                    rh: Humidity::from_percent(50.0),
+                },
+                UtciOptions {
+                    units: Units::IP,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(py_utci, expected, "reference drifted at {tdb_f} °F");
+            assert_eq!(rust.utci, expected, "utci IP fixture at {tdb_f} °F");
+        }
+
+        // Category is mapped from the rounded SI value by default, from the unrounded
+        // value with `round_output: false`; 26.27 °C straddles the 26 °C band edge.
+        let at = |round_output: bool| {
+            utci(
+                UtciInputs {
+                    tdb: Temperature::from_celsius(26.27),
+                    tr: Temperature::from_celsius(26.27),
+                    v: Speed::from_meters_per_second(1.0),
+                    rh: Humidity::from_percent(50.0),
+                },
+                UtciOptions {
+                    round_output,
+                    ..Default::default()
+                },
+            )
+        };
+        let rounded = at(true);
+        let unrounded = at(false);
+        assert_eq!(rounded.utci, 26.0);
+        assert_eq!(
+            rounded.stress_category.map(|c| c.as_str()),
+            Some("no thermal stress")
+        );
+        assert!(unrounded.utci > 26.0, "unrounded {}", unrounded.utci);
+        assert_eq!(
+            unrounded.stress_category.map(|c| c.as_str()),
+            Some("moderate heat stress")
+        );
+
+        // Hot and humid is where the old log1p term was ~0.7 °C off: the vapour pressure
+        // the Rust polynomial sees must agree with the reference's `p_sat`, so the result
+        // must agree with the reference to the 0.1 °C upstream's own regression test uses.
+        let py_hot: f64 = pythermal
+            .getattr("utci")
+            .unwrap()
+            .call(
+                (40.0, 40.0, 1.0, 80.0),
+                Some(&[("round_output", false)].into_py_dict(py).unwrap()),
+            )
+            .unwrap()
+            .getattr("utci")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let rust_hot = utci(
+            UtciInputs {
+                tdb: Temperature::from_celsius(40.0),
+                tr: Temperature::from_celsius(40.0),
+                v: Speed::from_meters_per_second(1.0),
+                rh: Humidity::from_percent(80.0),
+            },
+            UtciOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        assert_abs_diff_eq!(rust_hot.utci, py_hot, epsilon = 1e-9);
+    });
+}
+
+/// 4.6.0: heat-index stress categories are judged on the unrounded index, so a value a
+/// hair above a band edge keeps the higher band even though it rounds onto the edge.
+/// Inputs and expectations are upstream's `test_heat_index_rothfusz.py` /
+/// `test_heat_index_schoen.py`.
+#[test]
+fn test_heat_index_categories_use_unrounded_value() {
+    Python::attach(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let rothfusz_cases = [
+            (26.583615, 27.0, "caution"),
+            (30.645013, 32.0, "extreme caution"),
+            (35.152822, 41.0, "danger"),
+            (39.775673, 54.0, "extreme danger"),
+        ];
+        for (tdb, rounded_hi, category) in rothfusz_cases {
+            for round_output in [true, false] {
+                let kwargs = [("round_output", round_output), ("limit_inputs", false)]
+                    .into_py_dict(py)
+                    .unwrap();
+                let py_result = pythermal
+                    .getattr("heat_index_rothfusz")
+                    .unwrap()
+                    .call((tdb, 50.0), Some(&kwargs))
+                    .unwrap();
+                let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+                let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+                let rust = heat_index_rothfusz(
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(50.0),
+                    thermalcomfort::models::HeatIndexRothfuszOptions {
+                        round_output,
+                        limit_inputs: false,
+                    },
+                );
+                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                if round_output {
+                    assert_eq!(rust.hi, rounded_hi, "rothfusz hi at tdb={tdb}");
+                } else {
+                    assert!(
+                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        "rothfusz unrounded hi {} at tdb={tdb}",
+                        rust.hi
+                    );
+                }
+                assert_eq!(py_category.as_deref(), Some(category));
+                assert_eq!(
+                    rust.stress_category.map(|c| c.as_str()),
+                    Some(category),
+                    "rothfusz category at tdb={tdb} round_output={round_output}"
+                );
+            }
+        }
+
+        let schoen_cases = [
+            (26.689952, 27.0, "caution"),
+            (30.436055, 32.0, "extreme caution"),
+            (35.979625, 41.0, "danger"),
+            (41.740423, 54.0, "extreme danger"),
+        ];
+        for (tdb, rounded_hi, category) in schoen_cases {
+            for round_output in [true, false] {
+                let kwargs = [("round_output", round_output)].into_py_dict(py).unwrap();
+                let py_result = pythermal
+                    .getattr("heat_index_schoen")
+                    .unwrap()
+                    .call((tdb, 50.0), Some(&kwargs))
+                    .unwrap();
+                let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+                let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+                let rust = heat_index_schoen(
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(50.0),
+                    thermalcomfort::models::HeatIndexSchoenOptions { round_output },
+                );
+                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                if round_output {
+                    assert_eq!(rust.hi, rounded_hi, "schoen hi at tdb={tdb}");
+                } else {
+                    assert!(
+                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        "schoen unrounded hi {} at tdb={tdb}",
+                        rust.hi
+                    );
+                }
+                assert_eq!(py_category.as_deref(), Some(category));
+                assert_eq!(
+                    rust.stress_category.map(|c| c.as_str()),
+                    Some(category),
+                    "schoen category at tdb={tdb} round_output={round_output}"
+                );
+            }
+        }
+
+        // The applicability limit still blanks both fields.
+        let cold = heat_index_rothfusz(
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
+            Default::default(),
+        );
+        assert!(cold.hi.is_nan());
+        assert_eq!(cold.stress_category, None);
+    });
+}
+
+/// 4.6.1: `ppd_vg` is clamped at the 34.5 % baseline, so small gradients give 0 rather
+/// than a negative percentage. Expectations from upstream's `test_vertical_tmp_grad_ppd.py`.
+#[test]
+fn test_vertical_tmp_grad_ppd_clamped_at_zero() {
+    Python::attach(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        for (tdb, grad, expected_ppd, expected_ok) in [
+            (24.0, 1.0, 0.0, true),
+            (24.0, 0.0, 0.0, true),
+            (25.0, 7.0, 12.6, false),
+        ] {
+            let py_result = pythermal
+                .getattr("vertical_tmp_grad_ppd")
+                .unwrap()
+                .call1((tdb, tdb, 0.1, 50.0, 1.2, 0.5, grad))
+                .unwrap();
+            let py_ppd: f64 = py_result.getattr("ppd_vg").unwrap().extract().unwrap();
+            // A 0-d numpy bool: `.item()` unwraps it to a Python scalar, which pyo3 reads
+            // back as a float rather than a bool.
+            let py_ok: f64 = py_result
+                .getattr("acceptability")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_ok = py_ok != 0.0;
+
+            let (rust_ppd, rust_ok) = vertical_tmp_grad_ppd(
+                VerticalTmpGradPpdInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tdb),
+                    vr: Speed::from_meters_per_second(0.1),
+                    rh: Humidity::from_percent(50.0),
+                    met: MetabolicRate::from_met(1.2),
+                    clo: ClothingInsulation::from_clo(0.5),
+                    vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
+                },
+                Default::default(),
+            );
+            assert_eq!(py_ppd, expected_ppd, "reference drifted at gradient {grad}");
+            assert_eq!(rust_ppd, expected_ppd, "ppd_vg at gradient {grad}");
+            assert_eq!(py_ok, expected_ok);
+            assert_eq!(rust_ok, expected_ok, "acceptability at gradient {grad}");
+        }
+
+        // The clamp must not swallow NaN from an out-of-range input.
+        let (nan_ppd, _) = vertical_tmp_grad_ppd(
+            VerticalTmpGradPpdInputs {
+                tdb: Temperature::from_celsius(24.0),
+                tr: Temperature::from_celsius(24.0),
+                vr: Speed::from_meters_per_second(0.5),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(1.2),
+                clo: ClothingInsulation::from_clo(0.5),
+                vertical_tmp_grad: TemperatureDelta::from_celsius(3.0),
+            },
+            Default::default(),
+        );
+        assert!(
+            nan_ppd.is_nan(),
+            "vr above 0.2 m/s must give NaN, got {nan_ppd}"
+        );
+    });
+}
+
+/// 4.4.3 compiled the sleep model's loop and pinned its full time series at 1e-12 in
+/// upstream's `test_two_nodes_gagge_sleep.py`. Those values are pinned here too, so the
+/// port is held to the reference's own fixture and not only to whatever the live import
+/// returns.
+#[test]
+fn test_two_nodes_gagge_sleep_upstream_fixture() {
+    let tdb = [18.0, 19.0, 20.0].map(Temperature::from_celsius);
+    let tr = [18.0, 18.5, 19.0].map(Temperature::from_celsius);
+    let v = [0.05, 0.1, 0.15].map(Speed::from_meters_per_second);
+    let rh = [50.0, 55.0, 60.0].map(Humidity::from_percent);
+    let clo = [1.4, 1.3, 1.2].map(ClothingInsulation::from_clo);
+    let quilt = [1.76, 1.6, 1.5].map(Length::from_centimeters);
+    let result = two_nodes_gagge_sleep(
+        SleepInputs {
+            tdb: &tdb,
+            tr: &tr,
+            v: &v,
+            rh: &rh,
+            clo: &clo,
+            thickness_quilt: &quilt,
+        },
+        Default::default(),
+    )
+    .expect("three-minute schedules");
+
+    let celsius = |t: &Vec<Temperature>| -> Vec<f64> { t.iter().map(|t| t.as_celsius()).collect() };
+    let flux = |t: &Vec<HeatFluxDensity>| -> Vec<f64> {
+        t.iter().map(|t| t.as_watts_per_square_meter()).collect()
+    };
+    let expected: [(&str, Vec<f64>, [f64; 3]); 10] = [
+        (
+            "set",
+            celsius(&result.set),
+            [24.285471240487254, 23.69753060178574, 23.55973896722113],
+        ),
+        (
+            "t_core",
+            celsius(&result.t_core),
+            [37.03223590335804, 37.026301386399254, 37.022232367376795],
+        ),
+        (
+            "t_skin",
+            celsius(&result.t_skin),
+            [33.670550615860265, 33.56972917281989, 33.522385202322575],
+        ),
+        (
+            "wet",
+            result.wet.clone(),
+            [0.2709382101612528, 0.11868202497357694, 0.08468947408201234],
+        ),
+        (
+            "t_sens",
+            result.t_sens.clone(),
+            [
+                1.1283814676194304,
+                0.2030740970076956,
+                -0.00007100712419982713,
+            ],
+        ),
+        (
+            "disc",
+            result.disc.clone(),
+            [1.479755896275013, 0.29422228310400694, 0.02764862771183254],
+        ),
+        (
+            "e_skin",
+            flux(&result.e_skin),
+            [28.76139367298244, 12.562622189484204, 9.061735937484093],
+        ),
+        (
+            "met_shivering",
+            flux(&result.met_shivering),
+            [0.0, 0.0, 0.0],
+        ),
+        (
+            "alfa",
+            result.alfa.clone(),
+            [
+                0.13861663831083165,
+                0.14512664326204494,
+                0.14635629215748827,
+            ],
+        ),
+        (
+            "skin_blood_flow",
+            result.skin_blood_flow.clone(),
+            [7.1093443630662945, 6.624666007608543, 6.5398921420592],
+        ),
+    ];
+    for (field, actual, reference) in expected {
+        assert_eq!(actual.len(), 3, "{field}");
+        for (i, (a, r)) in actual.iter().zip(reference).enumerate() {
+            let tol = 1e-12 + 1e-12 * r.abs();
+            assert!(
+                (a - r).abs() <= tol,
+                "{field}[{i}] = {a}, upstream fixture {r}, diff {:e}",
+                a - r
+            );
+        }
+    }
+}
+
+/// 4.6.0 compiled the Ji model's loop and pinned its time series to the previous
+/// implementation in upstream's `test_two_nodes_gagge_ji.py`. Pinned here likewise.
+#[test]
+fn test_two_nodes_gagge_ji_upstream_fixture() {
+    let weight = Mass::from_kilograms(80.1);
+    let bsa = thermalcomfort::utilities::body_surface_area_dubois(weight, Length::from_meters(1.8));
+    let run = |tdb: f64, tr: f64, v: f64, met: f64, clo: f64, rh: f64, minutes: u64| {
+        two_nodes_gagge_ji(
+            GaggeTwoNodesJiInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
+                vapor_pressure: Pressure::from_torrs(
+                    rh / 100.0 * p_sat_torr(Temperature::from_celsius(tdb)).as_torrs(),
+                ),
+            },
+            thermalcomfort::models::GaggeTwoNodesJiOptions {
+                body_surface_area: bsa,
+                body_weight: weight,
+                duration: Duration::from_secs(minutes * 60),
+                ..Default::default()
+            },
+        )
+    };
+    let check = |label: &str, actual: &[Temperature], reference: &[f64]| {
+        assert_eq!(actual.len(), reference.len(), "{label} length");
+        for (i, (a, r)) in actual.iter().zip(reference).enumerate() {
+            let a = a.as_celsius();
+            assert!(
+                (a - r).abs() <= 1e-9,
+                "{label}[{i}] = {a}, upstream fixture {r}, diff {:e}",
+                a - r
+            );
+        }
+    };
+
+    let hot = run(36.5, 36.5, 0.25, 0.95, 0.1, 20.0, 6);
+    check(
+        "hot t_core",
+        &hot.t_core,
+        &[
+            36.516105213824275,
+            36.547685700888465,
+            36.576012449954796,
+            36.60164288217578,
+            36.62502377928286,
+            36.64651422522319,
+        ],
+    );
+    check(
+        "hot t_skin",
+        &hot.t_skin,
+        &[
+            36.774035566875106,
+            36.40807561844041,
+            36.11486504764158,
+            35.87955212231442,
+            35.69038774391016,
+            35.53809246343035,
+        ],
+    );
+
+    let warm = run(31.0, 31.5, 0.2, 0.7, 0.67, 60.0, 4);
+    check(
+        "warm t_core",
+        &warm.t_core,
+        &[
+            36.51006711047728,
+            36.534910362727736,
+            36.5569230515869,
+            36.57647015573995,
+        ],
+    );
+    check(
+        "warm t_skin",
+        &warm.t_skin,
+        &[
+            36.67827501809432,
+            36.34939739292867,
+            36.064690097764036,
+            35.81939854020882,
+        ],
+    );
+}
+
+/// `scale_wind_speed_log` arrived in pythermalcomfort 4.x under `utils` and became
+/// public API in 4.6.0 under `environment`. Upstream's fixtures, the rounding default, and
+/// every geometry it rejects, checked against the live reference.
+#[test]
+fn test_compare_scale_wind_speed_log() {
+    Python::attach(|py| {
+        let environment = import_reference(py, "pythermalcomfort.environment")
+            .expect("Failed to import pythermalcomfort.environment");
+        let py_scale = environment.getattr("scale_wind_speed_log").unwrap();
+
+        // (v_z1, z2, z1, z0, d, round_output)
+        let cases = [
+            (5.0, 2.0, 10.0, 0.01, 0.0, true),
+            (5.0, 2.0, 10.0, 0.01, 0.0, false),
+            (5.0, 2.0, 10.0, 0.1, 0.0, false),
+            (7.69, 2.0, 10.0, 0.1, 0.0, false),
+            (5.0, 90.0, 10.0, 0.1, 0.0, false),
+            (5.0, 2.0, 10.0, 0.1, 0.5, false),
+            (3.0, 1.5, 10.0, 0.02, 0.0, true),
+            (5.0, 2.0, 10.0, 1e-6, 0.0, false),
+            (5.0, 2.0, 10.0, 1.0, 0.0, false),
+            (0.0, 2.0, 10.0, 0.01, 0.0, true),
+        ];
+        for (v_z1, z2, z1, z0, d, round_output) in cases {
+            let kwargs = [("round_output", round_output)].into_py_dict(py).unwrap();
+            let py_v: f64 = py_scale
+                .call((v_z1, z2, z1, z0, d), Some(&kwargs))
+                .unwrap()
+                .getattr("v_z2")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let rust_v = scale_wind_speed_log(
+                Speed::from_meters_per_second(v_z1),
+                Length::from_meters(z2),
+                ScaleWindSpeedLogOptions {
+                    z1: Length::from_meters(z1),
+                    z0: Length::from_meters(z0),
+                    d: Length::from_meters(d),
+                    round_output,
+                },
+            )
+            .unwrap_or_else(|e| panic!("rust rejected ({v_z1}, {z2}, {z1}, {z0}, {d}): {e}"));
+            assert_abs_diff_eq!(rust_v.as_meters_per_second(), py_v, epsilon = 1e-12);
+        }
+
+        // The documented default: 5 m/s at 10 m is 3.84 m/s at 2 m over open terrain.
+        let default_v: f64 = py_scale
+            .call1((5.0, 2.0))
+            .unwrap()
+            .getattr("v_z2")
+            .unwrap()
+            .call_method0("item")
+            .unwrap()
+            .extract()
+            .unwrap();
+        assert_eq!(default_v, 3.84);
+        assert_eq!(
+            scale_wind_speed_log(
+                Speed::from_meters_per_second(5.0),
+                Length::from_meters(2.0),
+                Default::default(),
+            )
+            .unwrap()
+            .as_meters_per_second(),
+            3.84
+        );
+
+        // Every geometry upstream rejects, rejected here with the matching variant.
+        use thermalcomfort::environment::ScaleWindSpeedLogError::*;
+        let rejected = [
+            (-1.0, 2.0, 10.0, 0.01, 0.0, NegativeWindSpeed),
+            (5.0, -2.0, 10.0, 0.01, 0.0, NonPositiveTargetHeight),
+            (5.0, 2.0, 10.0, 0.0, 0.0, NonPositiveRoughness),
+            (5.0, 2.0, 10.0, -0.1, 0.0, NonPositiveRoughness),
+            (
+                5.0,
+                2.0,
+                10.0,
+                0.01,
+                2.0,
+                TargetMinusDisplacementNotAboveRoughness,
+            ),
+            (
+                5.0,
+                2.0,
+                1.0,
+                0.01,
+                1.0,
+                ReferenceMinusDisplacementNotAboveRoughness,
+            ),
+            (5.0, 0.01, 10.0, 0.01, 0.0, TargetNotAboveRoughness),
+            (5.0, 2.0, 0.01, 0.01, 0.0, ReferenceNotAboveRoughness),
+        ];
+        for (v_z1, z2, z1, z0, d, expected) in rejected {
+            let kwargs = [("round_output", false)].into_py_dict(py).unwrap();
+            let err = py_scale
+                .call((v_z1, z2, z1, z0, d), Some(&kwargs))
+                .expect_err("upstream rejects this geometry");
+            assert!(
+                err.is_instance_of::<PyValueError>(py),
+                "({v_z1}, {z2}, {z1}, {z0}, {d}) raised {err}"
+            );
+            assert_eq!(
+                scale_wind_speed_log(
+                    Speed::from_meters_per_second(v_z1),
+                    Length::from_meters(z2),
+                    ScaleWindSpeedLogOptions {
+                        z1: Length::from_meters(z1),
+                        z0: Length::from_meters(z0),
+                        d: Length::from_meters(d),
+                        round_output: false,
+                    },
+                ),
+                Err(expected),
+                "({v_z1}, {z2}, {z1}, {z0}, {d})"
+            );
         }
     });
 }

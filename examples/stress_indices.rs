@@ -3,10 +3,8 @@
 //! Demonstrates various thermal stress indices for extreme conditions.
 
 use thermalcomfort::models::{
-    AtInputs, AtOptions, DiscomfortIndexInputs, EsiInputs, HeatIndexLuInputs,
-    HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs, NetInputs, ThiInputs, WciInputs,
-    WindChillTemperatureInputs, at, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
-    heat_index_schoen, humidex, net, thi, wci, wind_chill_temperature,
+    AtOptions, at, discomfort_index, esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen,
+    humidex, net, thi, wci, wind_chill_temperature,
 };
 use thermalcomfort::{HeatFluxDensity, Humidity, Speed, Temperature};
 
@@ -26,13 +24,7 @@ fn main() {
     );
 
     // Heat Index (Rothfusz)
-    let hi_result = heat_index_rothfusz(
-        HeatIndexRothfuszInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-        },
-        Default::default(),
-    );
+    let hi_result = heat_index_rothfusz(hot_temp, hot_rh, Default::default());
     println!("Heat Index (Rothfusz):");
     println!("  {:.1}°C", hi_result.hi);
     if let Some(cat) = hi_result.stress_category {
@@ -41,26 +33,31 @@ fn main() {
         println!("  (outside applicability range)");
     }
 
-    // Humidex
-    let humidex_result = humidex(
-        HumidexInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-        },
+    // The category is judged on the unrounded index, so an index that rounds onto a
+    // band edge still carries the band it is really in: 30.645 °C at 50 % RH gives a
+    // heat index of 31.95 °C, reported as 32.0, in "extreme caution" rather than the
+    // "caution" a reading of 32.0 would suggest.
+    let on_the_edge = heat_index_rothfusz(
+        Temperature::from_celsius(30.645),
+        Humidity::from_percent(50.0),
         Default::default(),
     );
+    println!(
+        "  At 30.645°C: {:.1}°C, {}",
+        on_the_edge.hi,
+        on_the_edge
+            .stress_category
+            .map_or("(uncategorised)", |c| c.as_str())
+    );
+
+    // Humidex
+    let humidex_result = humidex(hot_temp, hot_rh, Default::default());
     println!("\nHumidex (Canadian):");
     println!("  {:.0}", humidex_result.humidex);
     println!("  {}", humidex_result.discomfort.as_str());
 
     // Temperature-Humidity Index (THI)
-    let thi_val = thi(
-        ThiInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-        },
-        Default::default(),
-    );
+    let thi_val = thi(hot_temp, hot_rh, Default::default());
     println!("\nTemperature-Humidity Index:");
     println!("  {:.1}", thi_val);
     if thi_val < 70.0 {
@@ -74,10 +71,7 @@ fn main() {
     }
 
     // Discomfort Index
-    let di_result = discomfort_index(DiscomfortIndexInputs {
-        tdb: hot_temp,
-        rh: hot_rh,
-    });
+    let di_result = discomfort_index(hot_temp, hot_rh);
     println!("\nDiscomfort Index:");
     println!("  {:.1}", di_result.di);
     println!("  {}", di_result.discomfort_condition.as_str());
@@ -85,13 +79,7 @@ fn main() {
     // Heat Index (Schoen): the same apparent-temperature idea as Rothfusz, fitted
     // through the dew point, with no dry-bulb applicability gate so the category is
     // always available.
-    let schoen = heat_index_schoen(
-        HeatIndexSchoenInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-        },
-        Default::default(),
-    );
+    let schoen = heat_index_schoen(hot_temp, hot_rh, Default::default());
     println!("\nHeat Index (Schoen):");
     println!("  {:.1}°C", schoen.hi);
     println!(
@@ -104,13 +92,7 @@ fn main() {
     // Heat Index (Lu & Romps): a physically based extension of Steadman's model
     // that stays defined in the extreme heat where the empirical fits break down.
     // It reports a temperature only, with no stress category.
-    let lu = heat_index_lu(
-        HeatIndexLuInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-        },
-        Default::default(),
-    );
+    let lu = heat_index_lu(hot_temp, hot_rh, Default::default());
     println!("\nHeat Index (Lu & Romps):");
     println!("  {:.1}°C", lu.hi);
 
@@ -119,14 +101,7 @@ fn main() {
     println!("\nWith {:.1} m/s wind:", hot_wind.as_meters_per_second());
 
     // Normal Effective Temperature (Missenard)
-    let net_val = net(
-        NetInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-            v: hot_wind,
-        },
-        Default::default(),
-    );
+    let net_val = net(hot_temp, hot_rh, hot_wind, Default::default());
     let net_c = net_val.as_celsius();
     println!("  Normal Effective Temperature: {net_c:.1}°C");
     if net_c > 27.0 {
@@ -139,20 +114,11 @@ fn main() {
 
     // Apparent Temperature (Steadman / Australian BoM), in shade and in sun.
     // `q` is the net radiation absorbed per unit body surface.
-    let at_shade = at(
-        AtInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-            v: hot_wind,
-        },
-        Default::default(),
-    );
+    let at_shade = at(hot_temp, hot_rh, hot_wind, Default::default());
     let at_sun = at(
-        AtInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-            v: hot_wind,
-        },
+        hot_temp,
+        hot_rh,
+        hot_wind,
         AtOptions {
             q: Some(HeatFluxDensity::from_watts_per_square_meter(200.0)),
             ..Default::default()
@@ -170,14 +136,7 @@ fn main() {
     // Environmental Stress Index (Moran): temperature, humidity and global solar
     // radiation, designed to track WBGT without a globe thermometer.
     let sol_radiation_global = HeatFluxDensity::from_watts_per_square_meter(800.0); // clear midday sky
-    let esi_val = esi(
-        EsiInputs {
-            tdb: hot_temp,
-            rh: hot_rh,
-            sol_radiation_global,
-        },
-        Default::default(),
-    );
+    let esi_val = esi(hot_temp, hot_rh, sol_radiation_global, Default::default());
     println!(
         "  Environmental Stress Index ({:.0} W/m² solar): {esi_val:.1}",
         sol_radiation_global.as_watts_per_square_meter()
@@ -196,10 +155,7 @@ fn main() {
     );
 
     // Wind Chill Temperature
-    let wct = wind_chill_temperature(
-        WindChillTemperatureInputs { tdb: cold_temp, v },
-        Default::default(),
-    );
+    let wct = wind_chill_temperature(cold_temp, v, Default::default());
     let wct_c = wct.as_celsius();
     println!("Wind Chill Temperature:");
     println!("  {wct_c:.1}°C (feels like)");
@@ -216,8 +172,7 @@ fn main() {
     }
 
     // Wind Chill Index
-    let wci_val =
-        wci(WciInputs { tdb: cold_temp, v }, Default::default()).as_watts_per_square_meter();
+    let wci_val = wci(cold_temp, v, Default::default()).as_watts_per_square_meter();
     println!("\nWind Chill Index:");
     println!("  {wci_val:.0} W/m²");
     if wci_val < 600.0 {
@@ -239,11 +194,8 @@ fn main() {
     let temp_30 = Temperature::from_celsius(30.0);
     for rh_val in [30.0, 50.0, 70.0, 90.0] {
         let rh = Humidity::from_percent(rh_val);
-        let hi = heat_index_rothfusz(
-            HeatIndexRothfuszInputs { tdb: temp_30, rh },
-            Default::default(),
-        );
-        let hum = humidex(HumidexInputs { tdb: temp_30, rh }, Default::default());
+        let hi = heat_index_rothfusz(temp_30, rh, Default::default());
+        let hum = humidex(temp_30, rh, Default::default());
 
         println!(
             "  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",

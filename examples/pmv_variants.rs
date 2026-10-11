@@ -5,12 +5,12 @@
 //! corrections for non-air-conditioned buildings, the cooling effect of elevated air
 //! speed, and what the `limit_inputs` / `round_output` options change.
 
+use thermalcomfort::environment::v_relative;
 use thermalcomfort::models::{
     CoolingEffectInputs, PmvAInputs, PmvAthbInputs, PmvAthbOptions, PmvEInputs,
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions, cooling_effect, pmv_a, pmv_athb, pmv_e,
     pmv_ppd_ashrae, pmv_ppd_iso,
 };
-use thermalcomfort::utilities::v_relative;
 use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 
 fn main() {

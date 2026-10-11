@@ -54,7 +54,6 @@ EXEMPT: dict[str, str] = {
         "Covered against CPython by unit tests in src/utilities.rs, and through "
         "pythermalcomfort by every JOS3 t_cb comparison"
     ),
-    "valid_range": "internal applicability helper, exercised via every model that gates on it",
     "celsius_to_temp": "Rust measurement-type adapter, no Python analogue",
     "temp_to_celsius": "Rust measurement-type adapter, no Python analogue",
     "ms_to_speed": "Rust measurement-type adapter, no Python analogue",
@@ -185,11 +184,22 @@ def python_public_api() -> dict[str, str]:
     *upstream* grows something the port does not have, and only the installed package
     knows that.
     """
+    import pythermalcomfort.clothing as py_clothing
+    import pythermalcomfort.environment as py_environment
     import pythermalcomfort.models as py_models
+    import pythermalcomfort.psychrometrics as py_psychrometrics
     import pythermalcomfort.utilities as py_utilities
 
     api: dict[str, str] = {}
-    for label, module in (("models", py_models), ("utilities", py_utilities)):
+    # `utilities` first: it still lists the names 4.6.0 moved out of it, as deprecated
+    # shims, and the module that now defines each name should be the one reported.
+    for label, module in (
+        ("utilities", py_utilities),
+        ("models", py_models),
+        ("environment", py_environment),
+        ("psychrometrics", py_psychrometrics),
+        ("clothing", py_clothing),
+    ):
         for name in dir(module):
             if name.startswith("_"):
                 continue
@@ -218,9 +228,6 @@ PYTHON_TO_RUST: dict[str, str] = {
 # pythermalcomfort names that need no Rust counterpart. Each needs a reason.
 PYTHON_EXEMPT: dict[str, str] = {
     "units_converter": "the Rust API takes typed quantities, so unit conversion is the type system's job",
-    "valid_range": "internal applicability helper; the port applies the same masks inside each model",
-    "validate_type": "Python runtime type checking; Rust does this at compile time",
-    "adaptive_cooling_effect": "implemented as a private helper in src/models/adaptive.rs and exercised through both adaptive models",
     "DefaultSkinTemperature": "a per-body-part default-skin-temperature NamedTuple in "
     "utilities.py, referenced nowhere else in pythermalcomfort (confirmed by grepping the "
     "installed package) -- not even by JOS3, now ported, which seeds skin temperature from "
@@ -239,7 +246,6 @@ EXAMPLE_EXEMPT: dict[str, str] = {
     "round_to": "formatting helper used inside the models",
     "round_half_even": "rounding helper used inside the models",
     "round_to_exact_decimal": "rounding helper used inside the models",
-    "valid_range": "applicability helper used inside the models",
     "celsius_to_temp": "measurement-type adapter used inside the models",
     "temp_to_celsius": "measurement-type adapter used inside the models",
     "ms_to_speed": "measurement-type adapter used inside the models",

@@ -58,9 +58,7 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, body_surface_area,
-};
+use crate::utilities::{BodySurfaceAreaOptions, BsaFormula, body_surface_area};
 use crate::{Length, Mass};
 
 use super::matrix::{IDICT, NUM_NODES};
@@ -201,10 +199,8 @@ pub(crate) fn to_array_body_parts_by_name<T: Copy>(
 #[must_use]
 pub(crate) fn bsa_rate(height: f64, weight: f64, bsa_equation: BsaFormula) -> f64 {
     let bsa_all = body_surface_area(
-        BodySurfaceAreaInputs {
-            weight: Mass::from_kilograms(weight),
-            height: Length::from_meters(height),
-        },
+        Mass::from_kilograms(weight),
+        Length::from_meters(height),
         BodySurfaceAreaOptions {
             formula: bsa_equation,
         },
@@ -389,10 +385,10 @@ pub(crate) fn conductance(
         cdt_whole[mat_index(vein, core)] = cdt_ves_cr[i]; // vein to cr
 
         // Only limbs
-        if i >= 5 {
-            if let Some(sfvein) = li.sfvein {
-                cdt_whole[mat_index(sfvein, skin)] = cdt_sfv_sk[i]; // sfv to sk
-            }
+        if i >= 5
+            && let Some(sfvein) = li.sfvein
+        {
+            cdt_whole[mat_index(sfvein, skin)] = cdt_sfv_sk[i]; // sfv to sk
         }
 
         // If the segment has a muscle or fat layer
@@ -505,10 +501,10 @@ pub(crate) fn capacity(
         cap_whole[skin] = cap_sk[i];
 
         // Only limbs
-        if i >= 5 {
-            if let Some(sfvein) = li.sfvein {
-                cap_whole[sfvein] = cap_sfv[i];
-            }
+        if i >= 5
+            && let Some(sfvein) = li.sfvein
+        {
+            cap_whole[sfvein] = cap_sfv[i];
         }
 
         // If the segment has a muscle or fat layer

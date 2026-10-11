@@ -209,7 +209,8 @@ pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
         -1.8680009e-13,
     ];
 
-    let mut es = 2.7150305 * libm::log1p(tk);
+    // Hardy/Wexler's ln(T) term: ln(T), not ln(1 + T).
+    let mut es = 2.7150305 * libm::log(tk);
     for (i, &coef) in g.iter().enumerate() {
         es += coef * pow(tk, (i as i32 - 2) as f64);
     }

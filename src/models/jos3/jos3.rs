@@ -81,7 +81,8 @@ use super::thermoregulation::{
 use core::time::Duration;
 
 use crate::models::pmv::PmvPpdIsoOptions;
-use crate::utilities::{BsaFormula, antoine, round_to, round_to_exact_decimal};
+use crate::psychrometrics::antoine;
+use crate::utilities::{BsaFormula, round_to, round_to_exact_decimal};
 use crate::{
     ActivityRatio, Age, Area, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation, Humidity,
     Length, Mass, MetabolicRate, Power, Sex, Speed, Temperature,

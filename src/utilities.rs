@@ -1,9 +1,8 @@
 //! Utility functions for thermal comfort calculations
 
-use crate::constants::*;
-use crate::{ClothingInsulation, MetabolicRate};
+use crate::ClothingInsulation;
 use core::time::Duration;
-use libm::{copysign, exp, fabs, log, pow, round, trunc};
+use libm::{copysign, fabs, pow, round, trunc};
 pub use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
 
 /// Convert Temperature to Celsius (f64)
@@ -56,120 +55,6 @@ pub enum Model {
     Iso79332023,
 }
 
-/// Optional parameters for [`running_mean_outdoor_temperature`], with pythermalcomfort's
-/// defaults.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RunningMeanOutdoorTemperatureOptions {
-    /// Weighting constant between 0 and 1 (default: 0.8)
-    /// - EN 16798-1 recommends 0.8
-    /// - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
-    /// - Use 0.9 for stable climates, 0.6 for variable climates
-    pub alpha: f64,
-    /// Unit system the result is expressed in.
-    ///
-    /// `utilities.py:944-950`'s IP branch is a genuine °C<->°F conversion: it converts
-    /// each element of `temp_array` from °F before averaging, and converts the result
-    /// back to °F afterwards, **rounding in that output unit**. Typed [`Temperature`]
-    /// inputs make the input-side conversion moot (they already carry their true SI
-    /// value regardless of `units`), but the output-side rounding is real: `round(t_rm_f,
-    /// 1)` is not the same physical temperature as rounding an already-Celsius-rounded
-    /// value and converting it, so it is replicated here rather than derived after the
-    /// fact.
-    pub units: Units,
-}
-
-impl Default for RunningMeanOutdoorTemperatureOptions {
-    fn default() -> Self {
-        Self {
-            alpha: 0.8,
-            units: Units::SI,
-        }
-    }
-}
-
-/// Calculate running mean outdoor temperature (prevailing mean)
-///
-/// Estimates the exponentially weighted running mean temperature from an array
-/// of daily mean temperatures. Used by adaptive comfort models.
-///
-/// # Arguments
-///
-/// * `temp_array` - Array of daily mean temperatures in descending order
-///   (newest/yesterday first: [t_day-1, t_day-2, ..., t_day-n])
-/// * `options` - Weighting constant and output unit system
-///
-/// # Returns
-///
-/// Running mean outdoor temperature
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{running_mean_outdoor_temperature, RunningMeanOutdoorTemperatureOptions};
-/// use thermalcomfort::Temperature;
-///
-/// // Last 7 days of daily mean temperatures (yesterday to 7 days ago)
-/// let temps = vec![
-///     Temperature::from_celsius(22.0),
-///     Temperature::from_celsius(20.5),
-///     Temperature::from_celsius(19.0),
-///     Temperature::from_celsius(21.0),
-///     Temperature::from_celsius(18.5),
-///     Temperature::from_celsius(17.0),
-///     Temperature::from_celsius(16.5),
-/// ];
-/// let t_rm = running_mean_outdoor_temperature(&temps, RunningMeanOutdoorTemperatureOptions::default());
-/// // Rounded to one decimal, matching pythermalcomfort
-/// assert!((t_rm.as_celsius() - 19.9).abs() < 0.01);
-/// ```
-pub fn running_mean_outdoor_temperature(
-    temp_array: &[Temperature],
-    options: RunningMeanOutdoorTemperatureOptions,
-) -> Temperature {
-    let RunningMeanOutdoorTemperatureOptions { alpha, units } = options;
-
-    // utilities.py:944-950's IP branch converts an empty list identically to the SI
-    // branch (both would hit ZeroDivisionError in Python); this NaN-avoiding shortcut is
-    // a pre-existing Rust-only guard, not upstream behaviour, so it is unit-agnostic too.
-    if temp_array.is_empty() {
-        return match units {
-            Units::SI => Temperature::from_celsius(0.0),
-            Units::IP => Temperature::from_fahrenheit(32.0),
-        };
-    }
-
-    let mut sum_weighted = 0.0;
-    let mut sum_weights = 0.0;
-
-    for (i, temp) in temp_array.iter().enumerate() {
-        let weight = pow(alpha, i as f64);
-        sum_weighted += weight * temp.as_celsius();
-        sum_weights += weight;
-    }
-
-    let t_rm_celsius = sum_weighted / sum_weights;
-
-    // utilities.py:944-950: converts to the output unit before rounding, matching
-    // `units_converter`'s literal `(value * 9 / 5) + 32` formula exactly (rather than
-    // routing through `Temperature`'s Kelvin storage, which would lose the last ULP —
-    // see 28adfa8).
-    let t_rm_out = match units {
-        Units::SI => t_rm_celsius,
-        Units::IP => t_rm_celsius * 9.0 / 5.0 + 32.0,
-    };
-
-    // pythermalcomfort rounds this to one decimal before returning; without it the two
-    // implementations disagree in the second decimal for every input. `utilities.py:955`
-    // rounds a plain Python float (not a numba-jit or numpy value), so this is CPython's
-    // builtin decimal rounding, not numpy's.
-    let t_rm_rounded = round_to_exact_decimal(t_rm_out, 1);
-
-    match units {
-        Units::SI => Temperature::from_celsius(t_rm_rounded),
-        Units::IP => Temperature::from_fahrenheit(t_rm_rounded),
-    }
-}
-
 /// Whole minutes in a duration for a model that steps once per minute, rounded to the
 /// nearest minute. A duration under thirty seconds is zero steps, which is what upstream
 /// does with a zero duration: empty histories, limits reported as zero.
@@ -182,46 +67,9 @@ pub(crate) fn minutes(minutes: f64) -> Duration {
     Duration::from_secs_f64(minutes * 60.0)
 }
 
-/// Calculate relative air speed which combines average air speed plus body movement
-///
-/// # Arguments
-///
-/// * `v` - Air speed measured by sensor (use `Speed::from_meters_per_second()` or similar)
-/// * `met` - Metabolic rate
-///
-/// # Returns
-///
-/// Relative air speed
-///
-/// # Example
-///
-/// ```
-/// use thermalcomfort::utilities::v_relative;
-/// use thermalcomfort::{Speed, MetabolicRate};
-///
-/// let v = Speed::from_meters_per_second(0.1);
-/// let met = MetabolicRate::from_met(1.4);
-/// let vr = v_relative(v, met);
-/// assert!((vr.as_meters_per_second() - 0.22).abs() < 0.01);
-/// ```
+/// Mirrors upstream's private `_valid_range`: the value inside `[min, max]`, else NaN.
 #[inline]
-pub fn v_relative(v: Speed, met: MetabolicRate) -> Speed {
-    let v_ms = v.as_meters_per_second();
-    let met_val = met.as_met();
-    let vr_ms = if met_val > 1.0 {
-        // Relative air speed accounts for increased air movement from body motion
-        // 0.3 m/s per met above 1.0 (ISO 7730 and ASHRAE 55)
-        // Round to 3 decimal places
-        round((v_ms + 0.3 * (met_val - 1.0)) * 1000.0) / 1000.0
-    } else {
-        v_ms
-    };
-    Speed::from_meters_per_second(vr_ms)
-}
-
-/// Check if value is within valid range, return f64::NAN if not
-#[inline]
-pub fn valid_range(value: f64, min: f64, max: f64) -> f64 {
+pub(crate) fn valid_range(value: f64, min: f64, max: f64) -> f64 {
     if value >= min && value <= max {
         value
     } else {
@@ -372,132 +220,6 @@ pub fn round_half_even(value: f64) -> f64 {
     }
 }
 
-/// Saturation vapour pressure by the Antoine equation
-///
-/// pythermalcomfort's `antoine` returns kPa; read the result in whatever unit the caller
-/// needs with [`Pressure::as_kilopascals`] or [`Pressure::as_pascals`].
-///
-/// # Arguments
-///
-/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-///
-/// # Returns
-///
-/// Saturation vapour pressure
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::antoine;
-/// use thermalcomfort::Temperature;
-///
-/// let p = antoine(Temperature::from_celsius(25.0));
-/// assert!((p.as_kilopascals() - 3.167).abs() < 0.01); // ~3.167 kPa at 25°C
-/// ```
-#[inline]
-pub fn antoine(tdb: Temperature) -> Pressure {
-    let tdb_celsius = tdb.as_celsius();
-    let p_kpa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0));
-    Pressure::from_kilopascals(p_kpa)
-}
-
-/// Saturation vapor pressure using exponential equation
-///
-/// This is used in the two-node Gagge model and related calculations.
-/// Returns pressure in torr units.
-///
-/// # Arguments
-///
-/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-///
-/// # Returns
-///
-/// Saturation vapor pressure (torr)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::p_sat_torr;
-/// use thermalcomfort::Temperature;
-///
-/// let p = p_sat_torr(Temperature::from_celsius(25.0));
-/// assert!((p.as_torrs() - 23.8).abs() < 0.1);
-/// ```
-#[inline]
-pub fn p_sat_torr(tdb: Temperature) -> Pressure {
-    let tdb_celsius = tdb.as_celsius();
-    let p_torr = exp(18.6686 - 4030.183 / (tdb_celsius + 235.0));
-    // Convert torr to Pa (1 torr = 133.322 Pa)
-    Pressure::from_pascals(p_torr * 133.322)
-}
-
-/// Calculate saturation vapor pressure
-///
-/// Uses different formulas for temperatures above and below freezing
-///
-/// # Arguments
-///
-/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-///
-/// # Returns
-///
-/// Saturation vapor pressure
-pub fn p_sat(tdb: Temperature) -> Pressure {
-    const C1: f64 = -5674.5359;
-    const C2: f64 = 6.3925247;
-    const C3: f64 = -0.9677843e-2;
-    const C4: f64 = 0.62215701e-6;
-    const C5: f64 = 0.20747825e-8;
-    const C6: f64 = -0.9484024e-12;
-    const C7: f64 = 4.1635019;
-    const C8: f64 = -5800.2206;
-    const C9: f64 = 1.3914993;
-    const C10: f64 = -0.048640239;
-    const C11: f64 = 0.41764768e-4;
-    const C12: f64 = -0.14452093e-7;
-    const C13: f64 = 6.5459673;
-
-    let ta_k = tdb.as_celsius() + C_TO_K;
-    let log_ta_k = log(ta_k);
-
-    let p_pa = if ta_k < C_TO_K {
-        exp(C1 / ta_k + C2 + ta_k * (C3 + ta_k * (C4 + ta_k * (C5 + C6 * ta_k))) + C7 * log_ta_k)
-    } else {
-        exp(C8 / ta_k + C9 + ta_k * (C10 + ta_k * (C11 + ta_k * C12)) + C13 * log_ta_k)
-    };
-    Pressure::from_pascals(p_pa)
-}
-
-/// Convert humidity ratio to relative humidity
-///
-/// Algebraic inverse of the humidity-ratio formula used by
-/// [`crate::psychrometrics::psy_ta_rh`].
-///
-/// # Arguments
-///
-/// * `hr` - Humidity ratio [kg water / kg dry air]
-/// * `tdb` - Dry bulb air temperature
-/// * `p_atm` - Atmospheric pressure
-///
-/// # Returns
-///
-/// Relative humidity
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::hr_to_rh;
-/// use thermalcomfort::{Temperature, Pressure};
-///
-/// let rh = hr_to_rh(0.01, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
-/// assert!((rh.as_percent() - 50.5).abs() < 0.5);
-/// ```
-pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
-    // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
-    let p_vap = hr * p_atm.as_pascals() / (0.62198 + hr);
-    Humidity::from_percent(p_vap / p_sat(tdb).as_pascals() * 100.0)
-}
-
 /// Formula options for body surface area calculation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BsaFormula {
@@ -529,18 +251,6 @@ pub fn body_surface_area_dubois(weight: Mass, height: Length) -> Area {
     Area::from_square_meters(0.202 * pow(weight_kg, 0.425) * pow(height_m, 0.725))
 }
 
-/// The inputs to [`body_surface_area`]: weight and height are both required in
-/// pythermalcomfort's signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BodySurfaceAreaInputs {
-    /// Body weight
-    pub weight: Mass,
-    /// Body height
-    pub height: Length,
-}
-
 /// Optional parameters for [`body_surface_area`], with pythermalcomfort's default
 /// (`formula: str = BodySurfaceAreaEquations.dubois.value`, `utilities.py:610-616`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -565,20 +275,17 @@ pub struct BodySurfaceAreaOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::{body_surface_area, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula};
+/// use thermalcomfort::utilities::{body_surface_area, BodySurfaceAreaOptions, BsaFormula};
 /// use thermalcomfort::{Mass, Length};
 ///
 /// let bsa = body_surface_area(
-///     BodySurfaceAreaInputs {
-///         weight: Mass::from_kilograms(70.0),
-///         height: Length::from_meters(1.75),
-///     },
+///     Mass::from_kilograms(70.0),
+///     Length::from_meters(1.75),
 ///     BodySurfaceAreaOptions { formula: BsaFormula::DuBois },
 /// );
 /// assert!((bsa.as_square_meters() - 1.844).abs() < 0.01);
 /// ```
-pub fn body_surface_area(inputs: BodySurfaceAreaInputs, options: BodySurfaceAreaOptions) -> Area {
-    let BodySurfaceAreaInputs { weight, height } = inputs;
+pub fn body_surface_area(weight: Mass, height: Length, options: BodySurfaceAreaOptions) -> Area {
     let BodySurfaceAreaOptions { formula } = options;
     let weight_kg = weight.as_kilograms();
     let height_m = height.as_meters();
@@ -589,423 +296,6 @@ pub fn body_surface_area(inputs: BodySurfaceAreaInputs, options: BodySurfaceArea
         BsaFormula::Kurazumi => 0.2440 * pow(weight_kg, 0.383) * pow(height_m, 0.693),
     };
     Area::from_square_meters(area_m2)
-}
-
-/// Calculate clothing area factor
-///
-/// # Arguments
-///
-/// * `i_cl` - Intrinsic clothing insulation (clo)
-///
-/// # Returns
-///
-/// Clothing area factor
-///
-/// # Source
-/// ISO 9920: f_cl = 1.0 + 0.28 * i_cl
-/// where 0.28 is the empirical coefficient relating clothing insulation to increased surface area
-#[inline]
-pub fn clo_area_factor(i_cl: ClothingInsulation) -> f64 {
-    1.0 + 0.28 * i_cl.as_clo()
-}
-
-/// Edition selector for ASHRAE 55-derived calculations.
-///
-/// pythermalcomfort's `clo_dynamic_ashrae` and `pmv_ppd_ashrae` both take a `model: str`
-/// parameter (default `"55-2023"`) that is validated against a single legal value and
-/// never branched on — today there is exactly one ASHRAE 55 edition these functions
-/// support. The selector is still ported (rather than dropped) because it is a
-/// documented, user-facing part of upstream's signature; a future edition would add a
-/// variant here, and every match on this enum is exhaustive so that addition is a
-/// compile error everywhere it needs handling, not a silent no-op.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Ashrae55Model {
-    /// ASHRAE 55-2023 (the only edition currently supported by either function).
-    #[default]
-    Ashrae552023,
-}
-
-/// Edition selector for [`clo_dynamic_iso`].
-///
-/// Mirrors [`Ashrae55Model`]: pythermalcomfort's `clo_dynamic_iso` takes a `model: str`
-/// parameter (default `"9920-2007"`) validated against a single legal value. Ported as a
-/// single-variant enum for the same reason — it is part of upstream's public signature,
-/// and a future edition becomes a compile error to ignore rather than a silent no-op.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Iso9920Model {
-    /// ISO 9920:2007 (the only edition currently supported).
-    #[default]
-    Iso99202007,
-}
-
-/// The inputs to [`clo_dynamic_ashrae`]: both parameters are required in
-/// pythermalcomfort's signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloDynamicAshraeInputs {
-    /// Static (intrinsic) clothing insulation
-    pub clo: ClothingInsulation,
-    /// Metabolic rate
-    pub met: MetabolicRate,
-}
-
-/// Optional parameters for [`clo_dynamic_ashrae`], with pythermalcomfort's defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct CloDynamicAshraeOptions {
-    /// Standard edition. Behaviourally identical to the only other legal value today
-    /// (there is only one), see [`Ashrae55Model`].
-    pub model: Ashrae55Model,
-}
-
-/// Calculate dynamic clothing insulation for ASHRAE 55
-///
-/// # Returns
-///
-/// Dynamic clothing insulation
-///
-/// # Source
-/// ASHRAE 55: For met > 1.2, clo_dyn = clo * (0.6 + 0.4/met)
-/// - 1.2 met: threshold for walking/active movement
-/// - 0.6: base reduction factor
-/// - 0.4: adjustment factor (accounts for increased ventilation with activity)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{clo_dynamic_ashrae, CloDynamicAshraeInputs, CloDynamicAshraeOptions};
-/// use thermalcomfort::{ClothingInsulation, MetabolicRate};
-///
-/// let clo_dyn = clo_dynamic_ashrae(
-///     CloDynamicAshraeInputs {
-///         clo: ClothingInsulation::from_clo(0.5),
-///         met: MetabolicRate::from_met(1.4),
-///     },
-///     CloDynamicAshraeOptions::default(),
-/// );
-/// assert!(clo_dyn.as_clo() < 0.5);
-/// ```
-#[inline]
-pub fn clo_dynamic_ashrae(
-    inputs: CloDynamicAshraeInputs,
-    options: CloDynamicAshraeOptions,
-) -> ClothingInsulation {
-    let CloDynamicAshraeInputs { clo, met } = inputs;
-    // Exhaustive match: today there is only one edition, but this stops a future
-    // variant from being silently ignored.
-    match options.model {
-        Ashrae55Model::Ashrae552023 => {}
-    }
-    let met_val = met.as_met();
-    if met_val > 1.2 {
-        ClothingInsulation::from_clo(round_to(clo.as_clo() * (0.6 + 0.4 / met_val), 3))
-    } else {
-        clo
-    }
-}
-
-/// Inputs for [`clo_insulation_air_layer`].
-///
-/// Named rather than positional because `vr` and `v_walk` are both [`Speed`] and mean
-/// different things — relative air speed against the occupant's walking speed — so a
-/// transposed pair is a wrong answer rather than a compile error. Field names are
-/// upstream's.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloInsulationAirLayerInputs {
-    /// Relative air speed
-    pub vr: Speed,
-    /// Walking speed
-    pub v_walk: Speed,
-    /// Static boundary air layer insulation (typically 0.7 clo)
-    pub i_a_static: ClothingInsulation,
-}
-
-/// Inputs for [`clo_total_insulation`].
-///
-/// Five values over two types — three [`ClothingInsulation`] and two [`Speed`] — each group
-/// silently interchangeable while positional. Field names are upstream's.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloTotalInsulationInputs {
-    /// Static total insulation of the clothing ensemble
-    pub i_t: ClothingInsulation,
-    /// Relative air speed
-    pub vr: Speed,
-    /// Walking speed
-    pub v_walk: Speed,
-    /// Static boundary air layer insulation
-    pub i_a_static: ClothingInsulation,
-    /// Static basic insulation of the clothing
-    pub i_cl: ClothingInsulation,
-}
-
-/// Inputs for [`clo_correction_factor_environment`].
-///
-/// `vr` and `v_walk` are both [`Speed`]; see [`CloInsulationAirLayerInputs`]. Field names
-/// are upstream's.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloCorrectionFactorEnvironmentInputs {
-    /// Relative air speed
-    pub vr: Speed,
-    /// Walking speed
-    pub v_walk: Speed,
-    /// Static basic insulation of the clothing
-    pub i_cl: ClothingInsulation,
-}
-
-/// Calculate insulation of the boundary air layer (I_a,r) - ISO 9920:2007
-///
-/// The static boundary air value is 0.7 clo for air velocities around 0.1-0.15 m/s.
-/// For walking conditions, the boundary air layer insulation is calculated based on
-/// the walking speed and relative air speed.
-///
-/// # Arguments
-///
-/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation (typically 0.7 clo)
-///
-/// # Returns
-///
-/// Boundary air layer insulation (clo)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{clo_insulation_air_layer, CloInsulationAirLayerInputs};
-/// use thermalcomfort::{Speed, ClothingInsulation};
-///
-/// let i_a_r = clo_insulation_air_layer(CloInsulationAirLayerInputs {
-///     vr: Speed::from_meters_per_second(0.1),
-///     v_walk: Speed::from_meters_per_second(0.0),
-///     i_a_static: ClothingInsulation::from_clo(0.7),
-/// });
-/// assert!((i_a_r.as_clo() - 0.719).abs() < 0.01);
-/// ```
-#[inline]
-pub fn clo_insulation_air_layer(inputs: CloInsulationAirLayerInputs) -> ClothingInsulation {
-    let CloInsulationAirLayerInputs {
-        vr,
-        v_walk,
-        i_a_static,
-    } = inputs;
-    let vr_ms = vr.as_meters_per_second();
-    let v_walk_ms = v_walk.as_meters_per_second();
-    ClothingInsulation::from_clo(
-        exp(
-            -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
-                + 0.201 * pow(v_walk_ms, 2.0),
-        ) * i_a_static.as_clo(),
-    )
-}
-
-/// Correction factor for nude person - ISO 9920:2007
-///
-/// Empirical coefficients from ISO 9920:
-/// - -0.533: linear velocity coefficient
-/// - 0.15 m/s: reference air speed offset
-/// - 0.069: quadratic velocity coefficient
-/// - -0.462: linear walking speed coefficient
-/// - 0.201: quadratic walking speed coefficient
-#[inline]
-fn correction_nude(vr: Speed, v_walk: Speed) -> f64 {
-    let vr_ms = vr.as_meters_per_second();
-    let v_walk_ms = v_walk.as_meters_per_second();
-    exp(
-        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
-            + 0.201 * pow(v_walk_ms, 2.0),
-    )
-}
-
-/// Correction factor for normal clothing - ISO 9920:2007
-///
-/// Empirical coefficients from ISO 9920 for clothed persons:
-/// - -0.281: linear velocity coefficient
-/// - 0.15 m/s: reference air speed offset
-/// - 0.044: quadratic velocity coefficient
-/// - -0.492: linear walking speed coefficient
-#[inline]
-fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
-    let vr_ms = vr.as_meters_per_second();
-    let v_walk_ms = v_walk.as_meters_per_second();
-    exp(
-        -0.281 * (vr_ms - 0.15) + 0.044 * pow(vr_ms - 0.15, 2.0) - 0.492 * v_walk_ms
-            + 0.176 * pow(v_walk_ms, 2.0),
-    )
-}
-
-/// Calculate total insulation of clothing ensemble (I_T,r) - ISO 9920:2007
-///
-/// The total insulation (I_T,r) is the actual thermal insulation from the body surface
-/// to the environment, considering all clothing, enclosed air layers, and boundary air
-/// layers under given environmental conditions and activities.
-///
-/// Different equations are used based on clothing level:
-/// - Nude: i_cl = 0 clo
-/// - Low clothing: i_cl < 0.6 clo
-/// - Normal clothing: 0.6 clo <= i_cl <= 1.4 clo
-///
-/// # Arguments
-///
-/// * `i_t` - Total thermal insulation under static conditions
-/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_a_static` - Static boundary air layer insulation
-/// * `i_cl` - Intrinsic clothing insulation
-///
-/// # Returns
-///
-/// Total insulation of clothing ensemble (clo)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{clo_total_insulation, CloTotalInsulationInputs};
-/// use thermalcomfort::{Speed, ClothingInsulation};
-///
-/// let i_t_r = clo_total_insulation(CloTotalInsulationInputs {
-///     i_t: ClothingInsulation::from_clo(1.5),
-///     vr: Speed::from_meters_per_second(0.1),
-///     v_walk: Speed::from_meters_per_second(0.0),
-///     i_a_static: ClothingInsulation::from_clo(0.7),
-///     i_cl: ClothingInsulation::from_clo(1.0),
-/// });
-/// assert!(i_t_r.as_clo() > 0.0);
-/// ```
-pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> ClothingInsulation {
-    let CloTotalInsulationInputs {
-        i_t,
-        vr,
-        v_walk,
-        i_a_static,
-        i_cl,
-    } = inputs;
-    let i_t = i_t.as_clo();
-    let i_a_static = i_a_static.as_clo();
-    let i_cl = i_cl.as_clo();
-    // Calculate insulation for different clothing levels
-    let nude_insulation = i_a_static * correction_nude(vr, v_walk);
-    let normal_insulation = i_t * correction_normal_clothing(vr, v_walk);
-
-    let i_t_r = if i_cl == 0.0 {
-        // Nude
-        nude_insulation
-    } else if i_cl <= 0.6 {
-        // Low clothing - interpolate between nude and normal
-        ((0.6 - i_cl) * nude_insulation + i_cl * normal_insulation) / 0.6
-    } else {
-        // Normal clothing
-        normal_insulation
-    };
-    ClothingInsulation::from_clo(i_t_r)
-}
-
-/// The inputs to [`clo_dynamic_iso`]: all three are required in pythermalcomfort's
-/// signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloDynamicIsoInputs {
-    /// Static (intrinsic) clothing insulation
-    pub clo: ClothingInsulation,
-    /// Metabolic rate
-    pub met: MetabolicRate,
-    /// Air speed (not yet the relative air speed; computed internally via
-    /// [`v_relative`])
-    pub v: Speed,
-}
-
-/// Optional parameters for [`clo_dynamic_iso`], with pythermalcomfort's defaults.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloDynamicIsoOptions {
-    /// Thermal insulation of the boundary (surface) air layer around the outer
-    /// clothing or, when nude, around the skin surface. Defaults to 0.7 clo.
-    pub i_a: ClothingInsulation,
-    /// Standard edition. Behaviourally identical to the only other legal value today
-    /// (there is only one), see [`Iso9920Model`].
-    pub model: Iso9920Model,
-}
-
-impl Default for CloDynamicIsoOptions {
-    fn default() -> Self {
-        Self {
-            i_a: ClothingInsulation::from_clo(0.7),
-            model: Iso9920Model::default(),
-        }
-    }
-}
-
-/// Calculate dynamic clothing insulation for ISO 9920:2007
-///
-/// Estimates the dynamic intrinsic clothing insulation (I_cl,r). The activity
-/// as well as the air speed modify the insulation characteristics of the clothing.
-///
-/// # Returns
-///
-/// Dynamic clothing insulation (clo)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{clo_dynamic_iso, CloDynamicIsoInputs, CloDynamicIsoOptions};
-/// use thermalcomfort::{Speed, ClothingInsulation, MetabolicRate};
-///
-/// let clo_dyn = clo_dynamic_iso(
-///     CloDynamicIsoInputs {
-///         clo: ClothingInsulation::from_clo(1.0),
-///         met: MetabolicRate::from_met(1.2),
-///         v: Speed::from_meters_per_second(0.1),
-///     },
-///     CloDynamicIsoOptions::default(),
-/// );
-/// assert!(clo_dyn.as_clo() > 0.0 && clo_dyn.as_clo() <= 1.0);
-/// ```
-pub fn clo_dynamic_iso(
-    inputs: CloDynamicIsoInputs,
-    options: CloDynamicIsoOptions,
-) -> ClothingInsulation {
-    let CloDynamicIsoInputs { clo, met, v } = inputs;
-    let CloDynamicIsoOptions { i_a, model } = options;
-    // Exhaustive match: today there is only one edition, but this stops a future
-    // variant from being silently ignored.
-    match model {
-        Iso9920Model::Iso99202007 => {}
-    }
-
-    let clo_val = clo.as_clo();
-    // Calculate clothing area factor
-    let f_cl = clo_area_factor(clo);
-
-    // Total insulation under static conditions
-    let i_t = clo_val + i_a.as_clo() / f_cl;
-
-    // Relative air speed for the whole-body heat balance
-    let v_r = v_relative(v, met);
-
-    // Walking speed when undefined, per ISO 7730 Annex C / ISO 9920:
-    // v_walk = 0.0052 * (M - 58), clipped to [0, 0.7] m/s, where M is metabolic rate
-    // in W/m². This is a distinct formula from `v_relative`'s activity-generated air
-    // speed, which the previous implementation incorrectly reused here.
-    let v_walk_ms = (0.0052 * (met.as_met() * MET_TO_W_M2 - 58.0)).clamp(0.0, 0.7);
-    let v_walk = Speed::from_meters_per_second(v_walk_ms);
-
-    // Calculate total dynamic insulation
-    let i_t_r = clo_total_insulation(CloTotalInsulationInputs {
-        i_t: ClothingInsulation::from_clo(i_t),
-        vr: v_r,
-        v_walk,
-        i_a_static: i_a,
-        i_cl: clo,
-    });
-
-    // Calculate dynamic air layer insulation
-    let i_a_r = clo_insulation_air_layer(CloInsulationAirLayerInputs {
-        vr: v_r,
-        v_walk,
-        i_a_static: i_a,
-    });
-
-    // Return dynamic clothing insulation
-    ClothingInsulation::from_clo(i_t_r.as_clo() - i_a_r.as_clo() / f_cl)
 }
 
 /// Calculate representative clothing insulation based on outdoor temperature
@@ -1056,96 +346,6 @@ pub fn clo_tout(tout: Temperature) -> ClothingInsulation {
     };
 
     ClothingInsulation::from_clo(round(clo * 100.0) / 100.0)
-}
-
-/// Calculate environmental correction factor for clothing insulation
-///
-/// Returns the correction factor for total clothing insulation to account for
-/// real environmental conditions (walking, air movement, etc.) vs. static
-/// measurement conditions. Based on ISO 9920:2007.
-///
-/// # Arguments
-///
-/// * `vr` - Relative air speed (use `Speed::from_meters_per_second()` or similar)
-/// * `v_walk` - Walking speed (use `Speed::from_meters_per_second()` or similar)
-/// * `i_cl` - Intrinsic clothing insulation
-///
-/// # Returns
-///
-/// Correction factor for clothing insulation
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::{
-///     clo_correction_factor_environment, CloCorrectionFactorEnvironmentInputs,
-/// };
-/// use thermalcomfort::{Speed, ClothingInsulation};
-///
-/// let cf = clo_correction_factor_environment(CloCorrectionFactorEnvironmentInputs {
-///     vr: Speed::from_meters_per_second(0.3),
-///     v_walk: Speed::from_meters_per_second(0.5),
-///     i_cl: ClothingInsulation::from_clo(0.8),
-/// });
-/// assert!(cf > 0.0 && cf <= 1.0);
-/// ```
-///
-/// # References
-///
-/// - ISO 9920:2007
-pub fn clo_correction_factor_environment(inputs: CloCorrectionFactorEnvironmentInputs) -> f64 {
-    let CloCorrectionFactorEnvironmentInputs { vr, v_walk, i_cl } = inputs;
-    let i_cl = i_cl.as_clo();
-    if i_cl == 0.0 {
-        return correction_nude(vr, v_walk);
-    }
-
-    if i_cl <= 0.6 {
-        let nude_corr = correction_nude(vr, v_walk);
-        let normal_corr = correction_normal_clothing(vr, v_walk);
-        ((0.6 - i_cl) * nude_corr + i_cl * normal_corr) / 0.6
-    } else {
-        correction_normal_clothing(vr, v_walk)
-    }
-}
-
-/// Calculate intrinsic insulation of clothing ensemble
-///
-/// Calculates the intrinsic insulation of a clothing ensemble based on the
-/// sum of individual garment insulation values. Valid for ensembles with
-/// rather uniform insulation distribution across the body.
-///
-/// # Arguments
-///
-/// * `clo_garments` - Slice of clothing insulation values for each garment (clo)
-///
-/// # Returns
-///
-/// Total intrinsic insulation of ensemble (clo)
-///
-/// # Examples
-///
-/// ```
-/// use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
-/// use thermalcomfort::ClothingInsulation;
-///
-/// let garments = [
-///     ClothingInsulation::from_clo(0.25), // shirt
-///     ClothingInsulation::from_clo(0.15), // pants
-///     ClothingInsulation::from_clo(0.10), // underwear
-/// ];
-/// let total = clo_intrinsic_insulation_ensemble(&garments);
-/// assert!(total.as_clo() > 0.0);
-/// ```
-///
-/// # References
-///
-/// - ISO 9920:2009 Section 4.3
-pub fn clo_intrinsic_insulation_ensemble(
-    clo_garments: &[ClothingInsulation],
-) -> ClothingInsulation {
-    let sum: f64 = clo_garments.iter().map(|c| c.as_clo()).sum();
-    ClothingInsulation::from_clo(sum * 0.835 + 0.161)
 }
 
 /// Typical clothing ensembles with predefined insulation values
@@ -1391,6 +591,135 @@ pub fn clo_individual_garment(garment_name: &str) -> Option<ClothingInsulation> 
         .map(|(_, clo)| *clo)
 }
 
+// ---------------------------------------------------------------------------
+// Paths pythermalcomfort 4.6.0 moved elsewhere. Each forwards to its new home and is
+// removed after two minor releases, as upstream's compatibility shims are.
+// ---------------------------------------------------------------------------
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+pub type RunningMeanOutdoorTemperatureOptions =
+    crate::environment::RunningMeanOutdoorTemperatureOptions;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+#[inline]
+pub fn running_mean_outdoor_temperature(
+    temp_array: &[Temperature],
+    options: crate::environment::RunningMeanOutdoorTemperatureOptions,
+) -> Temperature {
+    crate::environment::running_mean_outdoor_temperature(temp_array, options)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::environment`")]
+#[inline]
+pub fn v_relative(v: Speed, met: crate::MetabolicRate) -> Speed {
+    crate::environment::v_relative(v, met)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::psychrometrics`")]
+#[inline]
+pub fn antoine(tdb: Temperature) -> Pressure {
+    crate::psychrometrics::antoine(tdb)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::psychrometrics`")]
+#[inline]
+pub fn p_sat_torr(tdb: Temperature) -> Pressure {
+    crate::psychrometrics::p_sat_torr(tdb)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::psychrometrics`")]
+#[inline]
+pub fn p_sat(tdb: Temperature) -> Pressure {
+    crate::psychrometrics::p_sat(tdb)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::psychrometrics`")]
+#[inline]
+pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
+    crate::psychrometrics::hr_to_rh(hr, tdb, p_atm)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type Ashrae55Model = crate::clothing::Ashrae55Model;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type Iso9920Model = crate::clothing::Iso9920Model;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type CloDynamicAshraeOptions = crate::clothing::CloDynamicAshraeOptions;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type CloDynamicIsoOptions = crate::clothing::CloDynamicIsoOptions;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type CloInsulationAirLayerInputs = crate::clothing::CloInsulationAirLayerInputs;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type CloTotalInsulationInputs = crate::clothing::CloTotalInsulationInputs;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+pub type CloCorrectionFactorEnvironmentInputs =
+    crate::clothing::CloCorrectionFactorEnvironmentInputs;
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_area_factor(i_cl: ClothingInsulation) -> f64 {
+    crate::clothing::clo_area_factor(i_cl)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_dynamic_ashrae(
+    clo: ClothingInsulation,
+    met: crate::MetabolicRate,
+    options: crate::clothing::CloDynamicAshraeOptions,
+) -> ClothingInsulation {
+    crate::clothing::clo_dynamic_ashrae(clo, met, options)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_dynamic_iso(
+    clo: ClothingInsulation,
+    met: crate::MetabolicRate,
+    v: Speed,
+    options: crate::clothing::CloDynamicIsoOptions,
+) -> ClothingInsulation {
+    crate::clothing::clo_dynamic_iso(clo, met, v, options)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_insulation_air_layer(
+    inputs: crate::clothing::CloInsulationAirLayerInputs,
+) -> ClothingInsulation {
+    crate::clothing::clo_insulation_air_layer(inputs)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_total_insulation(
+    inputs: crate::clothing::CloTotalInsulationInputs,
+) -> ClothingInsulation {
+    crate::clothing::clo_total_insulation(inputs)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_correction_factor_environment(
+    inputs: crate::clothing::CloCorrectionFactorEnvironmentInputs,
+) -> f64 {
+    crate::clothing::clo_correction_factor_environment(inputs)
+}
+
+#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
+#[inline]
+pub fn clo_intrinsic_insulation_ensemble(
+    clo_garments: &[ClothingInsulation],
+) -> ClothingInsulation {
+    crate::clothing::clo_intrinsic_insulation_ensemble(clo_garments)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1441,84 +770,10 @@ mod tests {
     }
 
     #[test]
-    fn test_clo_dynamic_iso_matches_python() {
-        // Reference values from pythermalcomfort 4.4.0 clo_dynamic_iso (i_a defaults to 0.7).
-        // These exercise the ISO 7730 Annex C / ISO 9920 walking-speed formula.
-        for (clo, met, v, expected) in [
-            (0.5, 1.2, 0.1, 0.417585),
-            (1.0, 2.0, 0.3, 0.817727),
-            (0.7, 1.5, 0.2, 0.640019),
-            (1.5, 3.0, 0.5, 1.000017),
-        ] {
-            let got = clo_dynamic_iso(
-                CloDynamicIsoInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                    v: Speed::from_meters_per_second(v),
-                },
-                CloDynamicIsoOptions::default(),
-            );
-            let got = got.as_clo();
-            assert!(
-                (got - expected).abs() < 1e-5,
-                "clo_dynamic_iso({clo}, {met}, {v}) = {got}, expected {expected}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_hr_to_rh_matches_python() {
-        // Reference values from pythermalcomfort 4.4.0 hr_to_rh
-        for (hr, tdb, expected) in [
-            (0.01, 25.0, 50.589615),
-            (0.005, 20.0, 34.549292),
-            (0.02, 30.0, 74.343333),
-        ] {
-            let got = hr_to_rh(
-                hr,
-                Temperature::from_celsius(tdb),
-                Pressure::from_pascals(101325.0),
-            )
-            .as_percent();
-            assert!(
-                (got - expected).abs() < 1e-4,
-                "hr_to_rh({hr}, {tdb}) = {got}, expected {expected}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_v_relative() {
-        let v1 = v_relative(
-            Speed::from_meters_per_second(0.1),
-            MetabolicRate::from_met(1.0),
-        );
-        assert_eq!(v1.as_meters_per_second(), 0.1);
-
-        let v2 = v_relative(
-            Speed::from_meters_per_second(0.1),
-            MetabolicRate::from_met(1.4),
-        );
-        assert!((v2.as_meters_per_second() - 0.22).abs() < 0.001);
-
-        let v3 = v_relative(
-            Speed::from_meters_per_second(0.15),
-            MetabolicRate::from_met(2.0),
-        );
-        assert!((v3.as_meters_per_second() - 0.45).abs() < 0.001);
-    }
-
-    #[test]
     fn test_valid_range() {
         assert_eq!(valid_range(15.0, 10.0, 30.0), 15.0);
         assert!(valid_range(5.0, 10.0, 30.0).is_nan());
         assert!(valid_range(35.0, 10.0, 30.0).is_nan());
-    }
-
-    #[test]
-    fn test_clo_area_factor() {
-        assert!((clo_area_factor(ClothingInsulation::from_clo(0.5)) - 1.14).abs() < 0.01);
-        assert!((clo_area_factor(ClothingInsulation::from_clo(1.0)) - 1.28).abs() < 0.01);
     }
 
     #[test]
@@ -1559,35 +814,5 @@ mod tests {
 
         // Test invalid lookup
         assert_eq!(clo_individual_garment("Non-existent garment"), None);
-    }
-
-    #[test]
-    fn test_clo_intrinsic_insulation_ensemble() {
-        // Test with typical garments - shirt + pants + underwear
-        let garments = [
-            ClothingInsulation::from_clo(0.25), // long-sleeve shirt
-            ClothingInsulation::from_clo(0.24), // thick trousers
-            ClothingInsulation::from_clo(0.04), // underwear
-        ];
-        let total = clo_intrinsic_insulation_ensemble(&garments);
-        // Formula: sum * 0.835 + 0.161 = 0.53 * 0.835 + 0.161 = 0.604
-        assert!((total.as_clo() - 0.604).abs() < 0.01);
-
-        // Test with single garment
-        let single = [ClothingInsulation::from_clo(0.5)];
-        let total_single = clo_intrinsic_insulation_ensemble(&single);
-        // Formula: 0.5 * 0.835 + 0.161 = 0.579
-        assert!((total_single.as_clo() - 0.579).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_antoine() {
-        let p_kpa = antoine(Temperature::from_celsius(25.0)).as_kilopascals();
-        // At 25°C, saturated vapor pressure is ~3.167 kPa
-        assert!((p_kpa - 3.167).abs() < 0.01);
-
-        let p_kpa_0 = antoine(Temperature::from_celsius(0.0)).as_kilopascals();
-        // At 0°C, saturated vapor pressure is ~0.609 kPa
-        assert!((p_kpa_0 - 0.609).abs() < 0.01);
     }
 }

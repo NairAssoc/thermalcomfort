@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.4.2) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.6.1) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,7 +12,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **Complete coverage**: every pythermalcomfort v4.4.2 model, `JOS3` included
+- **Complete coverage**: every pythermalcomfort v4.6.1 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: every public function with a pythermalcomfort counterpart has
@@ -76,12 +76,13 @@ The rule for what is typed, on inputs **and** outputs:
   limits) stay `f64` with the unit stated in the field's doc comment. There are no one-off
   newtypes for them.
 
-Every model takes a named `XInputs` struct for the parameters upstream requires, plus a
-defaulted `XOptions` for the ones it defaults — mirroring pythermalcomfort's own split, so a
-call transfers between the two libraries by reading. `XInputs` deliberately has no `Default`,
-so every required field must be named at the call site: the models take long runs of
-same-typed arguments (`solar_gain` has seven consecutive `f64`, five of them fractions) and
-no type system distinguishes those from one another.
+Every model takes the parameters upstream requires followed by a defaulted `XOptions`
+struct for the ones it defaults — mirroring pythermalcomfort's own split, so a call
+transfers between the two libraries by reading. Required parameters are positional where
+their types already tell them apart (`humidex(tdb, rh, options)`), and gathered into a
+named `XInputs` struct, deliberately without a `Default`, only where two or more share a
+type: `pmv_ppd_iso` takes two temperatures side by side, and `solar_gain` seven
+consecutive `f64`, five of them fractions, which no type system distinguishes.
 
 ### The `std` feature (deprecated no-op)
 
@@ -101,7 +102,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "4.4.2"
+thermalcomfort = "4.6.1"
 ```
 
 ## Usage
@@ -158,7 +159,10 @@ function appears in none, so they cannot drift from the API. Run one with
 | `stress_indices` | Heat index in three forms, humidex, discomfort index, apparent temperature, net effective temperature, THI, ESI, and wind chill in two forms |
 | `work_capacity` | Work capacity under four models, and the ridge-regression skin and rectal temperature predictor |
 | `solar_and_specialty` | Solar gain on the body, ankle draft, vertical temperature gradient, and sky-view fraction |
-| `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, mean radiant and operative temperature, body surface area |
+| `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, body surface area |
+| `environment` | A station wind scaled to pedestrian height over four terrains (and one where the profile is undefined), the running mean outdoor temperature, mean radiant and operative temperature, relative air speed, sky-vault view and sun position |
+
+The modules mirror pythermalcomfort's: `models`, `environment`, `psychrometrics`, `clothing` and `utilities`. The names 4.6.0 moved out of `utilities` are still reachable there, deprecated, for two minor releases, as upstream's are.
 | `clothing` | Garment and ensemble lookups; intrinsic, total and dynamic insulation; air-layer and area factors; outdoor clothing estimate |
 
 ## WASM Support
@@ -171,9 +175,9 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce results identical to pythermalcomfort v4.4.2 across the swept input
+All models produce results identical to pythermalcomfort v4.6.1 across the swept input
 space, in the one build configuration the crate has. There is no accuracy trade-off to
-choose between. The four edge-case divergences that remain are listed under
+choose between. The five edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
 
 Verification is a randomised differential sweep (see [Testing](#testing)) that drives
@@ -309,7 +313,7 @@ When bumping to a new pythermalcomfort release, change the version in `Cargo.tom
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.4.2), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.6.1), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

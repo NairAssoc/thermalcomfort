@@ -5,18 +5,6 @@
 use crate::models::thermal_indices::HeatIndexResult;
 use measurements::{Humidity, Temperature};
 
-/// The comfort inputs to [`heat_index_lu`]: pythermalcomfort requires both (no
-/// default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HeatIndexLuInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-}
-
 /// Optional parameters for [`heat_index_lu`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeatIndexLuOptions {
@@ -44,14 +32,12 @@ impl Default for HeatIndexLuOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::heat_index_lu::{heat_index_lu, HeatIndexLuInputs, HeatIndexLuOptions};
+/// use thermalcomfort::models::heat_index_lu::{heat_index_lu, HeatIndexLuOptions};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = heat_index_lu(
-///     HeatIndexLuInputs {
-///         tdb: Temperature::from_celsius(25.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
 /// assert!((result.hi - 25.0).abs() < 1.0);
@@ -61,8 +47,11 @@ impl Default for HeatIndexLuOptions {
 /// # References
 ///
 /// - Lu and Romps (2022)
-pub fn heat_index_lu(inputs: HeatIndexLuInputs, options: HeatIndexLuOptions) -> HeatIndexResult {
-    let HeatIndexLuInputs { tdb, rh } = inputs;
+pub fn heat_index_lu(
+    tdb: Temperature,
+    rh: Humidity,
+    options: HeatIndexLuOptions,
+) -> HeatIndexResult {
     let dry_bulb_celsius = tdb.as_celsius();
     let tdb_k = dry_bulb_celsius + 273.15;
     let rh_frac = rh.as_percent() / 100.0;
@@ -389,10 +378,8 @@ mod tests {
     #[test]
     fn test_heat_index_lu() {
         let result = heat_index_lu(
-            HeatIndexLuInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         // Should be close to 25.9°C
@@ -403,10 +390,8 @@ mod tests {
     #[test]
     fn test_heat_index_lu_high_temp() {
         let result = heat_index_lu(
-            HeatIndexLuInputs {
-                tdb: Temperature::from_celsius(35.0),
-                rh: Humidity::from_percent(70.0),
-            },
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(70.0),
             Default::default(),
         );
         // Should be significantly higher than air temperature
@@ -417,17 +402,13 @@ mod tests {
     #[test]
     fn test_heat_index_lu_round_output_false() {
         let rounded = heat_index_lu(
-            HeatIndexLuInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         let unrounded = heat_index_lu(
-            HeatIndexLuInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             HeatIndexLuOptions {
                 round_output: false,
             },

@@ -4,19 +4,8 @@
 //! that are widely used for quick assessment of thermal stress conditions.
 
 use crate::HeatFluxDensity;
-use crate::psychrometrics::{PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature, psy_ta_rh};
+use crate::psychrometrics::{PsyTaRhOptions, dew_point_temperature, psy_ta_rh};
 use measurements::{Humidity, Speed, Temperature};
-
-/// The comfort inputs to [`wci`]: pythermalcomfort requires both (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WciInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Wind speed 10m above ground level
-    pub v: Speed,
-}
 
 /// Optional parameters for [`wci`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,14 +33,12 @@ impl Default for WciOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{wci, WciInputs, WciOptions};
+/// use thermalcomfort::models::thermal_indices::{wci, WciOptions};
 /// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = wci(
-///     WciInputs {
-///         tdb: Temperature::from_celsius(-5.0),
-///         v: Speed::from_meters_per_second(5.5),
-///     },
+///     Temperature::from_celsius(-5.0),
+///     Speed::from_meters_per_second(5.5),
 ///     Default::default(),
 /// );
 /// assert!((result.as_watts_per_square_meter() - 1255.2).abs() < 0.1);
@@ -60,8 +47,7 @@ impl Default for WciOptions {
 /// # References
 ///
 /// - ASHRAE 2017 Handbook Fundamentals - Chapter 9
-pub fn wci(inputs: WciInputs, options: WciOptions) -> HeatFluxDensity {
-    let WciInputs { tdb, v } = inputs;
+pub fn wci(tdb: Temperature, v: Speed, options: WciOptions) -> HeatFluxDensity {
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
 
@@ -76,18 +62,6 @@ pub fn wci(inputs: WciInputs, options: WciOptions) -> HeatFluxDensity {
     }
 
     HeatFluxDensity::from_watts_per_square_meter(wci_value)
-}
-
-/// The comfort inputs to [`wind_chill_temperature`]: pythermalcomfort requires both (no
-/// default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WindChillTemperatureInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Wind speed 10m above ground level
-    pub v: Speed,
 }
 
 /// Optional parameters for [`wind_chill_temperature`], with pythermalcomfort's
@@ -115,25 +89,21 @@ impl Default for WindChillTemperatureOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{
-///     wind_chill_temperature, WindChillTemperatureInputs, WindChillTemperatureOptions,
-/// };
+/// use thermalcomfort::models::thermal_indices::{wind_chill_temperature, WindChillTemperatureOptions};
 /// use thermalcomfort::{Temperature, Speed};
 ///
 /// let result = wind_chill_temperature(
-///     WindChillTemperatureInputs {
-///         tdb: Temperature::from_celsius(-5.0),
-///         v: Speed::from_kilometers_per_hour(5.5),
-///     },
+///     Temperature::from_celsius(-5.0),
+///     Speed::from_kilometers_per_hour(5.5),
 ///     Default::default(),
 /// );
 /// assert!((result.as_celsius() - (-7.5)).abs() < 0.1);
 /// ```
 pub fn wind_chill_temperature(
-    inputs: WindChillTemperatureInputs,
+    tdb: Temperature,
+    v: Speed,
     options: WindChillTemperatureOptions,
 ) -> Temperature {
-    let WindChillTemperatureInputs { tdb, v } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_kmh = v.as_kilometers_per_hour();
 
@@ -206,17 +176,6 @@ impl HumidexDiscomfort {
     }
 }
 
-/// The comfort inputs to [`humidex`]: pythermalcomfort requires both (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HumidexInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-}
-
 /// Which vapor-pressure model [`humidex`] uses.
 ///
 /// Matches pythermalcomfort's `model: str = "rana"` (`"rana"` / `"masterson"`).
@@ -261,14 +220,12 @@ impl Default for HumidexOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{humidex, HumidexDiscomfort, HumidexInputs, HumidexOptions};
+/// use thermalcomfort::models::thermal_indices::{humidex, HumidexDiscomfort, HumidexOptions};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = humidex(
-///     HumidexInputs {
-///         tdb: Temperature::from_celsius(25.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
 /// assert!((result.humidex - 28.2).abs() < 0.2);
@@ -278,8 +235,7 @@ impl Default for HumidexOptions {
 /// # References
 ///
 /// - Masterson and Richardson (1979)
-pub fn humidex(inputs: HumidexInputs, options: HumidexOptions) -> HumidexResult {
-    let HumidexInputs { tdb, rh } = inputs;
+pub fn humidex(tdb: Temperature, rh: Humidity, options: HumidexOptions) -> HumidexResult {
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
@@ -314,17 +270,6 @@ pub fn humidex(inputs: HumidexInputs, options: HumidexOptions) -> HumidexResult 
     }
 }
 
-/// The comfort inputs to [`thi`]: pythermalcomfort requires both (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ThiInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-}
-
 /// Optional parameters for [`thi`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThiOptions {
@@ -347,20 +292,17 @@ impl Default for ThiOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{thi, ThiInputs, ThiOptions};
+/// use thermalcomfort::models::thermal_indices::{thi, ThiOptions};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = thi(
-///     ThiInputs {
-///         tdb: Temperature::from_celsius(25.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
 /// assert!((result - 71.8).abs() < 0.2);
 /// ```
-pub fn thi(inputs: ThiInputs, options: ThiOptions) -> f64 {
-    let ThiInputs { tdb, rh } = inputs;
+pub fn thi(tdb: Temperature, rh: Humidity, options: ThiOptions) -> f64 {
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
@@ -433,18 +375,6 @@ impl DiscomfortCondition {
     }
 }
 
-/// The comfort inputs to [`discomfort_index`]: pythermalcomfort requires both, and has
-/// no optional parameters at all.
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DiscomfortIndexInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-}
-
 /// Calculate Discomfort Index (DI)
 ///
 /// The index is essentially an effective temperature based on air temperature
@@ -457,13 +387,13 @@ pub struct DiscomfortIndexInputs {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{discomfort_index, DiscomfortCondition, DiscomfortIndexInputs};
+/// use thermalcomfort::models::thermal_indices::{discomfort_index, DiscomfortCondition};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
-/// let result = discomfort_index(DiscomfortIndexInputs {
-///     tdb: Temperature::from_celsius(25.0),
-///     rh: Humidity::from_percent(50.0),
-/// });
+/// let result = discomfort_index(
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(50.0),
+///);
 /// assert!((result.di - 22.1).abs() < 0.1);
 /// assert_eq!(result.discomfort_condition, DiscomfortCondition::LessThan50PercentFeels);
 /// ```
@@ -476,8 +406,7 @@ pub struct DiscomfortIndexInputs {
 /// - 27 <= DI < 29°C: Most of the population feels discomfort
 /// - 29 <= DI < 32°C: Everyone feels severe stress
 /// - DI >= 32°C: State of medical emergency
-pub fn discomfort_index(inputs: DiscomfortIndexInputs) -> DiscomfortIndexResult {
-    let DiscomfortIndexInputs { tdb, rh } = inputs;
+pub fn discomfort_index(tdb: Temperature, rh: Humidity) -> DiscomfortIndexResult {
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
@@ -562,18 +491,6 @@ impl HeatIndexStress {
     }
 }
 
-/// The comfort inputs to [`heat_index_rothfusz`]: pythermalcomfort requires both (no
-/// default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HeatIndexRothfuszInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-}
-
 /// Optional parameters for [`heat_index_rothfusz`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeatIndexRothfuszOptions {
@@ -602,16 +519,12 @@ impl Default for HeatIndexRothfuszOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{
-///     heat_index_rothfusz, HeatIndexRothfuszInputs, HeatIndexRothfuszOptions, HeatIndexStress,
-/// };
+/// use thermalcomfort::models::thermal_indices::{heat_index_rothfusz, HeatIndexRothfuszOptions, HeatIndexStress};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = heat_index_rothfusz(
-///     HeatIndexRothfuszInputs {
-///         tdb: Temperature::from_celsius(29.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(29.0),
+///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
 /// assert!((result.hi - 29.7).abs() < 0.2);
@@ -630,10 +543,10 @@ impl Default for HeatIndexRothfuszOptions {
 ///
 /// - Rothfusz (1990) NWS Technical Attachment SR 90-23
 pub fn heat_index_rothfusz(
-    inputs: HeatIndexRothfuszInputs,
+    tdb: Temperature,
+    rh: Humidity,
     options: HeatIndexRothfuszOptions,
 ) -> HeatIndexResult {
-    let HeatIndexRothfuszInputs { tdb, rh } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
 
@@ -668,26 +581,16 @@ pub fn heat_index_rothfusz(
         };
     }
 
+    // The category is judged on the unrounded index; rounding only affects `hi`.
+    let stress_category = HeatIndexStress::from_hi_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
         hi,
-        stress_category: HeatIndexStress::from_hi_opt(hi),
+        stress_category,
     }
-}
-
-/// The comfort inputs to [`heat_index_schoen`]: pythermalcomfort requires both (no
-/// default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HeatIndexSchoenInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
 }
 
 /// Optional parameters for [`heat_index_schoen`], with pythermalcomfort's defaults.
@@ -718,16 +621,12 @@ impl Default for HeatIndexSchoenOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{
-///     heat_index_schoen, HeatIndexSchoenInputs, HeatIndexSchoenOptions, HeatIndexStress,
-/// };
+/// use thermalcomfort::models::thermal_indices::{heat_index_schoen, HeatIndexSchoenOptions, HeatIndexStress};
 /// use thermalcomfort::{Temperature, Humidity};
 ///
 /// let result = heat_index_schoen(
-///     HeatIndexSchoenInputs {
-///         tdb: Temperature::from_celsius(29.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(29.0),
+///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
 /// assert!((result.hi - 30.0).abs() < 0.2);
@@ -739,10 +638,10 @@ impl Default for HeatIndexSchoenOptions {
 /// - Schoen, C. (2005). A new empirical model of the temperature-humidity index.
 ///   Journal of Applied Meteorology, 44(9), 1413-1420.
 pub fn heat_index_schoen(
-    inputs: HeatIndexSchoenInputs,
+    tdb: Temperature,
+    rh: Humidity,
     options: HeatIndexSchoenOptions,
 ) -> HeatIndexResult {
-    let HeatIndexSchoenInputs { tdb, rh } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let t_dew_celsius = dew_point_temperature(tdb, rh).as_celsius();
 
@@ -753,27 +652,16 @@ pub fn heat_index_schoen(
             * libm::exp(0.03755 * dry_bulb_celsius)
             * (1.0 - libm::exp(0.0801 * (t_dew_celsius - 14.0)));
 
+    // The category is judged on the unrounded index; rounding only affects `hi`.
+    let stress_category = HeatIndexStress::from_hi_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
         hi,
-        stress_category: HeatIndexStress::from_hi_opt(hi),
+        stress_category,
     }
-}
-
-/// The comfort inputs to [`at`]: pythermalcomfort requires all three (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct AtInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-    /// Wind speed 10m above ground level
-    pub v: Speed,
 }
 
 /// Optional parameters for [`at`], with pythermalcomfort's defaults.
@@ -808,15 +696,13 @@ impl Default for AtOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{at, AtInputs, AtOptions};
+/// use thermalcomfort::models::thermal_indices::{at, AtOptions};
 /// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = at(
-///     AtInputs {
-///         tdb: Temperature::from_celsius(25.0),
-///         rh: Humidity::from_percent(30.0),
-///         v: Speed::from_meters_per_second(0.1),
-///     },
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(30.0),
+///     Speed::from_meters_per_second(0.1),
 ///     Default::default(),
 /// );
 /// assert!((result.as_celsius() - 24.1).abs() < 0.5);
@@ -826,15 +712,15 @@ impl Default for AtOptions {
 ///
 /// - Steadman (1984)
 /// - Australian Bureau of Meteorology
-pub fn at(inputs: AtInputs, options: AtOptions) -> Temperature {
-    let AtInputs { tdb, rh, v } = inputs;
+pub fn at(tdb: Temperature, rh: Humidity, v: Speed, options: AtOptions) -> Temperature {
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
 
     // Calculate vapor pressure using psychrometric function
     use measurements::Pressure;
     let psy_result = psy_ta_rh(
-        PsyTaRhInputs { tdb, rh },
+        tdb,
+        rh,
         PsyTaRhOptions {
             p_atm: Pressure::from_pascals(101325.0),
         },
@@ -857,19 +743,6 @@ pub fn at(inputs: AtInputs, options: AtOptions) -> Temperature {
     }
 
     Temperature::from_celsius(t_at)
-}
-
-/// The comfort inputs to [`net`]: pythermalcomfort requires all three (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NetInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-    /// Wind speed at 1.2m above ground
-    pub v: Speed,
 }
 
 /// Optional parameters for [`net`], with pythermalcomfort's defaults.
@@ -899,15 +772,13 @@ impl Default for NetOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{net, NetInputs, NetOptions};
+/// use thermalcomfort::models::thermal_indices::{net, NetOptions};
 /// use thermalcomfort::{Temperature, Speed, Humidity};
 ///
 /// let result = net(
-///     NetInputs {
-///         tdb: Temperature::from_celsius(37.0),
-///         rh: Humidity::from_percent(100.0),
-///         v: Speed::from_meters_per_second(0.1),
-///     },
+///     Temperature::from_celsius(37.0),
+///     Humidity::from_percent(100.0),
+///     Speed::from_meters_per_second(0.1),
 ///     Default::default(),
 /// );
 /// assert!((result.as_celsius() - 37.0).abs() < 0.1);
@@ -927,8 +798,7 @@ impl Default for NetOptions {
 ///
 /// - Missenard (1933)
 /// - Used in Germany and Hong Kong Observatory
-pub fn net(inputs: NetInputs, options: NetOptions) -> Temperature {
-    let NetInputs { tdb, rh, v } = inputs;
+pub fn net(tdb: Temperature, rh: Humidity, v: Speed, options: NetOptions) -> Temperature {
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
     let rh_percent = rh.as_percent();
@@ -943,19 +813,6 @@ pub fn net(inputs: NetInputs, options: NetOptions) -> Temperature {
     }
 
     Temperature::from_celsius(et)
-}
-
-/// The comfort inputs to [`esi`]: pythermalcomfort requires all three (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct EsiInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity (use `Humidity::from_percent()` for RH%)
-    pub rh: Humidity,
-    /// Global solar radiation
-    pub sol_radiation_global: HeatFluxDensity,
 }
 
 /// Optional parameters for [`esi`], with pythermalcomfort's defaults.
@@ -983,15 +840,13 @@ impl Default for EsiOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::thermal_indices::{esi, EsiInputs, EsiOptions};
+/// use thermalcomfort::models::thermal_indices::{esi, EsiOptions};
 /// use thermalcomfort::{Temperature, Humidity, HeatFluxDensity};
 ///
 /// let result = esi(
-///     EsiInputs {
-///         tdb: Temperature::from_celsius(30.2),
-///         rh: Humidity::from_percent(42.2),
-///         sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(766.0),
-///     },
+///     Temperature::from_celsius(30.2),
+///     Humidity::from_percent(42.2),
+///     HeatFluxDensity::from_watts_per_square_meter(766.0),
 ///     Default::default(),
 /// );
 /// assert!((result - 26.2).abs() < 0.5);
@@ -1000,12 +855,12 @@ impl Default for EsiOptions {
 /// # References
 ///
 /// - Moran et al. (2001)
-pub fn esi(inputs: EsiInputs, options: EsiOptions) -> f64 {
-    let EsiInputs {
-        tdb,
-        rh,
-        sol_radiation_global,
-    } = inputs;
+pub fn esi(
+    tdb: Temperature,
+    rh: Humidity,
+    sol_radiation_global: HeatFluxDensity,
+    options: EsiOptions,
+) -> f64 {
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
     let sol_radiation_global = sol_radiation_global.as_watts_per_square_meter();
@@ -1029,10 +884,8 @@ mod tests {
     #[test]
     fn test_wci() {
         let result = wci(
-            WciInputs {
-                tdb: Temperature::from_celsius(-5.0),
-                v: Speed::from_meters_per_second(5.5),
-            },
+            Temperature::from_celsius(-5.0),
+            Speed::from_meters_per_second(5.5),
             Default::default(),
         );
         assert!((result.as_watts_per_square_meter() - 1255.2).abs() < 1.0);
@@ -1041,10 +894,8 @@ mod tests {
     #[test]
     fn test_wind_chill_temperature() {
         let result = wind_chill_temperature(
-            WindChillTemperatureInputs {
-                tdb: Temperature::from_celsius(-5.0),
-                v: Speed::from_kilometers_per_hour(5.5),
-            },
+            Temperature::from_celsius(-5.0),
+            Speed::from_kilometers_per_hour(5.5),
             Default::default(),
         );
         assert!((result.as_celsius() - (-7.5)).abs() < 0.2);
@@ -1053,10 +904,8 @@ mod tests {
     #[test]
     fn test_humidex() {
         let result = humidex(
-            HumidexInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!((result.humidex - 28.2).abs() < 0.3);
@@ -1067,20 +916,16 @@ mod tests {
     fn test_humidex_masterson_model() {
         // Masterson model is selected via HumidexOptions::model, not a separate function.
         let result = humidex(
-            HumidexInputs {
-                tdb: Temperature::from_celsius(30.0),
-                rh: Humidity::from_percent(60.0),
-            },
+            Temperature::from_celsius(30.0),
+            Humidity::from_percent(60.0),
             HumidexOptions {
                 model: HumidexModel::Masterson,
                 round_output: true,
             },
         );
         let rana = humidex(
-            HumidexInputs {
-                tdb: Temperature::from_celsius(30.0),
-                rh: Humidity::from_percent(60.0),
-            },
+            Temperature::from_celsius(30.0),
+            Humidity::from_percent(60.0),
             HumidexOptions {
                 model: HumidexModel::Rana,
                 round_output: true,
@@ -1123,10 +968,8 @@ mod tests {
     #[test]
     fn test_thi() {
         let result = thi(
-            ThiInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!((result - 71.8).abs() < 0.2);
@@ -1134,10 +977,10 @@ mod tests {
 
     #[test]
     fn test_discomfort_index() {
-        let result = discomfort_index(DiscomfortIndexInputs {
-            tdb: Temperature::from_celsius(25.0),
-            rh: Humidity::from_percent(50.0),
-        });
+        let result = discomfort_index(
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
+        );
         assert!((result.di - 22.1).abs() < 0.2);
         assert_eq!(
             result.discomfort_condition,
@@ -1177,10 +1020,8 @@ mod tests {
     #[test]
     fn test_heat_index_rothfusz() {
         let result = heat_index_rothfusz(
-            HeatIndexRothfuszInputs {
-                tdb: Temperature::from_celsius(29.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(29.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!((result.hi - 29.7).abs() < 0.5);
@@ -1188,10 +1029,8 @@ mod tests {
 
         // Below the applicability range with limit_inputs=true → NaN and no category
         let result = heat_index_rothfusz(
-            HeatIndexRothfuszInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!(result.hi.is_nan());
@@ -1199,10 +1038,8 @@ mod tests {
 
         // Same inputs with limits disabled → numeric value and a category
         let result = heat_index_rothfusz(
-            HeatIndexRothfuszInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             HeatIndexRothfuszOptions {
                 round_output: true,
                 limit_inputs: false,
@@ -1221,10 +1058,8 @@ mod tests {
             (20.0, 40.0, 18.9, HeatIndexStress::NoRisk),
         ] {
             let result = heat_index_schoen(
-                HeatIndexSchoenInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
             assert!(
@@ -1237,10 +1072,8 @@ mod tests {
 
         // Unlike Rothfusz, Schoen has no applicability gate: low tdb still yields a value
         let result = heat_index_schoen(
-            HeatIndexSchoenInputs {
-                tdb: Temperature::from_celsius(10.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(10.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!(!result.hi.is_nan());
@@ -1273,22 +1106,18 @@ mod tests {
     fn test_at() {
         // Test without solar radiation
         let result = at(
-            AtInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(30.0),
-                v: Speed::from_meters_per_second(0.1),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(30.0),
+            Speed::from_meters_per_second(0.1),
             Default::default(),
         );
         assert!((result.as_celsius() - 24.1).abs() < 0.5);
 
         // Test with solar radiation
         let result = at(
-            AtInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(30.0),
-                v: Speed::from_meters_per_second(0.1),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(30.0),
+            Speed::from_meters_per_second(0.1),
             AtOptions {
                 q: Some(HeatFluxDensity::from_watts_per_square_meter(200.0)),
                 round_output: true,
@@ -1300,21 +1129,17 @@ mod tests {
     #[test]
     fn test_net() {
         let result = net(
-            NetInputs {
-                tdb: Temperature::from_celsius(37.0),
-                rh: Humidity::from_percent(100.0),
-                v: Speed::from_meters_per_second(0.1),
-            },
+            Temperature::from_celsius(37.0),
+            Humidity::from_percent(100.0),
+            Speed::from_meters_per_second(0.1),
             Default::default(),
         );
         assert!((result.as_celsius() - 37.0).abs() < 0.2);
 
         let result = net(
-            NetInputs {
-                tdb: Temperature::from_celsius(30.0),
-                rh: Humidity::from_percent(60.0),
-                v: Speed::from_meters_per_second(0.5),
-            },
+            Temperature::from_celsius(30.0),
+            Humidity::from_percent(60.0),
+            Speed::from_meters_per_second(0.5),
             NetOptions {
                 round_output: false,
             },
@@ -1325,11 +1150,9 @@ mod tests {
     #[test]
     fn test_esi() {
         let result = esi(
-            EsiInputs {
-                tdb: Temperature::from_celsius(30.2),
-                rh: Humidity::from_percent(42.2),
-                sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(766.0),
-            },
+            Temperature::from_celsius(30.2),
+            Humidity::from_percent(42.2),
+            HeatFluxDensity::from_watts_per_square_meter(766.0),
             Default::default(),
         );
         assert!((result - 26.2).abs() < 0.5);

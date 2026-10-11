@@ -30,7 +30,7 @@ pub use adaptive::{
     adaptive_en,
 };
 pub use cooling_effect::{CoolingEffectInputs, CoolingEffectOptions, cooling_effect};
-pub use heat_index_lu::{HeatIndexLuInputs, HeatIndexLuOptions, heat_index_lu};
+pub use heat_index_lu::{HeatIndexLuOptions, heat_index_lu};
 pub use ireq::{DurationLimitedExposure, IreqInputs, IreqOptions, IreqResult, ireq};
 pub use pet::{PetInputs, PetOptions, PetResult, Posture as PetPosture, pet_steady};
 pub use phs::{Iso7933Model, PhsInputs, PhsOptions, PhsPosture, PhsResult, phs};
@@ -40,29 +40,28 @@ pub use pmv::{
     pmv_ppd_ashrae, pmv_ppd_iso,
 };
 pub use ridge_regression::{
-    PredictedBodyTemperatures, RidgeRegressionInputs, RidgeRegressionOptions,
-    ridge_regression_predict_t_re_t_sk,
+    PredictedBodyTemperatures, RidgeRegressionOptions, ridge_regression_predict_t_re_t_sk,
 };
 pub use set_tmp::{SetInputs, SetOptions, set_tmp};
 pub use solar_gain::{
     SolarGainInputs, SolarGainOptions, SolarGainPosture, SolarGainResult, solar_gain,
 };
 pub use specialty::{
-    AnkleDraftInputs, AnkleDraftOptions, FSvvInputs, VerticalTmpGradPpdInputs,
-    VerticalTmpGradPpdOptions, ankle_draft, f_svv, transpose_sharp_altitude, vertical_tmp_grad_ppd,
+    AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
+    ankle_draft, vertical_tmp_grad_ppd,
 };
+#[allow(deprecated)]
+pub use specialty::{FSvvInputs, f_svv, transpose_sharp_altitude};
 pub use sports_heat_stress_risk::{
     Sports, SportsHeatStressRisk, SportsHeatStressRiskError, SportsHeatStressRiskInputs,
     SportsValues, sports_heat_stress_risk,
 };
 pub use thermal_indices::{
-    AtInputs, AtOptions, DiscomfortCondition, DiscomfortIndexInputs, DiscomfortIndexResult,
-    EsiInputs, EsiOptions, HeatIndexResult, HeatIndexRothfuszInputs, HeatIndexRothfuszOptions,
-    HeatIndexSchoenInputs, HeatIndexSchoenOptions, HeatIndexStress, HumidexDiscomfort,
-    HumidexInputs, HumidexModel, HumidexOptions, HumidexResult, NetInputs, NetOptions, ThiInputs,
-    ThiOptions, WciInputs, WciOptions, WindChillTemperatureInputs, WindChillTemperatureOptions, at,
-    discomfort_index, esi, heat_index_rothfusz, heat_index_schoen, humidex, net, thi, wci,
-    wind_chill_temperature,
+    AtOptions, DiscomfortCondition, DiscomfortIndexResult, EsiOptions, HeatIndexResult,
+    HeatIndexRothfuszOptions, HeatIndexSchoenOptions, HeatIndexStress, HumidexDiscomfort,
+    HumidexModel, HumidexOptions, HumidexResult, NetOptions, ThiOptions, WciOptions,
+    WindChillTemperatureOptions, at, discomfort_index, esi, heat_index_rothfusz, heat_index_schoen,
+    humidex, net, thi, wci, wind_chill_temperature,
 };
 pub use two_nodes_gagge::{
     GaggePosture, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions,
@@ -70,7 +69,7 @@ pub use two_nodes_gagge::{
     two_nodes_gagge_ji,
 };
 pub use two_nodes_gagge_sleep::{
-    GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, MismatchedScheduleLengths, SleepInputs,
+    GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, SleepInputs, SleepScheduleError,
     two_nodes_gagge_sleep,
 };
 pub use use_fans_heatwaves::{
