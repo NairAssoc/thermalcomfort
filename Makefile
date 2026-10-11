@@ -63,12 +63,12 @@ help:
 	@echo "  make sweep-ci        - Differential sweep at CI's depth (SWEEP_N=$(CI_SWEEP_N))"
 	@echo "  make sweep           - Deep randomised differential sweep (SWEEP_N=$(SWEEP_N))"
 	@echo "  make beta            - lint + test on the beta toolchain, as CI's matrix does"
-	@echo "  make parity-coverage - Check parity tests exist AND every upstream name is ported"
+	@echo "  make parity-coverage - Every public fn has a parity test and an example; every upstream name is ported"
 	@echo "  make parity-version  - Print the pythermalcomfort version this port targets"
 	@echo "  make fmt             - Check code formatting"
 	@echo "  make clippy          - Run clippy linter"
 	@echo "  make doc             - Build the docs with rustdoc warnings as errors"
-	@echo "  make examples        - Build and run the examples"
+	@echo "  make examples        - Build and run every program under examples/"
 	@echo "  make check           - cargo check --all-targets"
 	@echo "  make clean-parity    - Remove the reference venv"
 	@echo ""
@@ -115,12 +115,17 @@ doc:
 	@echo "Building docs with rustdoc warnings as errors..."
 	@RUSTDOCFLAGS="-D warnings" $(CARGO) doc --no-deps --quiet
 
-# CI builds every example and runs the two documented ones.
+# The README points users at examples/ rather than carrying a code block per model, so
+# every example is built and run: one that no longer compiles or panics is a documentation
+# defect, and `make parity-coverage` separately requires every public function to appear
+# in one of them.
 examples:
-	@echo "Building and running examples..."
+	@echo "Building and running every example..."
 	@$(CARGO) build --examples --quiet
-	@$(CARGO) run --quiet --example basic_pmv > /dev/null
-	@$(CARGO) run --quiet --example typed_api > /dev/null
+	@for src in examples/*.rs; do \
+		name=$$(basename $$src .rs); \
+		$(CARGO) run --quiet --example $$name > /dev/null || { echo "✗ example $$name failed"; exit 1; }; \
+	done
 
 check:
 	@echo "Checking every target compiles..."

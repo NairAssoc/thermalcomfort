@@ -89,7 +89,7 @@ thermalcomfort = "4.4.2"
 
 ## Usage
 
-### Basic PMV/PPD Calculation
+The quickest start is PMV/PPD under ISO 7730:
 
 ```rust
 use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
@@ -123,190 +123,26 @@ fn main() {
 }
 ```
 
-### Sports Heat Stress Risk
+Every public function is demonstrated in a runnable program under [`examples/`](examples/).
+`make examples` builds and runs all of them, and `make parity-coverage` fails if a public
+function appears in none, so they cannot drift from the API. Run one with
+`cargo run --example <name>`:
 
-```rust
-use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::sports_heat_stress_risk::{
-    Sports, SportsHeatStressRiskInputs, sports_heat_stress_risk,
-};
-
-fn main() {
-    let result = sports_heat_stress_risk(SportsHeatStressRiskInputs {
-        tdb: Temperature::from_celsius(35.0),
-        tr: Temperature::from_celsius(35.0),
-        rh: Humidity::from_percent(40.0),
-        vr: Speed::from_meters_per_second(0.1),
-        sport: Sports::RUNNING,
-    })
-    .expect("35°C is a determinate risk level");
-
-    println!("Risk level: {:.1}", result.risk_level_interpolated); // 2.1 (Moderate)
-    println!("Recommendation: {}", result.recommendation);
-}
-```
-
-### UTCI (Universal Thermal Climate Index)
-
-```rust
-use thermalcomfort::{Temperature, Speed, Humidity};
-use thermalcomfort::models::{utci, UtciInputs};
-
-fn main() {
-    let result = utci(
-        UtciInputs {
-            tdb: Temperature::from_celsius(25.0),
-            tr: Temperature::from_celsius(27.0),
-            v: Speed::from_meters_per_second(1.0),
-            rh: Humidity::from_percent(50.0),
-        },
-        Default::default(),
-    );
-    println!("UTCI: {:.1}°C", result.utci);
-    match result.stress_category {
-        Some(c) => println!("Stress: {}", c.as_str()),
-        // `None` where the index falls outside the categorised range
-        None => println!("Stress: uncategorised"),
-    }
-}
-```
-
-### PET (Physiological Equivalent Temperature)
-
-```rust
-use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::{pet_steady, PetInputs};
-
-fn main() {
-    let result = pet_steady(
-        PetInputs {
-            tdb: Temperature::from_celsius(25.0),
-            tr: Temperature::from_celsius(27.0),
-            v: Speed::from_meters_per_second(1.0),
-            rh: Humidity::from_percent(50.0),
-            met: MetabolicRate::from_met(1.5),
-            clo: ClothingInsulation::from_clo(1.0),
-        },
-        Default::default(),
-    );
-    println!("PET: {:.1}°C", result.pet);
-}
-```
-
-### PHS (Predicted Heat Strain)
-
-```rust
-use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::{phs, PhsInputs, PhsPosture};
-
-fn main() {
-    let result = phs(
-        PhsInputs {
-            tdb: Temperature::from_celsius(40.0),
-            tr: Temperature::from_celsius(40.0),
-            v: Speed::from_meters_per_second(0.3),
-            rh: Humidity::from_percent(33.85),
-            met: MetabolicRate::from_met(2.5),
-            clo: ClothingInsulation::from_clo(0.5),
-            posture: PhsPosture::Standing,
-        },
-        Default::default(),
-    );
-
-    println!("Rectal temperature: {:.1}°C", result.t_re.as_celsius());
-    println!("Max exposure (50%): {:.0} min", result.d_lim_loss_50);
-    println!("Sweat loss: {:.0} g", result.sweat_loss_g.as_grams());
-}
-```
-
-### IREQ (Required Clothing Insulation, ISO 11079)
-
-For cold environments: the clothing insulation required for thermal equilibrium, and how
-long exposure can last when the clothing available is not enough.
-
-```rust
-use thermalcomfort::{Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::AirPermeability;
-use thermalcomfort::models::{ireq, IreqInputs, DurationLimitedExposure};
-
-fn main() {
-    let result = ireq(
-        IreqInputs {
-            tdb: Temperature::from_celsius(-15.0),
-            tr: Temperature::from_celsius(-15.0),
-            vr: Speed::from_meters_per_second(2.0),
-            rh: Humidity::from_percent(55.0),
-            met: MetabolicRate::from_met(175.0 / 58.15),
-            clo: ClothingInsulation::from_clo(2.8),
-            p: AirPermeability::from_l_per_m2_s(50.0),
-            walk_sp: Speed::from_meters_per_second(1.1),
-        },
-        Default::default(),
-    );
-
-    println!("Required insulation (minimal): {:.1} clo", result.ireq_min.as_clo());
-    println!("Required insulation (neutral): {:.1} clo", result.ireq_neutral.as_clo());
-
-    match result.dle_min {
-        DurationLimitedExposure::Hours(h) => println!("Exposure limit: {h:.1} h"),
-        DurationLimitedExposure::MoreThanEight => println!("Exposure limit: more than 8 h"),
-        DurationLimitedExposure::NotApplicable => println!("Outside ISO 11079 limits"),
-    }
-}
-```
-
-### Unit Conversions
-
-All measurement types support automatic unit conversion:
-
-```rust
-use thermalcomfort::{pmv_ppd_iso, v_relative, Temperature, Speed, Humidity, MetabolicRate, ClothingInsulation};
-use thermalcomfort::models::pmv::PmvPpdInputs;
-
-fn main() {
-    // Use any units - automatically converts internally
-    let tdb = Temperature::from_fahrenheit(77.0);
-    let tr = Temperature::from_celsius(25.0);
-    let v = Speed::from_kilometers_per_hour(0.36);
-    let rh = Humidity::from_percent(50.0);
-    let met = MetabolicRate::from_met(1.4);
-    let clo = ClothingInsulation::from_clo(0.5);
-
-    let vr = v_relative(v, met);
-    let result = pmv_ppd_iso(
-        PmvPpdInputs {
-            tdb,
-            tr,
-            vr,
-            rh,
-            met,
-            clo,
-        },
-        Default::default(),
-    );
-    println!("PMV: {:.2}", result.pmv);
-}
-```
-
-### Clothing Insulation Lookups
-
-```rust
-use thermalcomfort::{clo_typical_ensemble, clo_individual_garment, ClothingInsulation};
-use thermalcomfort::utilities::clo_intrinsic_insulation_ensemble;
-
-fn main() {
-    let summer_clo = clo_typical_ensemble("Typical summer indoor clothing").unwrap();
-    println!("Summer clothing: {} clo", summer_clo); // 0.5 clo
-
-    let shirt = clo_individual_garment("Long-sleeve dress shirt").unwrap();
-    let pants = clo_individual_garment("Thick trousers").unwrap();
-    let underwear = clo_individual_garment("Men's underwear").unwrap();
-
-    let garments = [shirt, pants, underwear].map(ClothingInsulation::from_clo);
-    let total_clo = clo_intrinsic_insulation_ensemble(&garments);
-    println!("Total ensemble: {:.2} clo", total_clo); // ~0.60 clo
-}
-```
+| Example | Shows |
+|---|---|
+| `basic_pmv` | PMV/PPD under ISO 7730 and the relative air speed correction |
+| `typed_api` | The typed-quantity API: inputs in any unit, results read back in any unit, ISO against ASHRAE PMV |
+| `pmv_variants` | ASHRAE PMV with its options, the adaptive (`pmv_a`), expectancy (`pmv_e`) and ATHB variants, and the cooling effect of elevated air speed |
+| `adaptive_comfort` | Adaptive comfort under ASHRAE 55 and EN 16798, from a running mean outdoor temperature |
+| `two_node_models` | The Gagge two-node model, SET, the Ji variant, the sleep model's minute-by-minute night, and fan use in heatwaves |
+| `jos3` | The 17-segment JOS3 model: build, advance through phases, read segment and whole-body results |
+| `heat_strain` | PHS (ISO 7933), IREQ (ISO 11079), PET, and sports heat stress risk |
+| `outdoor_comfort` | UTCI and WBGT, with the wet-bulb temperature they rest on |
+| `stress_indices` | Heat index in three forms, humidex, discomfort index, apparent temperature, net effective temperature, THI, ESI, and wind chill in two forms |
+| `work_capacity` | Work capacity under four models, and the ridge-regression skin and rectal temperature predictor |
+| `solar_and_specialty` | Solar gain on the body, ankle draft, vertical temperature gradient, and sky-view fraction |
+| `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, mean radiant and operative temperature, body surface area |
+| `clothing` | Garment and ensemble lookups; intrinsic, total and dynamic insulation; air-layer and area factors; outdoor clothing estimate |
 
 ## WASM Support
 

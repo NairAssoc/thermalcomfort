@@ -1,10 +1,8 @@
 //! Working in whatever units you have, and letting the types do the conversion.
 //!
-//! This used to demonstrate a separate "typed API" sitting alongside an untyped one. There
-//! is no longer such a split — every model takes typed quantities and named inputs — so what
-//! is left worth showing is the part that was always the point: you hand the library the
-//! units you actually measured in, and comparisons that would be unit errors elsewhere are
-//! either impossible to write or converted for you.
+//! Every model takes typed quantities and named inputs. You hand the library the units you
+//! actually measured in, read results back in the units you want, and comparisons that would
+//! be unit errors elsewhere are either impossible to write or converted for you.
 
 use thermalcomfort::models::pmv::PmvPpdInputs;
 use thermalcomfort::models::{pmv_ppd_ashrae, pmv_ppd_iso};
