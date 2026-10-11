@@ -75,7 +75,8 @@ pub struct GaggeTwoNodesSleepOptions {
     pub wme: MetabolicRate,
     /// Atmospheric pressure
     pub p_atm: Pressure,
-    /// Number of time steps per minute of simulation
+    /// Sub-steps per simulated minute: a count, not a duration. Each schedule entry
+    /// covers one minute, integrated in this many equal steps.
     pub ltime: u32,
     /// Body height
     pub height: Length,

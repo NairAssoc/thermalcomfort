@@ -52,10 +52,10 @@ use thermalcomfort::utilities::{
     Units, antoine, body_surface_area, clo_area_factor, clo_correction_factor_environment,
     clo_dynamic_ashrae, clo_individual_garment, clo_insulation_air_layer,
     clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    hr_to_rh, p_sat, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    ActivityRatio, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
+    ActivityRatio, Age, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
     HeatFluxDensity, Mass, MetabolicRate, Sex, TemperatureDelta,
 };
 
@@ -514,10 +514,10 @@ fn test_compare_ireq() {
                     DurationLimitedExposure::NotApplicable => {
                         assert_eq!(py_desc, "NaN", "{context}");
                     }
-                    DurationLimitedExposure::Hours(h) => {
+                    DurationLimitedExposure::Limited(d) => {
                         let py_hours: f64 =
                             py_dle.extract().unwrap_or_else(|_| panic!("{context}"));
-                        assert_abs_diff_eq!(h, py_hours, epsilon = 0.05);
+                        assert_abs_diff_eq!(d.as_secs_f64() / 3600.0, py_hours, epsilon = 0.05);
                     }
                 }
             }
@@ -586,11 +586,11 @@ fn test_compare_saturation_pressures() {
                 call("p_sat_torr") * 133.322,
                 epsilon = 0.1
             );
-            // Python's antoine returns kPa; the Rust port normalises to Pa
+            // Python's antoine returns kPa; the Rust port returns a `Pressure`
             assert_abs_diff_eq!(
-                p_sat_antoine(Temperature::from_celsius(tdb)).as_pascals(),
-                call("antoine") * 1000.0,
-                epsilon = 0.1
+                antoine(Temperature::from_celsius(tdb)).as_kilopascals(),
+                call("antoine"),
+                epsilon = 1e-4
             );
         }
     });
@@ -790,7 +790,8 @@ fn test_compare_clo_insulation_helpers() {
                     vr: Speed::from_meters_per_second(vr),
                     v_walk: Speed::from_meters_per_second(v_walk),
                     i_a_static: ClothingInsulation::from_clo(i_a),
-                }),
+                })
+                .as_clo(),
                 py_cial,
                 epsilon = 1e-6
             );
@@ -809,7 +810,8 @@ fn test_compare_clo_insulation_helpers() {
                     v_walk: Speed::from_meters_per_second(v_walk),
                     i_a_static: ClothingInsulation::from_clo(i_a),
                     i_cl: ClothingInsulation::from_clo(i_cl),
-                }),
+                })
+                .as_clo(),
                 py_cti,
                 epsilon = 1e-6
             );
@@ -1075,7 +1077,7 @@ fn test_compare_hr_to_rh() {
                 Pressure::from_pascals(101325.0),
             );
 
-            assert_abs_diff_eq!(rust_rh, py_rh, epsilon = 1e-4);
+            assert_abs_diff_eq!(rust_rh.as_percent(), py_rh, epsilon = 1e-4);
         }
     });
 }
@@ -1115,7 +1117,7 @@ fn test_compare_clo_dynamic_iso() {
                 CloDynamicIsoOptions::default(),
             );
 
-            assert_abs_diff_eq!(rust_clo_dyn, py_clo_dyn, epsilon = 1e-5);
+            assert_abs_diff_eq!(rust_clo_dyn.as_clo(), py_clo_dyn, epsilon = 1e-5);
         }
     });
 }
@@ -2321,7 +2323,7 @@ fn test_use_fans_heatwaves_strain_flags_at_the_caps() {
 
 /// `ireq`'s `dle` either side of the 8-hour reporting ceiling.
 ///
-/// `DurationLimitedExposure` is `Hours(_)` up to the ceiling and `MoreThanEight` past it,
+/// `DurationLimitedExposure` is `Limited(_)` up to the ceiling and `MoreThanEight` past it,
 /// so it is a discrete output driven by a float and carries the same risk as every band
 /// edge in this file. Two details make it worth its own test rather than trusting the
 /// sweep:
@@ -2420,7 +2422,7 @@ fn test_ireq_dle_at_the_eight_hour_ceiling() {
                 );
                 assert_eq!(
                     rust.dle_neutral,
-                    DurationLimitedExposure::Hours(8.0),
+                    DurationLimitedExposure::Limited(Duration::from_secs(8 * 3600)),
                     "{label}: Rust {} where Python says {py_desc}",
                     rust.dle_neutral
                 );
@@ -3406,7 +3408,7 @@ fn test_compare_wbgt() {
                 },
             );
 
-            assert_abs_diff_eq!(rust_result, py_wbgt, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.as_celsius(), py_wbgt, epsilon = 0.1);
         }
     });
 }
@@ -3729,7 +3731,7 @@ fn test_compare_at() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result, py_at, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.as_celsius(), py_at, epsilon = 0.2);
         }
     });
 }
@@ -3760,7 +3762,7 @@ fn test_compare_net() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result, py_net, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.as_celsius(), py_net, epsilon = 0.2);
         }
     });
 }
@@ -3786,7 +3788,7 @@ fn test_compare_esi() {
                 EsiInputs {
                     tdb: Temperature::from_celsius(tdb),
                     rh: Humidity::from_percent(rh),
-                    sol_radiation_global: 0.0,
+                    sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(0.0),
                 },
                 Default::default(),
             );
@@ -3817,7 +3819,11 @@ fn test_compare_wci() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result, py_wci, epsilon = 10.0);
+            assert_abs_diff_eq!(
+                rust_result.as_watts_per_square_meter(),
+                py_wci,
+                epsilon = 10.0
+            );
         }
     });
 }
@@ -3847,7 +3853,7 @@ fn test_compare_wind_chill_temperature() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result, py_wct, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.as_celsius(), py_wct, epsilon = 0.5);
         }
     });
 }
@@ -4152,7 +4158,7 @@ fn test_compare_clo_tout() {
 
             let rust_result = clo_tout(Temperature::from_celsius(tout));
 
-            assert_abs_diff_eq!(rust_result, py_clo, epsilon = 0.01);
+            assert_abs_diff_eq!(rust_result.as_clo(), py_clo, epsilon = 0.01);
         }
     });
 }
@@ -4459,7 +4465,7 @@ fn test_clothing_typical_ensembles() {
                 .unwrap()
                 .extract()
                 .unwrap();
-            let rust_value = clo_typical_ensemble(name).unwrap();
+            let rust_value = clo_typical_ensemble(name).unwrap().as_clo();
 
             println!(
                 "Ensemble: '{}' - Python: {}, Rust: {}",
@@ -4467,7 +4473,7 @@ fn test_clothing_typical_ensembles() {
             );
 
             assert_abs_diff_eq!(rust_value, py_value, epsilon = 0.01);
-            assert_abs_diff_eq!(rust_value, *clo, epsilon = 0.001);
+            assert_abs_diff_eq!(rust_value, clo.as_clo(), epsilon = 0.001);
         }
 
         // Verify count matches
@@ -4497,10 +4503,10 @@ fn test_clothing_individual_garments() {
                 .unwrap()
                 .extract()
                 .unwrap();
-            let rust_value = clo_individual_garment(name).unwrap();
+            let rust_value = clo_individual_garment(name).unwrap().as_clo();
 
             assert_abs_diff_eq!(rust_value, py_value, epsilon = 0.01);
-            assert_abs_diff_eq!(rust_value, *clo, epsilon = 0.001);
+            assert_abs_diff_eq!(rust_value, clo.as_clo(), epsilon = 0.001);
         }
 
         // Verify count matches
@@ -4541,7 +4547,7 @@ fn test_clo_intrinsic_insulation_ensemble_comparison() {
                 .iter()
                 .map(|c| ClothingInsulation::from_clo(*c))
                 .collect();
-            let rust_result = clo_intrinsic_insulation_ensemble(&rust_garments);
+            let rust_result = clo_intrinsic_insulation_ensemble(&rust_garments).as_clo();
 
             println!(
                 "Garments: {:?} - Python: {:.3}, Rust: {:.3}",
@@ -4903,7 +4909,7 @@ fn test_clo_tout_comparison() {
             let py_clo: f64 = py_result.getattr("clo_tout").unwrap().extract().unwrap();
 
             // Call Rust function
-            let rust_clo = clo_tout(Temperature::from_celsius(tout));
+            let rust_clo = clo_tout(Temperature::from_celsius(tout)).as_clo();
 
             println!(
                 "Tout: {:.1}°C - Python: {:.2} clo, Rust: {:.2} clo",
@@ -4936,7 +4942,7 @@ fn test_antoine_comparison() {
                 .unwrap();
 
             // Call Rust function
-            let rust_result = antoine(Temperature::from_celsius(t));
+            let rust_result = antoine(Temperature::from_celsius(t)).as_kilopascals();
 
             println!(
                 "T: {:.1}°C - Python: {:.6} kPa, Rust: {:.6} kPa",
@@ -4978,12 +4984,12 @@ fn test_ridge_regression_comparison() {
         let rust_result = ridge_regression_predict_t_re_t_sk(
             RidgeRegressionInputs {
                 sex: Sex::Male,
-                age: 60.0,
+                age: Age::from_years(60.0),
                 height: Length::from_meters(1.8),
                 weight: Mass::from_kilograms(75.0),
                 tdb: Temperature::from_celsius(35.0),
                 rh: Humidity::from_percent(60.0),
-                duration: 60,
+                duration: Duration::from_secs(60 * 60),
             },
             Default::default(),
         );
@@ -5173,10 +5179,11 @@ fn test_pet_comparison() {
             );
 
             println!("  Python - PET: {:.2}°C", py_pet);
-            println!("  Rust   - PET: {:.2}°C", rust_result.pet);
+            let rust_pet = rust_result.pet.as_celsius();
+            println!("  Rust   - PET: {:.2}°C", rust_pet);
 
             // Compare results (PET can have larger differences due to numerical solving)
-            let diff = (rust_result.pet - py_pet).abs();
+            let diff = (rust_pet - py_pet).abs();
             println!("  Difference: {:.2}°C", diff);
 
             // PET accuracy with full-matrix Newton solver:
@@ -5188,7 +5195,7 @@ fn test_pet_comparison() {
             } else {
                 0.5 // Normal conditions
             };
-            assert_abs_diff_eq!(rust_result.pet, py_pet, epsilon = tolerance);
+            assert_abs_diff_eq!(rust_pet, py_pet, epsilon = tolerance);
         }
     });
 }
@@ -5235,7 +5242,7 @@ fn test_pet_forced_convection_comparison() {
                 },
             );
 
-            assert_abs_diff_eq!(rust_result.pet, py_pet, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.pet.as_celsius(), py_pet, epsilon = 0.5);
         }
     });
 }
@@ -5306,12 +5313,17 @@ fn test_phs_iso2023_comparison() {
                 "  Python - t_re: {:.1}°C, t_sk: {:.1}°C, t_cr: {:.1}°C, d_lim_50: {:.0} min",
                 py_t_re, py_t_sk, py_t_cr, py_d_lim_loss_50
             );
+            let rust_d_lim_loss_50 = rust_result
+                .d_lim_loss_50
+                .expect("inputs are inside ISO 7933's range")
+                .as_secs_f64()
+                / 60.0;
             println!(
                 "  Rust   - t_re: {:.1}°C, t_sk: {:.1}°C, t_cr: {:.1}°C, d_lim_50: {:.0} min",
                 rust_result.t_re.as_celsius(),
                 rust_result.t_sk.as_celsius(),
                 rust_result.t_cr.as_celsius(),
-                rust_result.d_lim_loss_50
+                rust_d_lim_loss_50
             );
 
             // Compare results
@@ -5319,7 +5331,7 @@ fn test_phs_iso2023_comparison() {
             assert_abs_diff_eq!(rust_result.t_sk.as_celsius(), py_t_sk, epsilon = 0.2);
             assert_abs_diff_eq!(rust_result.t_cr.as_celsius(), py_t_cr, epsilon = 0.2);
             // Exposure time limits can differ slightly due to rounding
-            assert_abs_diff_eq!(rust_result.d_lim_loss_50, py_d_lim_loss_50, epsilon = 2.0);
+            assert_abs_diff_eq!(rust_d_lim_loss_50, py_d_lim_loss_50, epsilon = 2.0);
         }
     });
 }
@@ -5417,7 +5429,7 @@ fn test_phs_short_duration() {
 
         // Call Rust function
         let options = PhsOptions {
-            duration: 60,
+            duration: Duration::from_secs(60 * 60),
             ..Default::default()
         };
 
@@ -5519,7 +5531,7 @@ fn test_phs_minute_one_skin_temperature_special_case() {
                         posture: PhsPosture::Standing,
                     },
                     PhsOptions {
-                        duration,
+                        duration: Duration::from_secs(u64::try_from(duration).unwrap() * 60),
                         model,
                         round_output: false,
                         ..Default::default()
@@ -5881,6 +5893,19 @@ fn assert_jos3_close(label: &str, field: &str, step: usize, rust: f64, py: f64) 
     );
 }
 
+/// Unwrap a typed result series to the plain numbers the Python side reports.
+fn f64s<T: Copy>(series: &[T], unwrap: impl Fn(T) -> f64) -> Vec<f64> {
+    series.iter().map(|&x| unwrap(x)).collect()
+}
+
+/// Unwrap a typed per-segment result series to plain numbers.
+fn f64_arrays<T: Copy, const N: usize>(
+    series: &[[T; N]],
+    unwrap: impl Fn(T) -> f64,
+) -> Vec<[f64; N]> {
+    series.iter().map(|a| a.map(&unwrap)).collect()
+}
+
 /// Compare every field of a Rust [`Jos3Results`] against `py_model.results()` (see the
 /// module-level comment above for why `results()` and not `dict_results()`), over every
 /// step in the trajectory.
@@ -5904,45 +5929,52 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
         .zip(py_sim_time.iter())
         .enumerate()
     {
-        assert_jos3_close(label, "simulation_time", step, r, p);
+        assert_jos3_close(label, "simulation_time", step, r.as_secs_f64(), p);
     }
 
     // -- age (int) --
-    let py_age: Vec<i32> = py
+    let py_age: Vec<f64> = py
         .getattr("age")
         .unwrap()
         .call_method0("tolist")
         .unwrap()
         .extract()
         .unwrap();
-    assert_eq!(rust.age, py_age, "{label}: age");
+    let rust_age: Vec<f64> = rust.age.iter().map(|a| a.as_years()).collect();
+    assert_eq!(rust_age, py_age, "{label}: age");
 
     // -- sex (string) --
     assert_eq!(rust.sex, jos3_sex_series(&py), "{label}: sex");
 
     // -- plain scalar fields --
-    let scalar_fields: [(&str, &Vec<f64>); 16] = [
-        ("dt", &rust.dt),
-        ("t_skin_mean", &rust.t_skin_mean),
-        ("w_mean", &rust.w_mean),
+    let scalar_fields: [(&str, Vec<f64>); 16] = [
+        ("dt", f64s(&rust.dt, |d| d.as_secs_f64())),
+        ("t_skin_mean", f64s(&rust.t_skin_mean, |t| t.as_celsius())),
+        ("w_mean", rust.w_mean.clone()),
         (
             "weight_loss_by_evap_and_res",
-            &rust.weight_loss_by_evap_and_res,
+            rust.weight_loss_by_evap_and_res.clone(),
         ),
-        ("cardiac_output", &rust.cardiac_output),
-        ("q_thermogenesis_total", &rust.q_thermogenesis_total),
-        ("q_res", &rust.q_res),
-        ("height", &rust.height),
-        ("weight", &rust.weight),
-        ("fat", &rust.fat),
-        ("t_cb", &rust.t_cb),
-        ("par", &rust.par),
-        ("bf_ava_hand", &rust.bf_ava_hand),
-        ("bf_ava_foot", &rust.bf_ava_foot),
-        ("q_res_sensible", &rust.q_res_sensible),
-        ("q_res_latent", &rust.q_res_latent),
+        ("cardiac_output", rust.cardiac_output.clone()),
+        (
+            "q_thermogenesis_total",
+            f64s(&rust.q_thermogenesis_total, |p| p.as_watts()),
+        ),
+        ("q_res", f64s(&rust.q_res, |p| p.as_watts())),
+        ("height", f64s(&rust.height, |h| h.as_meters())),
+        ("weight", f64s(&rust.weight, |w| w.as_kilograms())),
+        ("fat", f64s(&rust.fat, |f| f.as_percent())),
+        ("t_cb", f64s(&rust.t_cb, |t| t.as_celsius())),
+        ("par", f64s(&rust.par, |p| p.as_ratio())),
+        ("bf_ava_hand", rust.bf_ava_hand.clone()),
+        ("bf_ava_foot", rust.bf_ava_foot.clone()),
+        (
+            "q_res_sensible",
+            f64s(&rust.q_res_sensible, |p| p.as_watts()),
+        ),
+        ("q_res_latent", f64s(&rust.q_res_latent, |p| p.as_watts())),
     ];
-    for (field, rust_series) in scalar_fields {
+    for (field, rust_series) in &scalar_fields {
         assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
         let py_series = jos3_f64_series(&py, field);
         assert_eq!(py_series.len(), n, "{label}: {field} python length");
@@ -5952,40 +5984,58 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
     }
 
     // -- 17-wide per-body-part fields --
-    let body17_fields: [(&str, &Vec<[f64; 17]>); 31] = [
-        ("t_skin", &rust.t_skin),
-        ("t_core", &rust.t_core),
-        ("w", &rust.w),
-        ("q_skin2env", &rust.q_skin2env),
-        ("bsa", &rust.bsa),
-        ("t_core_set", &rust.t_core_set),
-        ("t_skin_set", &rust.t_skin_set),
-        ("t_artery", &rust.t_artery),
-        ("t_vein", &rust.t_vein),
-        ("to", &rust.to),
-        ("r_t", &rust.r_t),
-        ("r_et", &rust.r_et),
-        ("tdb", &rust.tdb),
-        ("tr", &rust.tr),
-        ("rh", &rust.rh),
-        ("v", &rust.v),
-        ("clo", &rust.clo),
-        ("e_skin", &rust.e_skin),
-        ("e_max", &rust.e_max),
-        ("e_sweat", &rust.e_sweat),
-        ("bf_core", &rust.bf_core),
-        ("bf_skin", &rust.bf_skin),
-        ("q_bmr_core", &rust.q_bmr_core),
-        ("q_bmr_skin", &rust.q_bmr_skin),
-        ("q_work", &rust.q_work),
-        ("q_shiv", &rust.q_shiv),
-        ("q_nst", &rust.q_nst),
-        ("q_thermogenesis_core", &rust.q_thermogenesis_core),
-        ("q_thermogenesis_skin", &rust.q_thermogenesis_skin),
-        ("q_skin2env_sensible", &rust.q_skin2env_sensible),
-        ("q_skin2env_latent", &rust.q_skin2env_latent),
+    let body17_fields: [(&str, Vec<[f64; 17]>); 31] = [
+        ("t_skin", f64_arrays(&rust.t_skin, |t| t.as_celsius())),
+        ("t_core", f64_arrays(&rust.t_core, |t| t.as_celsius())),
+        ("w", rust.w.clone()),
+        ("q_skin2env", f64_arrays(&rust.q_skin2env, |p| p.as_watts())),
+        ("bsa", f64_arrays(&rust.bsa, |a| a.as_square_meters())),
+        (
+            "t_core_set",
+            f64_arrays(&rust.t_core_set, |t| t.as_celsius()),
+        ),
+        (
+            "t_skin_set",
+            f64_arrays(&rust.t_skin_set, |t| t.as_celsius()),
+        ),
+        ("t_artery", f64_arrays(&rust.t_artery, |t| t.as_celsius())),
+        ("t_vein", f64_arrays(&rust.t_vein, |t| t.as_celsius())),
+        ("to", f64_arrays(&rust.to, |t| t.as_celsius())),
+        ("r_t", rust.r_t.clone()),
+        ("r_et", rust.r_et.clone()),
+        ("tdb", f64_arrays(&rust.tdb, |t| t.as_celsius())),
+        ("tr", f64_arrays(&rust.tr, |t| t.as_celsius())),
+        ("rh", f64_arrays(&rust.rh, |h| h.as_percent())),
+        ("v", f64_arrays(&rust.v, |v| v.as_meters_per_second())),
+        ("clo", f64_arrays(&rust.clo, |c| c.as_clo())),
+        ("e_skin", f64_arrays(&rust.e_skin, |p| p.as_watts())),
+        ("e_max", f64_arrays(&rust.e_max, |p| p.as_watts())),
+        ("e_sweat", f64_arrays(&rust.e_sweat, |p| p.as_watts())),
+        ("bf_core", rust.bf_core.clone()),
+        ("bf_skin", rust.bf_skin.clone()),
+        ("q_bmr_core", f64_arrays(&rust.q_bmr_core, |p| p.as_watts())),
+        ("q_bmr_skin", f64_arrays(&rust.q_bmr_skin, |p| p.as_watts())),
+        ("q_work", f64_arrays(&rust.q_work, |p| p.as_watts())),
+        ("q_shiv", f64_arrays(&rust.q_shiv, |p| p.as_watts())),
+        ("q_nst", f64_arrays(&rust.q_nst, |p| p.as_watts())),
+        (
+            "q_thermogenesis_core",
+            f64_arrays(&rust.q_thermogenesis_core, |p| p.as_watts()),
+        ),
+        (
+            "q_thermogenesis_skin",
+            f64_arrays(&rust.q_thermogenesis_skin, |p| p.as_watts()),
+        ),
+        (
+            "q_skin2env_sensible",
+            f64_arrays(&rust.q_skin2env_sensible, |p| p.as_watts()),
+        ),
+        (
+            "q_skin2env_latent",
+            f64_arrays(&rust.q_skin2env_latent, |p| p.as_watts()),
+        ),
     ];
-    for (field, rust_series) in body17_fields {
+    for (field, rust_series) in &body17_fields {
         assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
         let py_series = jos3_body_part_series(&py, field);
         for (part_idx, part_name) in JOS3_BODY_NAMES.iter().enumerate() {
@@ -6004,17 +6054,26 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
     }
 
     // -- 2-wide (head, pelvis) fields --
-    let body2_fields: [(&str, &Vec<[f64; 2]>); 8] = [
-        ("t_muscle", &rust.t_muscle),
-        ("t_fat", &rust.t_fat),
-        ("bf_muscle", &rust.bf_muscle),
-        ("bf_fat", &rust.bf_fat),
-        ("q_bmr_muscle", &rust.q_bmr_muscle),
-        ("q_bmr_fat", &rust.q_bmr_fat),
-        ("q_thermogenesis_muscle", &rust.q_thermogenesis_muscle),
-        ("q_thermogenesis_fat", &rust.q_thermogenesis_fat),
+    let body2_fields: [(&str, Vec<[f64; 2]>); 8] = [
+        ("t_muscle", f64_arrays(&rust.t_muscle, |t| t.as_celsius())),
+        ("t_fat", f64_arrays(&rust.t_fat, |t| t.as_celsius())),
+        ("bf_muscle", rust.bf_muscle.clone()),
+        ("bf_fat", rust.bf_fat.clone()),
+        (
+            "q_bmr_muscle",
+            f64_arrays(&rust.q_bmr_muscle, |p| p.as_watts()),
+        ),
+        ("q_bmr_fat", f64_arrays(&rust.q_bmr_fat, |p| p.as_watts())),
+        (
+            "q_thermogenesis_muscle",
+            f64_arrays(&rust.q_thermogenesis_muscle, |p| p.as_watts()),
+        ),
+        (
+            "q_thermogenesis_fat",
+            f64_arrays(&rust.q_thermogenesis_fat, |p| p.as_watts()),
+        ),
     ];
-    for (field, rust_series) in body2_fields {
+    for (field, rust_series) in &body2_fields {
         assert_eq!(rust_series.len(), n, "{label}: {field} rust length");
         let (py_head, py_pelvis) = jos3_head_pelvis_series(&py, field);
         assert_eq!(py_head.len(), n, "{label}: {field}.head length");
@@ -6051,7 +6110,7 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
                 label,
                 &format!("t_superficial_vein[{k}]"),
                 step,
-                rust.t_superficial_vein[step][k],
+                rust.t_superficial_vein[step][k].as_celsius(),
                 p,
             );
         }
@@ -6170,7 +6229,7 @@ fn test_jos3_constructor_variation_comparison() {
                     let mut rust_model = Jos3Builder::new()
                         .height(Length::from_meters(spec.height_m))
                         .weight(Mass::from_kilograms(spec.weight_kg))
-                        .age(spec.age)
+                        .age(Age::from_years(f64::from(spec.age)))
                         .fat(BodyFat::new(spec.fat_percent).expect("in range"))
                         .sex(sex)
                         .cardiac_index(CardiacIndex::from_liters_per_minute_per_square_meter(
@@ -6247,11 +6306,11 @@ fn test_jos3_posture_variants_comparison() {
                 .build()
                 .unwrap_or_else(|e| panic!("{label}: build failed: {e}"));
             let mut conditions = rust_model.conditions();
-            conditions.tdb = PerBodyPart::Uniform(24.0);
-            conditions.tr = PerBodyPart::Uniform(24.0);
-            conditions.rh = PerBodyPart::Uniform(55.0);
-            conditions.v = PerBodyPart::Uniform(0.2);
-            conditions.clo = PerBodyPart::Uniform(0.6);
+            conditions.tdb = PerBodyPart::Uniform(Temperature::from_celsius(24.0));
+            conditions.tr = PerBodyPart::Uniform(Temperature::from_celsius(24.0));
+            conditions.rh = PerBodyPart::Uniform(Humidity::from_percent(55.0));
+            conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(0.2));
+            conditions.clo = PerBodyPart::Uniform(ClothingInsulation::from_clo(0.6));
             conditions.posture = posture;
             rust_model
                 .advance(&conditions, 5, Duration::from_secs(60))
@@ -6336,7 +6395,7 @@ fn test_jos3_multiphase_run_comparison() {
             let mut rust_model = Jos3Builder::new()
                 .height(Length::from_meters(subject.height_m))
                 .weight(Mass::from_kilograms(subject.weight_kg))
-                .age(subject.age)
+                .age(Age::from_years(f64::from(subject.age)))
                 .fat(BodyFat::new(subject.fat_percent).expect("in range"))
                 .sex(subject.sex)
                 .build()
@@ -6356,11 +6415,11 @@ fn test_jos3_multiphase_run_comparison() {
                 .unwrap_or_else(|e| panic!("{}: phase 1 simulate raised: {e}", subject.label));
 
             let mut conditions = rust_model.conditions();
-            conditions.tdb = PerBodyPart::Uniform(26.0);
-            conditions.tr = PerBodyPart::Uniform(26.0);
-            conditions.rh = PerBodyPart::Uniform(50.0);
-            conditions.v = PerBodyPart::Uniform(0.1);
-            conditions.clo = PerBodyPart::Uniform(0.5);
+            conditions.tdb = PerBodyPart::Uniform(Temperature::from_celsius(26.0));
+            conditions.tr = PerBodyPart::Uniform(Temperature::from_celsius(26.0));
+            conditions.rh = PerBodyPart::Uniform(Humidity::from_percent(50.0));
+            conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(0.1));
+            conditions.clo = PerBodyPart::Uniform(ClothingInsulation::from_clo(0.5));
             conditions.par = ActivityRatio::from_ratio(1.2);
             rust_model
                 .advance(&conditions, 5, Duration::from_secs(60))
@@ -6388,11 +6447,11 @@ fn test_jos3_multiphase_run_comparison() {
                 .unwrap_or_else(|e| panic!("{}: phase 2 simulate raised: {e}", subject.label));
 
             let mut conditions = rust_model.conditions();
-            conditions.tdb = PerBodyPart::BySegment(tdb2);
-            conditions.tr = PerBodyPart::BySegment(tr2);
-            conditions.rh = PerBodyPart::BySegment(rh2);
-            conditions.v = PerBodyPart::BySegment(v2);
-            conditions.clo = PerBodyPart::BySegment(clo2);
+            conditions.tdb = PerBodyPart::BySegment(tdb2.map(Temperature::from_celsius));
+            conditions.tr = PerBodyPart::BySegment(tr2.map(Temperature::from_celsius));
+            conditions.rh = PerBodyPart::BySegment(rh2.map(Humidity::from_percent));
+            conditions.v = PerBodyPart::BySegment(v2.map(Speed::from_meters_per_second));
+            conditions.clo = PerBodyPart::BySegment(clo2.map(ClothingInsulation::from_clo));
             conditions.par = ActivityRatio::from_ratio(1.5);
             conditions.posture = Jos3Posture::Sitting;
             rust_model
@@ -6408,6 +6467,10 @@ fn test_jos3_multiphase_run_comparison() {
                 .collect();
             let rh3: [f64; 17] = std::array::from_fn(|i| 60.0 - 0.5 * i as f64);
 
+            let by_name_typed: Vec<(&str, Temperature)> = by_name
+                .iter()
+                .map(|&(name, to)| (name, Temperature::from_celsius(to)))
+                .collect();
             let py_to_dict = by_name.clone().into_py_dict(py).unwrap();
             py_model.setattr("to", py_to_dict).unwrap();
             py_model.setattr("rh", rh3.to_vec()).unwrap();
@@ -6421,11 +6484,11 @@ fn test_jos3_multiphase_run_comparison() {
                 .unwrap_or_else(|e| panic!("{}: phase 3 simulate raised: {e}", subject.label));
 
             let mut conditions = rust_model.conditions();
-            conditions.rh = PerBodyPart::BySegment(rh3);
-            conditions.v = PerBodyPart::Uniform(0.15);
-            conditions.clo = PerBodyPart::Uniform(0.8);
+            conditions.rh = PerBodyPart::BySegment(rh3.map(Humidity::from_percent));
+            conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(0.15));
+            conditions.clo = PerBodyPart::Uniform(ClothingInsulation::from_clo(0.8));
             conditions.posture = Jos3Posture::Lying;
-            conditions.to = Some(PerBodyPart::ByName(&by_name));
+            conditions.to = Some(PerBodyPart::ByName(&by_name_typed));
             rust_model
                 .advance(&conditions, 3, Duration::from_secs(90))
                 .unwrap_or_else(|e| panic!("{}: phase 3 advance failed: {e}", subject.label));

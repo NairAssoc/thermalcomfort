@@ -16,6 +16,7 @@
 use crate::constants::MET_TO_W_M2;
 use crate::utilities::{np_minimum, round_to};
 use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
+use core::time::Duration;
 use libm::{exp, fabs, log, pow};
 
 /// Conversion between clo and m²·K/W
@@ -41,8 +42,8 @@ const DLE_CEILING_H: f64 = 8.0;
 /// or the string `"more than 8"`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DurationLimitedExposure {
-    /// Exposure is limited to this many hours
-    Hours(f64),
+    /// Exposure is limited to this duration (at most eight hours)
+    Limited(Duration),
     /// Exposure exceeds the 8 hour reporting ceiling (Python: `"more than 8"`)
     MoreThanEight,
     /// Inputs fell outside the applicability limits, or the result was non-physical
@@ -51,13 +52,11 @@ pub enum DurationLimitedExposure {
 }
 
 impl core::fmt::Display for DurationLimitedExposure {
-    /// Renders the same way pythermalcomfort's mixed-type `dle` field prints.
-    ///
-    /// Replaces an `as_str` whose contract was inverted: it returned `None` for
-    /// `Hours` (a real value) and `Some("nan")` for `NotApplicable` (the absent case).
+    /// Renders the same way pythermalcomfort's mixed-type `dle` field prints: a limited
+    /// exposure as a number of hours, the other two as upstream's strings.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DurationLimitedExposure::Hours(h) => write!(f, "{h}"),
+            DurationLimitedExposure::Limited(d) => write!(f, "{}", d.as_secs_f64() / 3600.0),
             DurationLimitedExposure::MoreThanEight => f.write_str("more than 8"),
             DurationLimitedExposure::NotApplicable => f.write_str("nan"),
         }
@@ -449,10 +448,9 @@ fn valid_iso_11079_inputs(met: f64, tdb: f64, vr: f64, walk_sp: f64) -> bool {
 fn format_dle(dle: f64, round_output: bool) -> DurationLimitedExposure {
     if !(0.0..=DLE_CEILING_H).contains(&dle) {
         DurationLimitedExposure::MoreThanEight
-    } else if round_output {
-        DurationLimitedExposure::Hours(round_to(dle, 1))
     } else {
-        DurationLimitedExposure::Hours(dle)
+        let hours = if round_output { round_to(dle, 1) } else { dle };
+        DurationLimitedExposure::Limited(Duration::from_secs_f64(hours * 3600.0))
     }
 }
 
@@ -572,8 +570,14 @@ mod tests {
             make_inputs(-5.0, -5.0, 0.5, 80.0, 2.0, 1.5, 50.0, 0.5),
             IreqOptions::default(),
         );
-        assert_eq!(limited.dle_min, DurationLimitedExposure::Hours(1.2));
-        assert_eq!(limited.dle_neutral, DurationLimitedExposure::Hours(0.8));
+        assert_eq!(
+            limited.dle_min,
+            DurationLimitedExposure::Limited(Duration::from_secs(72 * 60))
+        );
+        assert_eq!(
+            limited.dle_neutral,
+            DurationLimitedExposure::Limited(Duration::from_secs(48 * 60))
+        );
     }
 
     #[test]

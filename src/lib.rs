@@ -499,6 +499,37 @@ impl Default for BodyFat {
     }
 }
 
+/// Age, in years.
+///
+/// PET, the ridge-regression predictor and JOS3 all take an age; a shared type stops a
+/// height in centimetres or a weight in kilograms being handed to the age slot of a
+/// long run of body parameters. Unbounded, because the three models validate it
+/// differently upstream (JOS3's `validate_body_parameters` accepts 5–100; the others do
+/// not check), and the model, not the type, is the place to reproduce that.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::Age;
+///
+/// let age = Age::from_years(23.0);
+/// assert!((age.as_years() - 23.0).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Age(f64);
+
+impl Age {
+    /// Construct from an age in years
+    pub const fn from_years(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// The age in years
+    pub const fn as_years(self) -> f64 {
+        self.0
+    }
+}
+
 /// Which equation estimates basal metabolic rate.
 ///
 /// Mirrors pythermalcomfort's `bmr_equation` string, dispatched in

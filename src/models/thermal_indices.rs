@@ -3,6 +3,7 @@
 //! This module contains implementations of various simple thermal comfort indices
 //! that are widely used for quick assessment of thermal stress conditions.
 
+use crate::HeatFluxDensity;
 use crate::psychrometrics::{PsyTaRhInputs, PsyTaRhOptions, dew_point_temperature, psy_ta_rh};
 use measurements::{Humidity, Speed, Temperature};
 
@@ -38,7 +39,7 @@ impl Default for WciOptions {
 ///
 /// # Returns
 ///
-/// Wind Chill Index [W/m²]
+/// Wind Chill Index, a heat-loss density
 ///
 /// # Examples
 ///
@@ -53,13 +54,13 @@ impl Default for WciOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// assert!((result - 1255.2).abs() < 0.1);
+/// assert!((result.as_watts_per_square_meter() - 1255.2).abs() < 0.1);
 /// ```
 ///
 /// # References
 ///
 /// - ASHRAE 2017 Handbook Fundamentals - Chapter 9
-pub fn wci(inputs: WciInputs, options: WciOptions) -> f64 {
+pub fn wci(inputs: WciInputs, options: WciOptions) -> HeatFluxDensity {
     let WciInputs { tdb, v } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
@@ -74,7 +75,7 @@ pub fn wci(inputs: WciInputs, options: WciOptions) -> f64 {
         wci_value = crate::utilities::round_half_even(wci_value * 10.0) / 10.0;
     }
 
-    wci_value
+    HeatFluxDensity::from_watts_per_square_meter(wci_value)
 }
 
 /// The comfort inputs to [`wind_chill_temperature`]: pythermalcomfort requires both (no
@@ -109,7 +110,7 @@ impl Default for WindChillTemperatureOptions {
 ///
 /// # Returns
 ///
-/// Wind Chill Temperature [°C]
+/// Wind Chill Temperature
 ///
 /// # Examples
 ///
@@ -126,12 +127,12 @@ impl Default for WindChillTemperatureOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// assert!((result - (-7.5)).abs() < 0.1);
+/// assert!((result.as_celsius() - (-7.5)).abs() < 0.1);
 /// ```
 pub fn wind_chill_temperature(
     inputs: WindChillTemperatureInputs,
     options: WindChillTemperatureOptions,
-) -> f64 {
+) -> Temperature {
     let WindChillTemperatureInputs { tdb, v } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_kmh = v.as_kilometers_per_hour();
@@ -143,7 +144,7 @@ pub fn wind_chill_temperature(
         wct = crate::utilities::round_half_even(wct * 10.0) / 10.0;
     }
 
-    wct
+    Temperature::from_celsius(wct)
 }
 
 /// Humidex result with discomfort category
@@ -778,8 +779,8 @@ pub struct AtInputs {
 /// Optional parameters for [`at`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AtOptions {
-    /// Net radiation absorbed per unit area of body surface [W/m²]
-    pub q: Option<f64>,
+    /// Net radiation absorbed per unit area of body surface
+    pub q: Option<HeatFluxDensity>,
     /// Whether to round output to 1 decimal place
     pub round_output: bool,
 }
@@ -802,7 +803,7 @@ impl Default for AtOptions {
 ///
 /// # Returns
 ///
-/// Apparent Temperature [°C]
+/// Apparent Temperature
 ///
 /// # Examples
 ///
@@ -818,14 +819,14 @@ impl Default for AtOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// assert!((result - 24.1).abs() < 0.5);
+/// assert!((result.as_celsius() - 24.1).abs() < 0.5);
 /// ```
 ///
 /// # References
 ///
 /// - Steadman (1984)
 /// - Australian Bureau of Meteorology
-pub fn at(inputs: AtInputs, options: AtOptions) -> f64 {
+pub fn at(inputs: AtInputs, options: AtOptions) -> Temperature {
     let AtInputs { tdb, rh, v } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
@@ -841,10 +842,10 @@ pub fn at(inputs: AtInputs, options: AtOptions) -> f64 {
     let p_vap = psy_result.p_vap.as_pascals() / 100.0; // Convert to hPa
 
     // Calculate apparent temperature
-    let mut t_at = if let Some(q_val) = options.q {
+    let mut t_at = if let Some(q) = options.q {
         // With solar radiation
         dry_bulb_celsius + 0.348 * p_vap - 0.7 * wind_speed_mps
-            + 0.7 * q_val / (wind_speed_mps + 10.0)
+            + 0.7 * q.as_watts_per_square_meter() / (wind_speed_mps + 10.0)
             - 4.25
     } else {
         // Without solar radiation
@@ -855,7 +856,7 @@ pub fn at(inputs: AtInputs, options: AtOptions) -> f64 {
         t_at = crate::utilities::round_half_even(t_at * 10.0) / 10.0;
     }
 
-    t_at
+    Temperature::from_celsius(t_at)
 }
 
 /// The comfort inputs to [`net`]: pythermalcomfort requires all three (no default).
@@ -893,7 +894,7 @@ impl Default for NetOptions {
 ///
 /// # Returns
 ///
-/// Normal Effective Temperature [°C]
+/// Normal Effective Temperature
 ///
 /// # Examples
 ///
@@ -909,7 +910,7 @@ impl Default for NetOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// assert!((result - 37.0).abs() < 0.1);
+/// assert!((result.as_celsius() - 37.0).abs() < 0.1);
 /// ```
 ///
 /// # Thresholds (Central Europe)
@@ -926,7 +927,7 @@ impl Default for NetOptions {
 ///
 /// - Missenard (1933)
 /// - Used in Germany and Hong Kong Observatory
-pub fn net(inputs: NetInputs, options: NetOptions) -> f64 {
+pub fn net(inputs: NetInputs, options: NetOptions) -> Temperature {
     let NetInputs { tdb, rh, v } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let wind_speed_mps = v.as_meters_per_second();
@@ -941,7 +942,7 @@ pub fn net(inputs: NetInputs, options: NetOptions) -> f64 {
         et = crate::utilities::round_half_even(et * 10.0) / 10.0;
     }
 
-    et
+    Temperature::from_celsius(et)
 }
 
 /// The comfort inputs to [`esi`]: pythermalcomfort requires all three (no default).
@@ -953,8 +954,8 @@ pub struct EsiInputs {
     pub tdb: Temperature,
     /// Relative humidity (use `Humidity::from_percent()` for RH%)
     pub rh: Humidity,
-    /// Global solar radiation [W/m²]
-    pub sol_radiation_global: f64,
+    /// Global solar radiation
+    pub sol_radiation_global: HeatFluxDensity,
 }
 
 /// Optional parameters for [`esi`], with pythermalcomfort's defaults.
@@ -983,13 +984,13 @@ impl Default for EsiOptions {
 ///
 /// ```
 /// use thermalcomfort::models::thermal_indices::{esi, EsiInputs, EsiOptions};
-/// use thermalcomfort::{Temperature, Humidity};
+/// use thermalcomfort::{Temperature, Humidity, HeatFluxDensity};
 ///
 /// let result = esi(
 ///     EsiInputs {
 ///         tdb: Temperature::from_celsius(30.2),
 ///         rh: Humidity::from_percent(42.2),
-///         sol_radiation_global: 766.0,
+///         sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(766.0),
 ///     },
 ///     Default::default(),
 /// );
@@ -1007,6 +1008,7 @@ pub fn esi(inputs: EsiInputs, options: EsiOptions) -> f64 {
     } = inputs;
     let dry_bulb_celsius = tdb.as_celsius();
     let rh_percent = rh.as_percent();
+    let sol_radiation_global = sol_radiation_global.as_watts_per_square_meter();
 
     let mut esi_value = 0.63 * dry_bulb_celsius - 0.03 * rh_percent
         + 0.002 * sol_radiation_global
@@ -1033,7 +1035,7 @@ mod tests {
             },
             Default::default(),
         );
-        assert!((result - 1255.2).abs() < 1.0);
+        assert!((result.as_watts_per_square_meter() - 1255.2).abs() < 1.0);
     }
 
     #[test]
@@ -1045,7 +1047,7 @@ mod tests {
             },
             Default::default(),
         );
-        assert!((result - (-7.5)).abs() < 0.2);
+        assert!((result.as_celsius() - (-7.5)).abs() < 0.2);
     }
 
     #[test]
@@ -1278,7 +1280,7 @@ mod tests {
             },
             Default::default(),
         );
-        assert!((result - 24.1).abs() < 0.5);
+        assert!((result.as_celsius() - 24.1).abs() < 0.5);
 
         // Test with solar radiation
         let result = at(
@@ -1288,11 +1290,11 @@ mod tests {
                 v: Speed::from_meters_per_second(0.1),
             },
             AtOptions {
-                q: Some(200.0),
+                q: Some(HeatFluxDensity::from_watts_per_square_meter(200.0)),
                 round_output: true,
             },
         );
-        assert!((result - 37.9).abs() < 0.5);
+        assert!((result.as_celsius() - 37.9).abs() < 0.5);
     }
 
     #[test]
@@ -1305,7 +1307,7 @@ mod tests {
             },
             Default::default(),
         );
-        assert!((result - 37.0).abs() < 0.2);
+        assert!((result.as_celsius() - 37.0).abs() < 0.2);
 
         let result = net(
             NetInputs {
@@ -1317,7 +1319,7 @@ mod tests {
                 round_output: false,
             },
         );
-        assert!(result > 20.0 && result < 35.0);
+        assert!(result.as_celsius() > 20.0 && result.as_celsius() < 35.0);
     }
 
     #[test]
@@ -1326,7 +1328,7 @@ mod tests {
             EsiInputs {
                 tdb: Temperature::from_celsius(30.2),
                 rh: Humidity::from_percent(42.2),
-                sol_radiation_global: 766.0,
+                sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(766.0),
             },
             Default::default(),
         );

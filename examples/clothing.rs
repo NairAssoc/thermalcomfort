@@ -29,8 +29,8 @@ fn main() {
     for name in garments {
         match clo_individual_garment(name) {
             Some(clo) => {
-                println!("  {name:<26} {clo:.2} clo");
-                garment_clos.push(ClothingInsulation::from_clo(clo));
+                println!("  {name:<26} {:.2} clo", clo.as_clo());
+                garment_clos.push(clo);
             }
             None => println!("  {name:<26} (not in the ASHRAE 55 garment table)"),
         }
@@ -40,7 +40,7 @@ fn main() {
     let ensemble = clo_intrinsic_insulation_ensemble(&garment_clos);
     let plain_sum: f64 = garment_clos.iter().map(|c| c.as_clo()).sum();
     println!("  Plain sum:                 {plain_sum:.2} clo");
-    println!("  Intrinsic ensemble:        {ensemble:.2} clo");
+    println!("  Intrinsic ensemble:        {:.2} clo", ensemble.as_clo());
 
     println!("\n--- Typical ensembles ---");
     for name in [
@@ -50,7 +50,7 @@ fn main() {
         "Space suit",
     ] {
         match clo_typical_ensemble(name) {
-            Some(clo) => println!("  {name:<32} {clo:.2} clo"),
+            Some(clo) => println!("  {name:<32} {:.2} clo", clo.as_clo()),
             None => println!("  {name:<32} (not in the ensemble table)"),
         }
     }
@@ -99,9 +99,10 @@ fn main() {
             Default::default(),
         );
         println!(
-            "  {:.1} clo at {:.1} met in {v_ms:.1} m/s -> {dynamic:.2} clo",
+            "  {:.1} clo at {:.1} met in {v_ms:.1} m/s -> {:.2} clo",
             clo_static.as_clo(),
-            met_walking.as_met()
+            met_walking.as_met(),
+            dynamic.as_clo()
         );
     }
     let dynamic_thin_layer = clo_dynamic_iso(
@@ -115,7 +116,10 @@ fn main() {
             ..Default::default()
         },
     );
-    println!("  Same at 0.5 m/s with a 0.6 clo static air layer -> {dynamic_thin_layer:.2} clo");
+    println!(
+        "  Same at 0.5 m/s with a 0.6 clo static air layer -> {:.2} clo",
+        dynamic_thin_layer.as_clo()
+    );
 
     // --- The ISO 9920 building blocks ---
     println!("\n--- ISO 9920 correction components ---");
@@ -135,8 +139,9 @@ fn main() {
         i_a_static,
     });
     println!(
-        "  Boundary air layer: {:.2} clo static -> {i_a_dynamic:.2} clo dynamic",
-        i_a_static.as_clo()
+        "  Boundary air layer: {:.2} clo static -> {:.2} clo dynamic",
+        i_a_static.as_clo(),
+        i_a_dynamic.as_clo()
     );
 
     // The correction factor depends on how much clothing is worn: nude skin loses
@@ -162,8 +167,9 @@ fn main() {
         i_cl,
     });
     println!(
-        "  Total insulation: {:.2} clo static -> {i_t_dynamic:.2} clo dynamic",
-        i_t.as_clo()
+        "  Total insulation: {:.2} clo static -> {:.2} clo dynamic",
+        i_t.as_clo(),
+        i_t_dynamic.as_clo()
     );
 
     // --- Clothing from outdoor temperature ---
@@ -172,7 +178,7 @@ fn main() {
     for tout in [-10.0, 0.0, 10.0, 20.0, 30.0] {
         println!(
             "  {tout:>4.0}°C outdoors -> {:.2} clo",
-            clo_tout(Temperature::from_celsius(tout))
+            clo_tout(Temperature::from_celsius(tout)).as_clo()
         );
     }
 }

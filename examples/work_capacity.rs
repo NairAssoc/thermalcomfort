@@ -4,12 +4,13 @@
 //! worked at a given WBGT) and the ridge-regression predictor of rectal and skin
 //! temperature over a hot exposure.
 
+use std::time::Duration;
 use thermalcomfort::models::{
     RidgeRegressionInputs, RidgeRegressionOptions, WorkCapacityIntensityOptions, WorkIntensity,
     ridge_regression_predict_t_re_t_sk, work_capacity_dunne, work_capacity_hothaps,
     work_capacity_iso, work_capacity_niosh,
 };
-use thermalcomfort::{Humidity, Length, Mass, Power, Sex, Temperature};
+use thermalcomfort::{Age, Humidity, Length, Mass, Power, Sex, Temperature};
 
 fn main() {
     println!("=== Work Capacity Under Heat Stress ===\n");
@@ -65,19 +66,19 @@ fn main() {
     println!("\n--- Ridge regression: rectal and skin temperature ---");
     // A 60-year-old man resting for an hour at 35 °C and 60% RH. The model returns one
     // prediction per minute.
-    let duration = 60;
+    let minutes: usize = 60;
     let inputs = RidgeRegressionInputs {
         sex: Sex::Male,
-        age: 60.0,
+        age: Age::from_years(60.0),
         height: Length::from_meters(1.80),
         weight: Mass::from_kilograms(75.0),
         tdb: Temperature::from_celsius(35.0),
         rh: Humidity::from_percent(60.0),
-        duration,
+        duration: Duration::from_secs(minutes as u64 * 60),
     };
     println!(
-        "Male, {:.0} years, {:.2} m, {:.0} kg at {:.0}°C, {:.0}% RH for {duration} min\n",
-        inputs.age,
+        "Male, {:.0} years, {:.2} m, {:.0} kg at {:.0}°C, {:.0}% RH for {minutes} min\n",
+        inputs.age.as_years(),
         inputs.height.as_meters(),
         inputs.weight.as_kilograms(),
         inputs.tdb.as_celsius(),
@@ -86,7 +87,7 @@ fn main() {
 
     let predicted = ridge_regression_predict_t_re_t_sk(inputs, Default::default());
     println!("  Default initial temperatures:");
-    for minute in [0, 15, 30, 45, duration - 1] {
+    for minute in [0, 15, 30, 45, minutes - 1] {
         println!(
             "    minute {:>2}: rectal {:.2}°C, skin {:.2}°C",
             minute + 1,
@@ -106,8 +107,8 @@ fn main() {
     );
     println!("  Starting from 37.4 °C rectal and 34.5 °C skin:");
     println!(
-        "    minute {duration}: rectal {:.2}°C, skin {:.2}°C",
-        warmed_up.t_re[duration - 1].as_celsius(),
-        warmed_up.t_sk[duration - 1].as_celsius()
+        "    minute {minutes}: rectal {:.2}°C, skin {:.2}°C",
+        warmed_up.t_re[minutes - 1].as_celsius(),
+        warmed_up.t_sk[minutes - 1].as_celsius()
     );
 }

@@ -9,7 +9,7 @@
 //! ## Algorithm
 //!
 //! The PHS uses a **time-stepping simulation** approach that simulates human thermoregulatory
-//! response over a duration (default 480 minutes) with 1-minute timesteps.
+//! response over a duration (default eight hours) with 1-minute timesteps.
 //!
 //! Each timestep:
 //! 1. Updates core temperature equilibrium
@@ -37,10 +37,12 @@
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::utilities::{body_surface_area_dubois, p_sat, py_max, py_min};
+use crate::utilities::{body_surface_area_dubois, minutes, p_sat, py_max, py_min, whole_minutes};
 use crate::{
-    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Speed, Temperature,
+    Angle, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Speed,
+    Temperature,
 };
+use core::time::Duration;
 use libm::{cos, exp, pow, sqrt};
 
 /// The comfort inputs to [`phs`]: pythermalcomfort requires all seven (no default).
@@ -77,12 +79,21 @@ pub struct PhsResult {
     pub t_cr_eq: Temperature,
     /// Fraction of body mass at skin temperature \[dimensionless\]
     pub t_sk_t_cr_wg: f64,
-    /// Maximum allowable exposure time for 50% worker (dehydration) \[minutes\]
-    pub d_lim_loss_50: f64,
-    /// Maximum allowable exposure time for 95% worker (dehydration) \[minutes\]
-    pub d_lim_loss_95: f64,
-    /// Maximum allowable exposure time for heat storage \[minutes\]
-    pub d_lim_t_re: f64,
+    /// Maximum allowable exposure time before 50% of workers reach the dehydration limit.
+    ///
+    /// Equals `duration` when the limit is not reached within the simulated period. `None`
+    /// only when the inputs were out of range (the remaining fields are then NaN).
+    pub d_lim_loss_50: Option<Duration>,
+    /// Maximum allowable exposure time before 95% of workers reach the dehydration limit.
+    ///
+    /// Equals `duration` when the limit is not reached within the simulated period. `None`
+    /// only when the inputs were out of range (the remaining fields are then NaN).
+    pub d_lim_loss_95: Option<Duration>,
+    /// Maximum allowable exposure time before rectal temperature reaches 38 °C.
+    ///
+    /// Equals `duration` when the limit is not reached within the simulated period. `None`
+    /// only when the inputs were out of range (the remaining fields are then NaN).
+    pub d_lim_t_re: Option<Duration>,
     /// Cumulative sweat loss for whole person
     pub sweat_loss_g: Mass,
     /// Instantaneous evaporative heat flux at skin
@@ -137,12 +148,15 @@ pub struct PhsOptions {
     pub height: Length,
     /// Walking speed. Default: 0.0 m/s
     pub walk_sp: Speed,
-    /// Angle between walking and wind direction \[degrees\]. Default: 0.0
-    pub theta: f64,
+    /// Angle between walking and wind direction. Default: 0°
+    pub theta: Angle,
     /// Whether worker is acclimatized. Default: true
     pub acclimatized: bool,
-    /// Duration of work sequence \[minutes\]. Default: 480
-    pub duration: i32,
+    /// Duration of the work sequence. Default: eight hours
+    ///
+    /// The model steps in one-minute increments, so the duration is rounded to the
+    /// nearest whole minute; a duration under thirty seconds runs no steps.
+    pub duration: Duration,
     /// Emissivity of reflective clothing \[dimensionless\]. Default: depends on model
     pub f_r: Option<f64>,
     /// Initial mean skin temperature. Default: 34.1°C
@@ -155,8 +169,8 @@ pub struct PhsOptions {
     pub t_cr_eq: Option<Temperature>,
     /// Initial skin/core weighting fraction. Default: 0.3
     pub t_sk_t_cr_wg: f64,
-    /// Initial sweat rate [W/m²]. Default: 0.0
-    pub sweat_rate_watt: f64,
+    /// Initial evaporative heat flux at the skin. Default: 0 W/m²
+    pub sweat_rate_watt: HeatFluxDensity,
     /// Initial evaporative load [W·min/m²]. Default: 0.0
     pub evap_load_wm2_min: f64,
 }
@@ -174,16 +188,16 @@ impl Default for PhsOptions {
             weight: Mass::from_kilograms(75.0),
             height: Length::from_meters(1.8),
             walk_sp: Speed::from_meters_per_second(0.0),
-            theta: 0.0,
+            theta: Angle::from_degrees(0.0),
             acclimatized: true,
-            duration: 480,
+            duration: Duration::from_secs(8 * 60 * 60),
             f_r: None,
             t_sk: Temperature::from_celsius(34.1),
             t_cr: Temperature::from_celsius(36.8),
             t_re: None,
             t_cr_eq: None,
             t_sk_t_cr_wg: 0.3,
-            sweat_rate_watt: 0.0,
+            sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(0.0),
             evap_load_wm2_min: 0.0,
         }
     }
@@ -296,7 +310,8 @@ fn phs_required_sweat_rate(mut e_req: f64, mut e_max: f64, sw_max: f64) -> (f64,
 /// );
 ///
 /// println!("Rectal temperature: {:.1}°C", result.t_re.as_celsius());
-/// println!("Max exposure (50%): {:.0} min", result.d_lim_loss_50);
+/// let d_lim = result.d_lim_loss_50.expect("inputs are within the model's range");
+/// println!("Max exposure (50%): {:.0} min", d_lim.as_secs_f64() / 60.0);
 /// ```
 ///
 /// # References
@@ -359,9 +374,9 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
             t_cr: Temperature::from_celsius(f64::NAN),
             t_cr_eq: Temperature::from_celsius(f64::NAN),
             t_sk_t_cr_wg: f64::NAN,
-            d_lim_loss_50: f64::NAN,
-            d_lim_loss_95: f64::NAN,
-            d_lim_t_re: f64::NAN,
+            d_lim_loss_50: None,
+            d_lim_loss_95: None,
+            d_lim_t_re: None,
             sweat_loss_g: Mass::from_grams(f64::NAN),
             sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
             evap_load_wm2_min: f64::NAN,
@@ -462,14 +477,15 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
     // the unidirectional formula unconditionally and then took `v.max(v_diff)` rather
     // than the projection itself, which changed sweat_loss_g by ~47 g at walk_sp ~1 m/s.
     let v_r = if walking {
-        if options.theta != 0.0 {
+        let theta_deg = options.theta.as_degrees();
+        if theta_deg != 0.0 {
             // Unidirectional walking
             // ISO 7933 (and pythermalcomfort) use a literal 3.14159 here, not PI. The
             // truncation is part of the standard's arithmetic, so matching it is
             // required for parity rather than an oversight to be "corrected".
             #[allow(clippy::approx_constant)]
             const ISO_PI: f64 = 3.14159;
-            let theta_rad = options.theta * ISO_PI / 180.0;
+            let theta_rad = theta_deg * ISO_PI / 180.0;
             (v - walk_sp * cos(theta_rad)).abs()
         } else if v < walk_sp {
             walk_sp
@@ -571,15 +587,18 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
     let mut t_re = t_re_init;
     let mut t_cr_eq = t_cr_eq_init;
     let mut t_sk_t_cr_wg = options.t_sk_t_cr_wg;
-    let mut sweat_rate_watt = options.sweat_rate_watt;
+    let mut sweat_rate_watt = options.sweat_rate_watt.as_watts_per_square_meter();
     let mut evap_load_wm2_min = options.evap_load_wm2_min;
 
     let mut d_lim_loss_50 = 0.0;
     let mut d_lim_loss_95 = 0.0;
     let mut d_lim_t_re = 0.0;
 
+    // One-minute time steps: the duration is rounded to whole minutes, at least one.
+    let duration_min = whole_minutes(options.duration);
+
     // Time-stepping simulation
-    for time in 1..=options.duration {
+    for time in 1..=duration_min {
         let time_f = time as f64;
 
         // Save previous values
@@ -722,14 +741,15 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         d_lim_loss_50 = d_lim_loss_95;
     }
 
+    let duration_min_f = duration_min as f64;
     if d_lim_loss_50 == 0.0 {
-        d_lim_loss_50 = options.duration as f64;
+        d_lim_loss_50 = duration_min_f;
     }
     if d_lim_loss_95 == 0.0 {
-        d_lim_loss_95 = options.duration as f64;
+        d_lim_loss_95 = duration_min_f;
     }
     if d_lim_t_re == 0.0 {
-        d_lim_t_re = options.duration as f64;
+        d_lim_t_re = duration_min_f;
     }
 
     // Calculate final sweat loss
@@ -770,9 +790,9 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         t_cr: Temperature::from_celsius(round_1(t_cr)),
         t_cr_eq: Temperature::from_celsius(round_1(t_cr_eq)),
         t_sk_t_cr_wg: t_sk_t_cr_wg_rounded,
-        d_lim_loss_50: round_1(d_lim_loss_50),
-        d_lim_loss_95: round_1(d_lim_loss_95),
-        d_lim_t_re: round_1(d_lim_t_re),
+        d_lim_loss_50: Some(minutes(round_1(d_lim_loss_50))),
+        d_lim_loss_95: Some(minutes(round_1(d_lim_loss_95))),
+        d_lim_t_re: Some(minutes(round_1(d_lim_t_re))),
         sweat_loss_g: Mass::from_grams(round_1(sweat_loss_g)),
         sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(round_1(sweat_rate_watt)),
         evap_load_wm2_min: round_1(evap_load_wm2_min),

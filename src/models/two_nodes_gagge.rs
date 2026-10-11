@@ -7,8 +7,9 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use crate::utilities::{p_sat_torr, py_max, py_min, round_to};
+use crate::utilities::{p_sat_torr, py_max, py_min, round_to, whole_minutes};
 use crate::{ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate};
+use core::time::Duration;
 use libm::{exp, fabs as abs, pow, sqrt};
 
 /// The postures the Gagge two-node kernel can compute.
@@ -692,8 +693,12 @@ pub struct GaggeTwoNodesJiOptions {
     pub acclimatized: bool,
     /// Body weight, used to derive the skin/core thermal capacities
     pub body_weight: Mass,
-    /// Length of the simulation, in minutes
-    pub length_time_simulation: usize,
+    /// Length of the simulation.
+    ///
+    /// The model steps in one-minute increments, so the duration is rounded to the nearest
+    /// whole minute (a duration under thirty seconds runs no steps): each output vector has that
+    /// many entries.
+    pub duration: Duration,
     /// Initial skin temperature
     pub initial_skin_temp: Temperature,
     /// Initial core temperature
@@ -709,7 +714,7 @@ impl Default for GaggeTwoNodesJiOptions {
             position: GaggePosture::Sitting,
             acclimatized: true,
             body_weight: Mass::from_kilograms(70.0),
-            length_time_simulation: 120,
+            duration: Duration::from_secs(120 * 60),
             initial_skin_temp: Temperature::from_celsius(36.8),
             initial_core_temp: Temperature::from_celsius(36.49),
         }
@@ -861,7 +866,7 @@ pub fn two_nodes_gagge_ji(
         options.position,
         options.acclimatized,
         options.body_weight.as_kilograms(),
-        options.length_time_simulation,
+        whole_minutes(options.duration),
         options.initial_skin_temp.as_celsius(),
         options.initial_core_temp.as_celsius(),
     )
@@ -1290,14 +1295,13 @@ mod tests {
         assert!(final_skin > 25.0 && final_skin < 40.0);
     }
 
-    /// `length_time_simulation` is now a caller-controlled option; the result vector
-    /// must actually grow to match rather than silently truncating at some fixed cap.
+    /// The result vector grows with `duration` rather than truncating at a fixed cap.
     #[test]
-    fn length_time_simulation_controls_output_length() {
+    fn duration_controls_output_length() {
         let result = two_nodes_gagge_ji(
             ji_inputs(25.0, 25.0, 0.1, 50.0, 1.2, 0.5),
             GaggeTwoNodesJiOptions {
-                length_time_simulation: 240,
+                duration: Duration::from_secs(240 * 60),
                 ..Default::default()
             },
         );

@@ -96,7 +96,7 @@
 
 use crate::numerical::brentq;
 use crate::utilities::{body_surface_area_dubois, round_to};
-use crate::{ClothingInsulation, MetabolicRate, Sex, WorkEfficiency};
+use crate::{Age, ClothingInsulation, MetabolicRate, Sex, WorkEfficiency};
 use libm::{fabs, log, pow};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
@@ -110,8 +110,11 @@ const TAU: f64 = 6.283185307179586;
 /// Result from PET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetResult {
-    /// Physiological Equivalent Temperature [°C]
-    pub pet: f64,
+    /// Physiological Equivalent Temperature: the air temperature of a reference indoor
+    /// environment that produces the same core and skin temperatures as the real one.
+    ///
+    /// NaN when the energy balance has no root at the solver's tolerance.
+    pub pet: Temperature,
 }
 
 /// Posture for PET calculation
@@ -145,8 +148,8 @@ pub struct PetInputs {
 /// Options for PET calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetOptions {
-    /// Age \[years\]
-    pub age: f64,
+    /// Age
+    pub age: Age,
     /// Biological sex
     pub sex: Sex,
     /// Body height
@@ -189,7 +192,7 @@ pub struct PetOptions {
 impl Default for PetOptions {
     fn default() -> Self {
         Self {
-            age: 23.0,
+            age: Age::from_years(23.0),
             sex: Sex::Male,
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
@@ -241,7 +244,7 @@ impl Default for PetOptions {
 ///     },
 ///     Default::default()
 /// );
-/// println!("PET: {:.1}°C", result.pet);
+/// println!("PET: {:.1}°C", result.pet.as_celsius());
 /// ```
 ///
 /// # References
@@ -287,7 +290,7 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
         a_dubois,
         height_m,
         weight_kg,
-        options.age,
+        options.age.as_years(),
         sex_bool,
         options.wme.as_fraction(),
         p_atm_hpa,
@@ -297,7 +300,9 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
 
     // Check for solver failure
     if t_core.is_nan() || t_skin.is_nan() || t_clo.is_nan() {
-        return PetResult { pet: f64::NAN };
+        return PetResult {
+            pet: Temperature::from_celsius(f64::NAN),
+        };
     }
 
     // Find PET using reference environment
@@ -310,7 +315,7 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
             a_dubois,
             height_m,
             weight_kg,
-            options.age,
+            options.age.as_years(),
             sex_bool,
             p_atm_hpa,
             options.position,
@@ -334,7 +339,7 @@ pub fn pet_steady(inputs: PetInputs, options: PetOptions) -> PetResult {
     // pet_steady.py:474 rounds unconditionally -- `return round(fsolve(...)[0], 2)`.
     // There is no flag upstream, so an unrounded PET is a value Python cannot produce.
     PetResult {
-        pet: round_to(pet, 2),
+        pet: Temperature::from_celsius(round_to(pet, 2)),
     }
 }
 
@@ -947,8 +952,8 @@ mod tests {
         let result = pet_steady(inputs(25.0, 25.0, 0.1, 50.0, 1.0, 0.5), Default::default());
 
         // PET should be reasonable for comfortable conditions (Python: 24.17°C)
-        assert!(result.pet > 15.0 && result.pet < 35.0);
-        assert!(!result.pet.is_nan());
+        assert!(result.pet.as_celsius() > 15.0 && result.pet.as_celsius() < 35.0);
+        assert!(!result.pet.as_celsius().is_nan());
     }
 
     #[test]
@@ -956,13 +961,13 @@ mod tests {
         let result = pet_steady(inputs(35.0, 35.0, 1.0, 60.0, 1.2, 0.5), Default::default());
 
         // PET should be high in hot conditions (Python: 36.26°C)
-        assert!(result.pet > 30.0);
+        assert!(result.pet.as_celsius() > 30.0);
     }
 
     #[test]
     fn test_pet_cold() {
         let opts = PetOptions {
-            age: 23.0,
+            age: Age::from_years(23.0),
             sex: Sex::Male,
             height: Length::from_meters(1.8),
             weight: Mass::from_kilograms(75.0),
@@ -976,11 +981,11 @@ mod tests {
 
         // PET should be low in cold conditions (Python gives around -0.5°C)
         assert!(
-            result.pet < 10.0,
+            result.pet.as_celsius() < 10.0,
             "PET was {:.1}°C, expected < 10.0°C",
-            result.pet
+            result.pet.as_celsius()
         );
-        assert!(!result.pet.is_nan());
+        assert!(!result.pet.as_celsius().is_nan());
     }
 
     /// Python's `position = "standing, forced convection"` (`pet_steady.py:329-330`) was
@@ -1005,12 +1010,12 @@ mod tests {
         let plain = pet_steady(case, standing);
         let forced = pet_steady(case, standing_forced);
 
-        assert!(!plain.pet.is_nan() && !forced.pet.is_nan());
+        assert!(!plain.pet.as_celsius().is_nan() && !forced.pet.as_celsius().is_nan());
         assert!(
-            (plain.pet - forced.pet).abs() > 0.01,
+            (plain.pet.as_celsius() - forced.pet.as_celsius()).abs() > 0.01,
             "forced convection should change PET: plain={}, forced={}",
-            plain.pet,
-            forced.pet
+            plain.pet.as_celsius(),
+            forced.pet.as_celsius()
         );
     }
 
@@ -1034,6 +1039,6 @@ mod tests {
         let plain = pet_steady(case, sitting);
         let forced = pet_steady(case, sitting_forced);
 
-        assert!((plain.pet - forced.pet).abs() < 1e-9);
+        assert!((plain.pet.as_celsius() - forced.pet.as_celsius()).abs() < 1e-9);
     }
 }

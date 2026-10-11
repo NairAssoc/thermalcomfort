@@ -2,8 +2,9 @@
 
 use crate::constants::*;
 use crate::{ClothingInsulation, MetabolicRate};
+use core::time::Duration;
 use libm::{copysign, exp, fabs, log, pow, round, trunc};
-pub use measurements::{Area, Length, Mass, Pressure, Speed, Temperature};
+pub use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
 
 /// Convert Temperature to Celsius (f64)
 #[inline]
@@ -167,6 +168,18 @@ pub fn running_mean_outdoor_temperature(
         Units::SI => Temperature::from_celsius(t_rm_rounded),
         Units::IP => Temperature::from_fahrenheit(t_rm_rounded),
     }
+}
+
+/// Whole minutes in a duration for a model that steps once per minute, rounded to the
+/// nearest minute. A duration under thirty seconds is zero steps, which is what upstream
+/// does with a zero duration: empty histories, limits reported as zero.
+pub(crate) fn whole_minutes(duration: Duration) -> usize {
+    round(duration.as_secs_f64() / 60.0) as usize
+}
+
+/// A `Duration` from a (possibly fractional) number of minutes.
+pub(crate) fn minutes(minutes: f64) -> Duration {
+    Duration::from_secs_f64(minutes * 60.0)
 }
 
 /// Calculate relative air speed which combines average air speed plus body movement
@@ -359,7 +372,10 @@ pub fn round_half_even(value: f64) -> f64 {
     }
 }
 
-/// Calculate saturation vapor pressure using Antoine equation
+/// Saturation vapour pressure by the Antoine equation
+///
+/// pythermalcomfort's `antoine` returns kPa; read the result in whatever unit the caller
+/// needs with [`Pressure::as_kilopascals`] or [`Pressure::as_pascals`].
 ///
 /// # Arguments
 ///
@@ -367,26 +383,7 @@ pub fn round_half_even(value: f64) -> f64 {
 ///
 /// # Returns
 ///
-/// Saturation vapor pressure \[Pa\]
-#[inline]
-pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
-    let tdb_celsius = tdb.as_celsius();
-    let p_pa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0)) * 1000.0; // Convert kPa to Pa
-    Pressure::from_pascals(p_pa)
-}
-
-/// Calculate saturation vapor pressure using Antoine equation \[kPa\]
-///
-/// This is an alias for p_sat_antoine that returns the value in kPa
-/// to match the Python pythermalcomfort.utilities.antoine function.
-///
-/// # Arguments
-///
-/// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-///
-/// # Returns
-///
-/// Saturation vapor pressure \[kPa\]
+/// Saturation vapour pressure
 ///
 /// # Examples
 ///
@@ -394,12 +391,14 @@ pub fn p_sat_antoine(tdb: Temperature) -> Pressure {
 /// use thermalcomfort::utilities::antoine;
 /// use thermalcomfort::Temperature;
 ///
-/// let p_kpa = antoine(Temperature::from_celsius(25.0));
-/// assert!((p_kpa - 3.167).abs() < 0.01); // ~3.167 kPa at 25°C
+/// let p = antoine(Temperature::from_celsius(25.0));
+/// assert!((p.as_kilopascals() - 3.167).abs() < 0.01); // ~3.167 kPa at 25°C
 /// ```
 #[inline]
-pub fn antoine(tdb: Temperature) -> f64 {
-    p_sat_antoine(tdb).as_pascals() / 1000.0 // Convert Pa to kPa
+pub fn antoine(tdb: Temperature) -> Pressure {
+    let tdb_celsius = tdb.as_celsius();
+    let p_kpa = exp(16.6536 - 4030.183 / (tdb_celsius + 235.0));
+    Pressure::from_kilopascals(p_kpa)
 }
 
 /// Saturation vapor pressure using exponential equation
@@ -482,7 +481,7 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 ///
 /// # Returns
 ///
-/// Relative humidity [%]
+/// Relative humidity
 ///
 /// # Examples
 ///
@@ -491,12 +490,12 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 /// use thermalcomfort::{Temperature, Pressure};
 ///
 /// let rh = hr_to_rh(0.01, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
-/// assert!((rh - 50.5).abs() < 0.5);
+/// assert!((rh.as_percent() - 50.5).abs() < 0.5);
 /// ```
-pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> f64 {
+pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
     // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
     let p_vap = hr * p_atm.as_pascals() / (0.62198 + hr);
-    p_vap / p_sat(tdb).as_pascals() * 100.0
+    Humidity::from_percent(p_vap / p_sat(tdb).as_pascals() * 100.0)
 }
 
 /// Formula options for body surface area calculation
@@ -780,10 +779,10 @@ pub struct CloCorrectionFactorEnvironmentInputs {
 ///     v_walk: Speed::from_meters_per_second(0.0),
 ///     i_a_static: ClothingInsulation::from_clo(0.7),
 /// });
-/// assert!((i_a_r - 0.719).abs() < 0.01);
+/// assert!((i_a_r.as_clo() - 0.719).abs() < 0.01);
 /// ```
 #[inline]
-pub fn clo_insulation_air_layer(inputs: CloInsulationAirLayerInputs) -> f64 {
+pub fn clo_insulation_air_layer(inputs: CloInsulationAirLayerInputs) -> ClothingInsulation {
     let CloInsulationAirLayerInputs {
         vr,
         v_walk,
@@ -791,10 +790,12 @@ pub fn clo_insulation_air_layer(inputs: CloInsulationAirLayerInputs) -> f64 {
     } = inputs;
     let vr_ms = vr.as_meters_per_second();
     let v_walk_ms = v_walk.as_meters_per_second();
-    exp(
-        -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
-            + 0.201 * pow(v_walk_ms, 2.0),
-    ) * i_a_static.as_clo()
+    ClothingInsulation::from_clo(
+        exp(
+            -0.533 * (vr_ms - 0.15) + 0.069 * pow(vr_ms - 0.15, 2.0) - 0.462 * v_walk_ms
+                + 0.201 * pow(v_walk_ms, 2.0),
+        ) * i_a_static.as_clo(),
+    )
 }
 
 /// Correction factor for nude person - ISO 9920:2007
@@ -868,9 +869,9 @@ fn correction_normal_clothing(vr: Speed, v_walk: Speed) -> f64 {
 ///     i_a_static: ClothingInsulation::from_clo(0.7),
 ///     i_cl: ClothingInsulation::from_clo(1.0),
 /// });
-/// assert!(i_t_r > 0.0);
+/// assert!(i_t_r.as_clo() > 0.0);
 /// ```
-pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> f64 {
+pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> ClothingInsulation {
     let CloTotalInsulationInputs {
         i_t,
         vr,
@@ -885,7 +886,7 @@ pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> f64 {
     let nude_insulation = i_a_static * correction_nude(vr, v_walk);
     let normal_insulation = i_t * correction_normal_clothing(vr, v_walk);
 
-    if i_cl == 0.0 {
+    let i_t_r = if i_cl == 0.0 {
         // Nude
         nude_insulation
     } else if i_cl <= 0.6 {
@@ -894,7 +895,8 @@ pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> f64 {
     } else {
         // Normal clothing
         normal_insulation
-    }
+    };
+    ClothingInsulation::from_clo(i_t_r)
 }
 
 /// The inputs to [`clo_dynamic_iso`]: all three are required in pythermalcomfort's
@@ -955,9 +957,12 @@ impl Default for CloDynamicIsoOptions {
 ///     },
 ///     CloDynamicIsoOptions::default(),
 /// );
-/// assert!(clo_dyn > 0.0 && clo_dyn <= 1.0);
+/// assert!(clo_dyn.as_clo() > 0.0 && clo_dyn.as_clo() <= 1.0);
 /// ```
-pub fn clo_dynamic_iso(inputs: CloDynamicIsoInputs, options: CloDynamicIsoOptions) -> f64 {
+pub fn clo_dynamic_iso(
+    inputs: CloDynamicIsoInputs,
+    options: CloDynamicIsoOptions,
+) -> ClothingInsulation {
     let CloDynamicIsoInputs { clo, met, v } = inputs;
     let CloDynamicIsoOptions { i_a, model } = options;
     // Exhaustive match: today there is only one edition, but this stops a future
@@ -1000,7 +1005,7 @@ pub fn clo_dynamic_iso(inputs: CloDynamicIsoInputs, options: CloDynamicIsoOption
     });
 
     // Return dynamic clothing insulation
-    i_t_r - i_a_r / f_cl
+    ClothingInsulation::from_clo(i_t_r.as_clo() - i_a_r.as_clo() / f_cl)
 }
 
 /// Calculate representative clothing insulation based on outdoor temperature
@@ -1015,7 +1020,7 @@ pub fn clo_dynamic_iso(inputs: CloDynamicIsoInputs, options: CloDynamicIsoOption
 ///
 /// # Returns
 ///
-/// Representative clothing insulation (clo)
+/// Representative clothing insulation
 ///
 /// # Examples
 ///
@@ -1024,7 +1029,7 @@ pub fn clo_dynamic_iso(inputs: CloDynamicIsoInputs, options: CloDynamicIsoOption
 /// use thermalcomfort::Temperature;
 ///
 /// let clo = clo_tout(Temperature::from_celsius(27.0));
-/// assert!((clo - 0.46).abs() < 0.01);
+/// assert!((clo.as_clo() - 0.46).abs() < 0.01);
 /// ```
 ///
 /// # References
@@ -1038,7 +1043,7 @@ pub fn clo_dynamic_iso(inputs: CloDynamicIsoInputs, options: CloDynamicIsoOption
 /// - For -5°C ≤ tout < 5°C: clo = 0.818 - 0.0364 * tout
 /// - For 5°C ≤ tout < 26°C: clo = 10^(-0.1635 - 0.0066 * tout)
 /// - For tout ≥ 26°C: clo = 0.46
-pub fn clo_tout(tout: Temperature) -> f64 {
+pub fn clo_tout(tout: Temperature) -> ClothingInsulation {
     let tout_celsius = tout.as_celsius();
     let clo = if tout_celsius < -5.0 {
         1.0
@@ -1050,7 +1055,7 @@ pub fn clo_tout(tout: Temperature) -> f64 {
         0.46
     };
 
-    round(clo * 100.0) / 100.0
+    ClothingInsulation::from_clo(round(clo * 100.0) / 100.0)
 }
 
 /// Calculate environmental correction factor for clothing insulation
@@ -1130,105 +1135,203 @@ pub fn clo_correction_factor_environment(inputs: CloCorrectionFactorEnvironmentI
 ///     ClothingInsulation::from_clo(0.10), // underwear
 /// ];
 /// let total = clo_intrinsic_insulation_ensemble(&garments);
-/// assert!(total > 0.0);
+/// assert!(total.as_clo() > 0.0);
 /// ```
 ///
 /// # References
 ///
 /// - ISO 9920:2009 Section 4.3
-pub fn clo_intrinsic_insulation_ensemble(clo_garments: &[ClothingInsulation]) -> f64 {
+pub fn clo_intrinsic_insulation_ensemble(
+    clo_garments: &[ClothingInsulation],
+) -> ClothingInsulation {
     let sum: f64 = clo_garments.iter().map(|c| c.as_clo()).sum();
-    sum * 0.835 + 0.161
+    ClothingInsulation::from_clo(sum * 0.835 + 0.161)
 }
 
 /// Typical clothing ensembles with predefined insulation values
 ///
 /// These represent common clothing combinations based on ASHRAE 55 and ISO 9920.
 /// Each tuple contains (ensemble_name, insulation_clo).
-pub const CLO_TYPICAL_ENSEMBLES: &[(&str, f64)] = &[
-    ("Walking shorts, short-sleeve shirt", 0.36),
-    ("Typical summer indoor clothing", 0.5),
+pub const CLO_TYPICAL_ENSEMBLES: &[(&str, ClothingInsulation)] = &[
+    (
+        "Walking shorts, short-sleeve shirt",
+        ClothingInsulation::from_clo(0.36),
+    ),
+    (
+        "Typical summer indoor clothing",
+        ClothingInsulation::from_clo(0.5),
+    ),
     (
         "Knee-length skirt, short-sleeve shirt, sandals, underwear",
-        0.54,
+        ClothingInsulation::from_clo(0.54),
     ),
     (
         "Trousers, short-sleeve shirt, socks, shoes, underwear",
-        0.57,
+        ClothingInsulation::from_clo(0.57),
     ),
-    ("Trousers, long-sleeve shirt", 0.61),
-    ("Knee-length skirt, long-sleeve shirt, full slip", 0.67),
-    ("Sweat pants, long-sleeve sweatshirt", 0.74),
-    ("Jacket, Trousers, long-sleeve shirt", 0.96),
-    ("Typical winter indoor clothing", 1.0),
+    (
+        "Trousers, long-sleeve shirt",
+        ClothingInsulation::from_clo(0.61),
+    ),
+    (
+        "Knee-length skirt, long-sleeve shirt, full slip",
+        ClothingInsulation::from_clo(0.67),
+    ),
+    (
+        "Sweat pants, long-sleeve sweatshirt",
+        ClothingInsulation::from_clo(0.74),
+    ),
+    (
+        "Jacket, Trousers, long-sleeve shirt",
+        ClothingInsulation::from_clo(0.96),
+    ),
+    (
+        "Typical winter indoor clothing",
+        ClothingInsulation::from_clo(1.0),
+    ),
 ];
 
 /// Individual garment insulation values
 ///
 /// Insulation values for individual clothing items based on ISO 9920:2009.
-/// Each tuple contains (garment_name, insulation_clo).
-pub const CLO_INDIVIDUAL_GARMENTS: &[(&str, f64)] = &[
-    ("Metal chair", 0.0),
-    ("Bra", 0.01),
-    ("Wooden stool", 0.01),
-    ("Ankle socks", 0.02),
-    ("Shoes or sandals", 0.02),
-    ("Slippers", 0.03),
-    ("Panty hose", 0.02),
-    ("Calf length socks", 0.03),
-    ("Women's underwear", 0.03),
-    ("Men's underwear", 0.04),
-    ("Knee socks (thick)", 0.06),
-    ("Short shorts", 0.06),
-    ("Walking shorts", 0.08),
-    ("T-shirt", 0.08),
-    ("Standard office chair", 0.1),
-    ("Executive chair", 0.15),
-    ("Boots", 0.1),
-    ("Sleeveless scoop-neck blouse", 0.12),
-    ("Half slip", 0.14),
-    ("Long underwear bottoms", 0.15),
-    ("Full slip", 0.16),
-    ("Short-sleeve knit shirt", 0.17),
-    ("Sleeveless vest (thin)", 0.1),
-    ("Sleeveless vest (thick)", 0.17),
-    ("Sleeveless short gown (thin)", 0.18),
-    ("Short-sleeve dress shirt", 0.19),
-    ("Sleeveless long gown (thin)", 0.2),
-    ("Long underwear top", 0.2),
-    ("Thick skirt", 0.23),
-    ("Long-sleeve dress shirt", 0.25),
-    ("Long-sleeve flannel shirt", 0.34),
-    ("Long-sleeve sweat shirt", 0.34),
-    ("Short-sleeve hospital gown", 0.31),
-    ("Short-sleeve short robe (thin)", 0.34),
-    ("Short-sleeve pajamas", 0.42),
-    ("Long-sleeve long gown", 0.46),
-    ("Long-sleeve short wrap robe (thick)", 0.48),
-    ("Long-sleeve pajamas (thick)", 0.57),
-    ("Long-sleeve long wrap robe (thick)", 0.69),
-    ("Thin trousers", 0.15),
-    ("Thick trousers", 0.24),
-    ("Sweatpants", 0.28),
-    ("Overalls", 0.3),
-    ("Coveralls", 0.49),
-    ("Thin skirt", 0.14),
-    ("Long-sleeve shirt dress (thin)", 0.33),
-    ("Long-sleeve shirt dress (thick)", 0.47),
-    ("Short-sleeve shirt dress", 0.29),
-    ("Sleeveless, scoop-neck shirt (thin)", 0.23),
-    ("Sleeveless, scoop-neck shirt (thick)", 0.27),
-    ("Long sleeve shirt (thin)", 0.25),
-    ("Long sleeve shirt (thick)", 0.36),
-    ("Single-breasted coat (thin)", 0.36),
-    ("Single-breasted coat (thick)", 0.44),
-    ("Double-breasted coat (thin)", 0.42),
-    ("Double-breasted coat (thick)", 0.48),
+/// Each tuple contains (garment_name, insulation).
+pub const CLO_INDIVIDUAL_GARMENTS: &[(&str, ClothingInsulation)] = &[
+    ("Metal chair", ClothingInsulation::from_clo(0.0)),
+    ("Bra", ClothingInsulation::from_clo(0.01)),
+    ("Wooden stool", ClothingInsulation::from_clo(0.01)),
+    ("Ankle socks", ClothingInsulation::from_clo(0.02)),
+    ("Shoes or sandals", ClothingInsulation::from_clo(0.02)),
+    ("Slippers", ClothingInsulation::from_clo(0.03)),
+    ("Panty hose", ClothingInsulation::from_clo(0.02)),
+    ("Calf length socks", ClothingInsulation::from_clo(0.03)),
+    ("Women's underwear", ClothingInsulation::from_clo(0.03)),
+    ("Men's underwear", ClothingInsulation::from_clo(0.04)),
+    ("Knee socks (thick)", ClothingInsulation::from_clo(0.06)),
+    ("Short shorts", ClothingInsulation::from_clo(0.06)),
+    ("Walking shorts", ClothingInsulation::from_clo(0.08)),
+    ("T-shirt", ClothingInsulation::from_clo(0.08)),
+    ("Standard office chair", ClothingInsulation::from_clo(0.1)),
+    ("Executive chair", ClothingInsulation::from_clo(0.15)),
+    ("Boots", ClothingInsulation::from_clo(0.1)),
+    (
+        "Sleeveless scoop-neck blouse",
+        ClothingInsulation::from_clo(0.12),
+    ),
+    ("Half slip", ClothingInsulation::from_clo(0.14)),
+    ("Long underwear bottoms", ClothingInsulation::from_clo(0.15)),
+    ("Full slip", ClothingInsulation::from_clo(0.16)),
+    (
+        "Short-sleeve knit shirt",
+        ClothingInsulation::from_clo(0.17),
+    ),
+    ("Sleeveless vest (thin)", ClothingInsulation::from_clo(0.1)),
+    (
+        "Sleeveless vest (thick)",
+        ClothingInsulation::from_clo(0.17),
+    ),
+    (
+        "Sleeveless short gown (thin)",
+        ClothingInsulation::from_clo(0.18),
+    ),
+    (
+        "Short-sleeve dress shirt",
+        ClothingInsulation::from_clo(0.19),
+    ),
+    (
+        "Sleeveless long gown (thin)",
+        ClothingInsulation::from_clo(0.2),
+    ),
+    ("Long underwear top", ClothingInsulation::from_clo(0.2)),
+    ("Thick skirt", ClothingInsulation::from_clo(0.23)),
+    (
+        "Long-sleeve dress shirt",
+        ClothingInsulation::from_clo(0.25),
+    ),
+    (
+        "Long-sleeve flannel shirt",
+        ClothingInsulation::from_clo(0.34),
+    ),
+    (
+        "Long-sleeve sweat shirt",
+        ClothingInsulation::from_clo(0.34),
+    ),
+    (
+        "Short-sleeve hospital gown",
+        ClothingInsulation::from_clo(0.31),
+    ),
+    (
+        "Short-sleeve short robe (thin)",
+        ClothingInsulation::from_clo(0.34),
+    ),
+    ("Short-sleeve pajamas", ClothingInsulation::from_clo(0.42)),
+    ("Long-sleeve long gown", ClothingInsulation::from_clo(0.46)),
+    (
+        "Long-sleeve short wrap robe (thick)",
+        ClothingInsulation::from_clo(0.48),
+    ),
+    (
+        "Long-sleeve pajamas (thick)",
+        ClothingInsulation::from_clo(0.57),
+    ),
+    (
+        "Long-sleeve long wrap robe (thick)",
+        ClothingInsulation::from_clo(0.69),
+    ),
+    ("Thin trousers", ClothingInsulation::from_clo(0.15)),
+    ("Thick trousers", ClothingInsulation::from_clo(0.24)),
+    ("Sweatpants", ClothingInsulation::from_clo(0.28)),
+    ("Overalls", ClothingInsulation::from_clo(0.3)),
+    ("Coveralls", ClothingInsulation::from_clo(0.49)),
+    ("Thin skirt", ClothingInsulation::from_clo(0.14)),
+    (
+        "Long-sleeve shirt dress (thin)",
+        ClothingInsulation::from_clo(0.33),
+    ),
+    (
+        "Long-sleeve shirt dress (thick)",
+        ClothingInsulation::from_clo(0.47),
+    ),
+    (
+        "Short-sleeve shirt dress",
+        ClothingInsulation::from_clo(0.29),
+    ),
+    (
+        "Sleeveless, scoop-neck shirt (thin)",
+        ClothingInsulation::from_clo(0.23),
+    ),
+    (
+        "Sleeveless, scoop-neck shirt (thick)",
+        ClothingInsulation::from_clo(0.27),
+    ),
+    (
+        "Long sleeve shirt (thin)",
+        ClothingInsulation::from_clo(0.25),
+    ),
+    (
+        "Long sleeve shirt (thick)",
+        ClothingInsulation::from_clo(0.36),
+    ),
+    (
+        "Single-breasted coat (thin)",
+        ClothingInsulation::from_clo(0.36),
+    ),
+    (
+        "Single-breasted coat (thick)",
+        ClothingInsulation::from_clo(0.44),
+    ),
+    (
+        "Double-breasted coat (thin)",
+        ClothingInsulation::from_clo(0.42),
+    ),
+    (
+        "Double-breasted coat (thick)",
+        ClothingInsulation::from_clo(0.48),
+    ),
 ];
 
 /// Look up clothing insulation value for a typical ensemble
 ///
-/// Returns the insulation value in clo for a typical clothing ensemble.
+/// Returns the insulation of a typical clothing ensemble.
 ///
 /// # Arguments
 ///
@@ -1236,20 +1339,21 @@ pub const CLO_INDIVIDUAL_GARMENTS: &[(&str, f64)] = &[
 ///
 /// # Returns
 ///
-/// Some(clo) if the ensemble is found, None otherwise
+/// Some(insulation) if the ensemble is found, None otherwise
 ///
 /// # Examples
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_typical_ensemble;
+/// use thermalcomfort::ClothingInsulation;
 ///
 /// let clo = clo_typical_ensemble("Typical summer indoor clothing");
-/// assert_eq!(clo, Some(0.5));
+/// assert_eq!(clo, Some(ClothingInsulation::from_clo(0.5)));
 ///
 /// let not_found = clo_typical_ensemble("Unknown ensemble");
 /// assert_eq!(not_found, None);
 /// ```
-pub fn clo_typical_ensemble(ensemble_name: &str) -> Option<f64> {
+pub fn clo_typical_ensemble(ensemble_name: &str) -> Option<ClothingInsulation> {
     CLO_TYPICAL_ENSEMBLES
         .iter()
         .find(|(name, _)| *name == ensemble_name)
@@ -1258,7 +1362,7 @@ pub fn clo_typical_ensemble(ensemble_name: &str) -> Option<f64> {
 
 /// Look up clothing insulation value for an individual garment
 ///
-/// Returns the insulation value in clo for an individual garment.
+/// Returns the insulation of an individual garment.
 ///
 /// # Arguments
 ///
@@ -1266,20 +1370,21 @@ pub fn clo_typical_ensemble(ensemble_name: &str) -> Option<f64> {
 ///
 /// # Returns
 ///
-/// Some(clo) if the garment is found, None otherwise
+/// Some(insulation) if the garment is found, None otherwise
 ///
 /// # Examples
 ///
 /// ```
 /// use thermalcomfort::utilities::clo_individual_garment;
+/// use thermalcomfort::ClothingInsulation;
 ///
 /// let clo = clo_individual_garment("Long-sleeve dress shirt");
-/// assert_eq!(clo, Some(0.25));
+/// assert_eq!(clo, Some(ClothingInsulation::from_clo(0.25)));
 ///
 /// let not_found = clo_individual_garment("Unknown garment");
 /// assert_eq!(not_found, None);
 /// ```
-pub fn clo_individual_garment(garment_name: &str) -> Option<f64> {
+pub fn clo_individual_garment(garment_name: &str) -> Option<ClothingInsulation> {
     CLO_INDIVIDUAL_GARMENTS
         .iter()
         .find(|(name, _)| *name == garment_name)
@@ -1353,6 +1458,7 @@ mod tests {
                 },
                 CloDynamicIsoOptions::default(),
             );
+            let got = got.as_clo();
             assert!(
                 (got - expected).abs() < 1e-5,
                 "clo_dynamic_iso({clo}, {met}, {v}) = {got}, expected {expected}"
@@ -1372,7 +1478,8 @@ mod tests {
                 hr,
                 Temperature::from_celsius(tdb),
                 Pressure::from_pascals(101325.0),
-            );
+            )
+            .as_percent();
             assert!(
                 (got - expected).abs() < 1e-4,
                 "hr_to_rh({hr}, {tdb}) = {got}, expected {expected}"
@@ -1419,15 +1526,15 @@ mod tests {
         // Test valid lookups
         assert_eq!(
             clo_typical_ensemble("Typical summer indoor clothing"),
-            Some(0.5)
+            Some(ClothingInsulation::from_clo(0.5))
         );
         assert_eq!(
             clo_typical_ensemble("Typical winter indoor clothing"),
-            Some(1.0)
+            Some(ClothingInsulation::from_clo(1.0))
         );
         assert_eq!(
             clo_typical_ensemble("Walking shorts, short-sleeve shirt"),
-            Some(0.36)
+            Some(ClothingInsulation::from_clo(0.36))
         );
 
         // Test invalid lookup
@@ -1439,10 +1546,16 @@ mod tests {
         // Test valid lookups
         assert_eq!(
             clo_individual_garment("Long-sleeve dress shirt"),
-            Some(0.25)
+            Some(ClothingInsulation::from_clo(0.25))
         );
-        assert_eq!(clo_individual_garment("Thick trousers"), Some(0.24));
-        assert_eq!(clo_individual_garment("T-shirt"), Some(0.08));
+        assert_eq!(
+            clo_individual_garment("Thick trousers"),
+            Some(ClothingInsulation::from_clo(0.24))
+        );
+        assert_eq!(
+            clo_individual_garment("T-shirt"),
+            Some(ClothingInsulation::from_clo(0.08))
+        );
 
         // Test invalid lookup
         assert_eq!(clo_individual_garment("Non-existent garment"), None);
@@ -1458,23 +1571,22 @@ mod tests {
         ];
         let total = clo_intrinsic_insulation_ensemble(&garments);
         // Formula: sum * 0.835 + 0.161 = 0.53 * 0.835 + 0.161 = 0.604
-        assert!((total - 0.604).abs() < 0.01);
+        assert!((total.as_clo() - 0.604).abs() < 0.01);
 
         // Test with single garment
         let single = [ClothingInsulation::from_clo(0.5)];
         let total_single = clo_intrinsic_insulation_ensemble(&single);
         // Formula: 0.5 * 0.835 + 0.161 = 0.579
-        assert!((total_single - 0.579).abs() < 0.01);
+        assert!((total_single.as_clo() - 0.579).abs() < 0.01);
     }
 
     #[test]
     fn test_antoine() {
-        // Test antoine function returns kPa
-        let p_kpa = antoine(Temperature::from_celsius(25.0));
+        let p_kpa = antoine(Temperature::from_celsius(25.0)).as_kilopascals();
         // At 25°C, saturated vapor pressure is ~3.167 kPa
         assert!((p_kpa - 3.167).abs() < 0.01);
 
-        let p_kpa_0 = antoine(Temperature::from_celsius(0.0));
+        let p_kpa_0 = antoine(Temperature::from_celsius(0.0)).as_kilopascals();
         // At 0°C, saturated vapor pressure is ~0.609 kPa
         assert!((p_kpa_0 - 0.609).abs() < 0.01);
     }
