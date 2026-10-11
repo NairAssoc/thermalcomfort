@@ -25,8 +25,9 @@
 
 use crate::models::phs::{Iso7933Model, PhsInputs, PhsOptions, PhsPosture, phs};
 use crate::numerical::brentq;
-use crate::utilities::{np_maximum, py_min, round_to_exact_decimal};
+use crate::utilities::{np_maximum, py_min, round_to_exact_decimal, whole_minutes};
 use crate::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
+use core::time::Duration;
 
 /// The comfort inputs to [`sports_heat_stress_risk`]: pythermalcomfort requires all five
 /// (no default -- Python has zero optional parameters for this model).
@@ -56,32 +57,50 @@ pub struct SportsValues {
     pub clo: ClothingInsulation,
     /// Metabolic rate
     pub met: MetabolicRate,
-    /// Relative air speed [m/s]
-    pub vr: f64,
-    /// Activity duration \[minutes\]
-    pub duration: i32,
+    /// Typical activity duration.
+    ///
+    /// The PHS run underneath steps in one-minute increments, so the duration is rounded
+    /// to the nearest whole minute; a duration under thirty seconds runs no steps.
+    pub duration: Duration,
+    /// Minimum relative air speed in m/s, held as a plain number so the [`Sports`] table
+    /// can be `const`: `measurements::Speed` has no `const` constructor. Read it through
+    /// [`SportsValues::vr`].
+    vr_ms: f64,
 }
 
 impl SportsValues {
     /// Create a new sport-specific parameter set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if clo, met, or vr are not positive, or if duration is negative.
-    pub const fn new(clo: ClothingInsulation, met: MetabolicRate, vr: f64, duration: i32) -> Self {
+    pub fn new(clo: ClothingInsulation, met: MetabolicRate, vr: Speed, duration: Duration) -> Self {
+        Self::from_table(clo, met, vr.as_meters_per_second(), duration)
+    }
+
+    /// The minimum relative air speed the sport itself generates; a slower ambient air
+    /// speed is raised to this before the heat balance is evaluated.
+    pub fn vr(&self) -> Speed {
+        Speed::from_meters_per_second(self.vr_ms)
+    }
+
+    /// `const` constructor for the [`Sports`] table, which must hold the air speed as a
+    /// number because `measurements::Speed` cannot be built in a `const` context.
+    const fn from_table(
+        clo: ClothingInsulation,
+        met: MetabolicRate,
+        vr_ms: f64,
+        duration: Duration,
+    ) -> Self {
         Self {
             clo,
             met,
-            vr,
             duration,
+            vr_ms,
         }
     }
 }
 
 /// Predefined sport-specific parameters.
 ///
-/// Each constant provides the clothing insulation, metabolic rate,
-/// relative air speed (m/s), and typical activity duration (minutes) for that sport.
+/// Each constant provides the clothing insulation, metabolic rate, minimum relative air
+/// speed and typical activity duration for that sport.
 ///
 /// # Examples
 ///
@@ -105,209 +124,209 @@ impl SportsValues {
 pub struct Sports;
 
 impl Sports {
-    pub const ABSEILING: SportsValues = SportsValues::new(
+    pub const ABSEILING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(6.0),
         0.5,
-        120,
+        Duration::from_secs(120 * 60),
     );
-    pub const ARCHERY: SportsValues = SportsValues::new(
+    pub const ARCHERY: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.75),
         MetabolicRate::from_met(4.5),
         0.5,
-        180,
+        Duration::from_secs(180 * 60),
     );
-    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::new(
+    pub const AUSTRALIAN_FOOTBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.47),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const BASEBALL: SportsValues = SportsValues::new(
+    pub const BASEBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.7),
         MetabolicRate::from_met(6.0),
         0.75,
-        120,
+        Duration::from_secs(120 * 60),
     );
-    pub const BASKETBALL: SportsValues = SportsValues::new(
+    pub const BASKETBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.37),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const BOWLS: SportsValues = SportsValues::new(
+    pub const BOWLS: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.5),
         MetabolicRate::from_met(5.0),
         0.5,
-        180,
+        Duration::from_secs(180 * 60),
     );
-    pub const CANOEING: SportsValues = SportsValues::new(
+    pub const CANOEING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(7.5),
         2.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const CRICKET: SportsValues = SportsValues::new(
+    pub const CRICKET: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.7),
         MetabolicRate::from_met(6.0),
         0.75,
-        120,
+        Duration::from_secs(120 * 60),
     );
-    pub const CROQUET: SportsValues = SportsValues::new(
+    pub const CROQUET: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.7),
         MetabolicRate::from_met(4.5),
         0.5,
-        90,
+        Duration::from_secs(90 * 60),
     );
-    pub const CYCLING: SportsValues = SportsValues::new(
+    pub const CYCLING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(7.0),
         3.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const EQUESTRIAN: SportsValues = SportsValues::new(
+    pub const EQUESTRIAN: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.9),
         MetabolicRate::from_met(7.4),
         3.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const FIELD_ATHLETICS: SportsValues = SportsValues::new(
+    pub const FIELD_ATHLETICS: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.3),
         MetabolicRate::from_met(7.0),
         1.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const FIELD_HOCKEY: SportsValues = SportsValues::new(
+    pub const FIELD_HOCKEY: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(7.4),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const FISHING: SportsValues = SportsValues::new(
+    pub const FISHING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.9),
         MetabolicRate::from_met(4.0),
         0.5,
-        180,
+        Duration::from_secs(180 * 60),
     );
-    pub const GOLF: SportsValues = SportsValues::new(
+    pub const GOLF: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.5),
         MetabolicRate::from_met(5.0),
         0.5,
-        180,
+        Duration::from_secs(180 * 60),
     );
-    pub const HORSEBACK: SportsValues = SportsValues::new(
+    pub const HORSEBACK: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.9),
         MetabolicRate::from_met(7.4),
         3.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const KAYAKING: SportsValues = SportsValues::new(
+    pub const KAYAKING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(7.5),
         2.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const RUNNING: SportsValues = SportsValues::new(
+    pub const RUNNING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.37),
         MetabolicRate::from_met(7.5),
         2.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const MTB: SportsValues = SportsValues::new(
+    pub const MTB: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.55),
         MetabolicRate::from_met(7.5),
         3.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const NETBALL: SportsValues = SportsValues::new(
+    pub const NETBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.37),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const OZTAG: SportsValues = SportsValues::new(
+    pub const OZTAG: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const PICKLEBALL: SportsValues = SportsValues::new(
+    pub const PICKLEBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(6.5),
         0.5,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const CLIMBING: SportsValues = SportsValues::new(
+    pub const CLIMBING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(7.5),
         1.0,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const ROWING: SportsValues = SportsValues::new(
+    pub const ROWING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(7.5),
         2.0,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const RUGBY_LEAGUE: SportsValues = SportsValues::new(
+    pub const RUGBY_LEAGUE: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.47),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const RUGBY_UNION: SportsValues = SportsValues::new(
+    pub const RUGBY_UNION: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.47),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const SAILING: SportsValues = SportsValues::new(
+    pub const SAILING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(1.0),
         MetabolicRate::from_met(6.5),
         2.0,
-        180,
+        Duration::from_secs(180 * 60),
     );
-    pub const SHOOTING: SportsValues = SportsValues::new(
+    pub const SHOOTING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.6),
         MetabolicRate::from_met(5.0),
         0.5,
-        120,
+        Duration::from_secs(120 * 60),
     );
-    pub const SOCCER: SportsValues = SportsValues::new(
+    pub const SOCCER: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.47),
         MetabolicRate::from_met(7.5),
         1.0,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const SOFTBALL: SportsValues = SportsValues::new(
+    pub const SOFTBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.9),
         MetabolicRate::from_met(6.1),
         1.0,
-        120,
+        Duration::from_secs(120 * 60),
     );
-    pub const TENNIS: SportsValues = SportsValues::new(
+    pub const TENNIS: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(7.0),
         0.75,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const TOUCH: SportsValues = SportsValues::new(
+    pub const TOUCH: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.4),
         MetabolicRate::from_met(7.5),
         0.75,
-        45,
+        Duration::from_secs(45 * 60),
     );
-    pub const VOLLEYBALL: SportsValues = SportsValues::new(
+    pub const VOLLEYBALL: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.37),
         MetabolicRate::from_met(6.8),
         0.75,
-        60,
+        Duration::from_secs(60 * 60),
     );
-    pub const WALKING: SportsValues = SportsValues::new(
+    pub const WALKING: SportsValues = SportsValues::from_table(
         ClothingInsulation::from_clo(0.5),
         MetabolicRate::from_met(5.0),
         0.5,
-        180,
+        Duration::from_secs(180 * 60),
     );
 }
 
@@ -513,11 +532,10 @@ pub fn sports_heat_stress_risk(
     let tdb_c = tdb.as_celsius();
     let tr_c = tr.as_celsius();
     let rh_pct = rh.as_percent();
-    // Enforce sport-specific minimum air speed.
-    // `sports_heat_stress_risk.py:199` is `np.maximum(vr, sport.vr)`, which propagates a
-    // NaN `vr`. The `if v < sport.vr` form previously written here happened to agree, but
-    // spelling the construct out keeps the whole file on one min/max vocabulary.
-    let vr_ms = np_maximum(vr.as_meters_per_second(), sport.vr);
+    // Enforce the sport's minimum air speed. `sports_heat_stress_risk.py:199` is
+    // `np.maximum(vr, sport.vr)`, which propagates a NaN `vr`; the same construct here
+    // keeps the file on one min/max vocabulary and the NaN behaviour identical.
+    let vr_ms = np_maximum(vr.as_meters_per_second(), sport.vr_ms);
 
     // Early returns for temperatures outside the threshold range
     if tdb_c < MIN_T_MEDIUM {
@@ -630,7 +648,7 @@ pub fn sports_heat_stress_risk(
 
 /// Find temperature threshold for water loss (medium risk boundary).
 fn find_threshold_water_loss(tr: f64, rh: f64, vr: f64, sport: &SportsValues) -> f64 {
-    let duration = sport.duration as f64;
+    let duration = whole_minutes(sport.duration) as f64;
     let target = |x: f64| -> f64 {
         let sl = phs_sweat_loss(x, tr, rh, vr, sport);
         sl / duration * 45.0 - SWEAT_LOSS_G
@@ -796,8 +814,8 @@ mod tests {
     fn test_sports_values() {
         assert_eq!(Sports::RUNNING.clo.as_clo(), 0.37);
         assert_eq!(Sports::RUNNING.met.as_met(), 7.5);
-        assert_eq!(Sports::RUNNING.vr, 2.0);
-        assert_eq!(Sports::RUNNING.duration, 60);
+        assert_eq!(Sports::RUNNING.vr().as_meters_per_second(), 2.0);
+        assert_eq!(Sports::RUNNING.duration, Duration::from_secs(60 * 60));
     }
 
     /// A NaN `tdb` makes every risk-band comparison false, so `risk_level_interpolated`

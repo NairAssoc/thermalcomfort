@@ -4,9 +4,11 @@
 //! Trained on adults aged 60-100 in minimal clothing under stationary conditions.
 
 extern crate alloc;
-use crate::Sex;
+use crate::utilities::whole_minutes;
+use crate::{Age, Sex};
 use alloc::vec;
 use alloc::vec::Vec;
+use core::time::Duration;
 use measurements::{Humidity, Length, Mass, Temperature};
 
 /// Result from ridge regression body temperature prediction
@@ -33,8 +35,8 @@ pub struct PredictedBodyTemperatures {
 pub struct RidgeRegressionInputs {
     /// Biological sex
     pub sex: Sex,
-    /// Age \[years\]
-    pub age: f64,
+    /// Age
+    pub age: Age,
     /// Body height
     pub height: Length,
     /// Body weight
@@ -43,8 +45,12 @@ pub struct RidgeRegressionInputs {
     pub tdb: Temperature,
     /// Relative humidity
     pub rh: Humidity,
-    /// Duration of the simulation in the specified environment \[minutes\]
-    pub duration: usize,
+    /// Duration of the simulation in the specified environment.
+    ///
+    /// The model predicts one value per minute, so the duration is rounded to the nearest
+    /// whole minute (a duration under thirty seconds runs no steps): each output vector has that many
+    /// entries.
+    pub duration: Duration,
 }
 
 /// Options for ridge regression prediction
@@ -266,17 +272,18 @@ fn predict_temperature_simulation(
 /// use thermalcomfort::models::ridge_regression::{
 ///     ridge_regression_predict_t_re_t_sk, RidgeRegressionInputs, RidgeRegressionOptions
 /// };
-/// use thermalcomfort::{Sex, Temperature, Length, Mass, Humidity};
+/// use thermalcomfort::{Age, Sex, Temperature, Length, Mass, Humidity};
+/// use core::time::Duration;
 ///
 /// let result = ridge_regression_predict_t_re_t_sk(
 ///     RidgeRegressionInputs {
 ///         sex: Sex::Male,
-///         age: 60.0,
+///         age: Age::from_years(60.0),
 ///         height: Length::from_meters(1.8),
 ///         weight: Mass::from_kilograms(75.0),
 ///         tdb: Temperature::from_celsius(35.0),
 ///         rh: Humidity::from_percent(60.0),
-///         duration: 540,
+///         duration: Duration::from_secs(540 * 60),
 ///     },
 ///     Default::default()
 /// );
@@ -307,6 +314,8 @@ pub fn ridge_regression_predict_t_re_t_sk(
     let weight_kg = weight.as_kilograms();
     let rh_pct = rh.as_percent();
     let sex_value = sex.as_value();
+    let age = age.as_years();
+    let duration = whole_minutes(duration);
 
     // Check applicability limits if requested
     if options.limit_inputs {
@@ -395,12 +404,12 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             RidgeRegressionInputs {
                 sex: Sex::Male,
-                age: 60.0,
+                age: Age::from_years(60.0),
                 height: Length::from_meters(1.8),
                 weight: Mass::from_kilograms(75.0),
                 tdb: Temperature::from_celsius(35.0),
                 rh: Humidity::from_percent(60.0),
-                duration: 540,
+                duration: Duration::from_secs(540 * 60),
             },
             Default::default(),
         );
@@ -434,12 +443,12 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             RidgeRegressionInputs {
                 sex: Sex::Male,
-                age: 50.0, // Too young (< 60)
+                age: Age::from_years(50.0), // Too young (< 60)
                 height: Length::from_meters(1.8),
                 weight: Mass::from_kilograms(75.0),
                 tdb: Temperature::from_celsius(35.0),
                 rh: Humidity::from_percent(60.0),
-                duration: 10,
+                duration: Duration::from_secs(10 * 60),
             },
             Default::default(),
         );
@@ -461,12 +470,12 @@ mod tests {
         let result = ridge_regression_predict_t_re_t_sk(
             RidgeRegressionInputs {
                 sex: Sex::Female,
-                age: 65.0,
+                age: Age::from_years(65.0),
                 height: Length::from_meters(1.65),
                 weight: Mass::from_kilograms(60.0),
                 tdb: Temperature::from_celsius(40.0),
                 rh: Humidity::from_percent(50.0),
-                duration: 60,
+                duration: Duration::from_secs(60 * 60),
             },
             options,
         );

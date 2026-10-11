@@ -11,6 +11,9 @@ documentation = "https://docs.rs/thermalcomfort"
 readme = "README.md"
 keywords = ["thermal", "comfort", "pmv", "hvac", "building"]
 categories = ["science", "mathematics", "wasm", "no-std"]
+# Development tooling and working notes stay out of the published crate; the tests and
+# examples ship because they document the API.
+exclude = ["docs/", ".github/", "scripts/", "Makefile"]
 
 [dependencies]
 libm = "0.2"

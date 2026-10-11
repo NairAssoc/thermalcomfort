@@ -12,7 +12,7 @@ use thermalcomfort::psychrometrics::{
 };
 use thermalcomfort::utilities::{
     BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, antoine, body_surface_area,
-    body_surface_area_dubois, hr_to_rh, p_sat, p_sat_antoine, p_sat_torr,
+    body_surface_area_dubois, hr_to_rh, p_sat, p_sat_torr,
 };
 use thermalcomfort::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
@@ -29,15 +29,15 @@ fn main() {
 
     // --- Saturation vapour pressure ---
     println!("--- Saturation vapour pressure ---");
-    // Four formulations of the same quantity. p_sat is the ASHRAE Hyland-Wexler fit
+    // Three formulations of the same quantity. p_sat is the ASHRAE Hyland-Wexler fit
     // used by the psychrometric routines; the Antoine and exponential (torr) forms are
     // the ones the PMV and two-node models use internally.
     println!("  p_sat (ASHRAE):     {:.1} Pa", p_sat(tdb).as_pascals());
     println!(
-        "  p_sat_antoine:      {:.1} Pa",
-        p_sat_antoine(tdb).as_pascals()
+        "  antoine:            {:.3} kPa ({:.1} Pa)",
+        antoine(tdb).as_kilopascals(),
+        antoine(tdb).as_pascals()
     );
-    println!("  antoine:            {:.3} kPa", antoine(tdb));
     println!(
         "  p_sat_torr:         {:.2} torr ({:.1} Pa)",
         p_sat_torr(tdb).as_torrs(),
@@ -85,7 +85,8 @@ fn main() {
         h / 1000.0
     );
     println!(
-        "  hr_to_rh round trip:   {rh_back:.1}% (started from {:.0}%)",
+        "  hr_to_rh round trip:   {:.1}% (started from {:.0}%)",
+        rh_back.as_percent(),
         rh.as_percent()
     );
 

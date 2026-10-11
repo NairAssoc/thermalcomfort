@@ -14,7 +14,7 @@
 //!   (`int | float`, `dict`, `list | np.ndarray`). Rust's type system makes that
 //!   dispatch static, so the single Python function becomes explicitly-typed functions
 //!   per case; the `list | np.ndarray` case needs no function of its own here, since
-//!   [`super::jos3::PerBodyPart::BySegment`] already carries an owned `[f64; 17]` —
+//!   [`super::jos3::PerBodyPart::BySegment`] already carries an owned `[T; 17]` —
 //!   a fixed-size array statically has the length Python's runtime check enforces, so
 //!   there is nothing left to validate (see that variant's doc comment for the full
 //!   reasoning).
@@ -115,7 +115,7 @@ impl core::error::Error for BodyParameterError {}
 pub(crate) fn validate_body_parameters(
     height: f64,
     weight: f64,
-    age: i32,
+    age: f64,
     body_fat: f64,
 ) -> Result<(), BodyParameterError> {
     if !(0.5..=3.0).contains(&height) {
@@ -124,7 +124,7 @@ pub(crate) fn validate_body_parameters(
     if !(20.0..=200.0).contains(&weight) {
         return Err(BodyParameterError::Weight);
     }
-    if !(5..=100).contains(&age) {
+    if !(5.0..=100.0).contains(&age) {
         return Err(BodyParameterError::Age);
     }
     if !(1.0..=90.0).contains(&body_fat) {
@@ -137,7 +137,7 @@ pub(crate) fn validate_body_parameters(
 // to_array_body_parts
 // ---------------------------------------------------------------------------
 
-/// A per-body-part input couldn't be turned into a `[f64; 17]`.
+/// A per-body-part input couldn't be turned into a `[T; 17]`.
 /// Python: `to_array_body_parts` raises `ValueError` for these cases. (Python's
 /// "unsupported input type" case has no Rust equivalent: the type system already
 /// prevents passing anything but a scalar, a fixed-size array, or a name/value list;
@@ -165,31 +165,31 @@ impl core::error::Error for BodyPartsInputError {}
 /// Broadcast a single value to all 17 body segments.
 /// Python: `to_array_body_parts(inp)` when `inp` is `int | float`.
 #[must_use]
-pub(crate) fn to_array_body_parts_scalar(value: f64) -> [f64; NUM_BODY_PARTS] {
+pub(crate) fn to_array_body_parts_scalar<T: Copy>(value: T) -> [T; NUM_BODY_PARTS] {
     [value; NUM_BODY_PARTS]
 }
 
 /// Look up each of the 17 body-segment names (in `pairs`, order-independent) and
-/// assemble a `[f64; 17]` in [`BODY_PART_NAMES`] order.
+/// assemble a `[T; 17]` in [`BODY_PART_NAMES`] order.
 /// Python: `to_array_body_parts(inp)` when `inp` is a `dict`.
 ///
 /// # Errors
 ///
 /// Returns [`BodyPartsInputError::MissingKey`] if `pairs` doesn't contain every name in
 /// [`BODY_PART_NAMES`].
-pub(crate) fn to_array_body_parts_by_name(
-    pairs: &[(&str, f64)],
-) -> Result<[f64; NUM_BODY_PARTS], BodyPartsInputError> {
-    let mut out = [0.0; NUM_BODY_PARTS];
+pub(crate) fn to_array_body_parts_by_name<T: Copy>(
+    pairs: &[(&str, T)],
+) -> Result<[T; NUM_BODY_PARTS], BodyPartsInputError> {
+    let mut out = [None; NUM_BODY_PARTS];
     for (i, name) in BODY_PART_NAMES.iter().enumerate() {
         let value = pairs
             .iter()
             .find(|(key, _)| key == name)
             .map(|(_, v)| *v)
             .ok_or(BodyPartsInputError::MissingKey(name))?;
-        out[i] = value;
+        out[i] = Some(value);
     }
-    Ok(out)
+    Ok(out.map(|value| value.expect("the loop above fills every slot")))
 }
 
 // ---------------------------------------------------------------------------
@@ -243,18 +243,18 @@ pub(crate) fn bfb_rate(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     ci: f64,
 ) -> f64 {
     // Convert unit from L/min/m^2 to L/h/m^2.
     let mut ci = ci * 60.0;
 
     // Adjust cardiac index based on age.
-    if age < 50 {
+    if age < 50.0 {
         // no-op, matches Python's explicit `ci *= 1`
-    } else if age < 60 {
+    } else if age < 60.0 {
         ci *= 0.85;
-    } else if age < 70 {
+    } else if age < 70.0 {
         ci *= 0.75;
     } else {
         // age >= 70
@@ -430,7 +430,7 @@ pub(crate) fn capacity(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     ci: f64,
 ) -> Vec<f64> {
     // Define capacities [Wh/K].
@@ -542,10 +542,10 @@ mod tests {
 
     #[test]
     fn validate_body_parameters_accepts_in_range() {
-        assert_eq!(validate_body_parameters(1.80, 75.0, 30, 20.0), Ok(()));
+        assert_eq!(validate_body_parameters(1.80, 75.0, 30.0, 20.0), Ok(()));
         // Boundary values, inclusive both ends.
-        assert_eq!(validate_body_parameters(0.5, 20.0, 5, 1.0), Ok(()));
-        assert_eq!(validate_body_parameters(3.0, 200.0, 100, 90.0), Ok(()));
+        assert_eq!(validate_body_parameters(0.5, 20.0, 5.0, 1.0), Ok(()));
+        assert_eq!(validate_body_parameters(3.0, 200.0, 100.0, 90.0), Ok(()));
     }
 
     #[test]
@@ -554,25 +554,25 @@ mod tests {
         // validate_body_parameters(height=0.4, weight=70, age=30, body_fat=20)
         //   -> ValueError("Height must be in the range [0.5, 3.0] meters.")
         assert_eq!(
-            validate_body_parameters(0.4, 70.0, 30, 20.0),
+            validate_body_parameters(0.4, 70.0, 30.0, 20.0),
             Err(BodyParameterError::Height)
         );
         // validate_body_parameters(height=1.7, weight=10, age=30, body_fat=20)
         //   -> ValueError("Weight must be in the range [20.0, 200.0] kilograms.")
         assert_eq!(
-            validate_body_parameters(1.7, 10.0, 30, 20.0),
+            validate_body_parameters(1.7, 10.0, 30.0, 20.0),
             Err(BodyParameterError::Weight)
         );
         // validate_body_parameters(height=1.7, weight=70, age=200, body_fat=20)
         //   -> ValueError("Age must be in the range [5, 100] years.")
         assert_eq!(
-            validate_body_parameters(1.7, 70.0, 200, 20.0),
+            validate_body_parameters(1.7, 70.0, 200.0, 20.0),
             Err(BodyParameterError::Age)
         );
         // validate_body_parameters(height=1.7, weight=70, age=30, body_fat=0.5)
         //   -> ValueError("Body fat percentage must be in the range [1, 90] (1% to 90%).")
         assert_eq!(
-            validate_body_parameters(1.7, 70.0, 30, 0.5),
+            validate_body_parameters(1.7, 70.0, 30.0, 0.5),
             Err(BodyParameterError::BodyFat)
         );
     }
@@ -642,7 +642,7 @@ mod tests {
 
     #[test]
     fn bfb_rate_matches_python() {
-        let got = bfb_rate(1.80, 75.0, BsaFormula::DuBois, 30, 2.59);
+        let got = bfb_rate(1.80, 75.0, BsaFormula::DuBois, 30.0, 2.59);
         assert!(approx_eq(got, 1.038_431_824_032_74, 1e-9));
     }
 
@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn capacity_matches_python() {
-        let cap = capacity(1.80, 75.0, BsaFormula::DuBois, 30, 2.59);
+        let cap = capacity(1.80, 75.0, BsaFormula::DuBois, 30.0, 2.59);
         assert_eq!(cap.len(), NUM_NODES);
 
         assert!(approx_eq(cap[0], 7472.970_778_469_211, 1e-6));

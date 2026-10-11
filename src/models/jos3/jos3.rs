@@ -83,8 +83,8 @@ use core::time::Duration;
 use crate::models::pmv::PmvPpdIsoOptions;
 use crate::utilities::{BsaFormula, antoine, round_to, round_to_exact_decimal};
 use crate::{
-    ActivityRatio, BmrEquation, BodyFat, CardiacIndex, Length, Mass, MetabolicRate, Sex,
-    Temperature,
+    ActivityRatio, Age, Area, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation, Humidity,
+    Length, Mass, MetabolicRate, Power, Sex, Speed, Temperature,
 };
 
 /// Number of body segments that carry a superficial-vein node: the 12 limb segments
@@ -106,7 +106,7 @@ pub const NUM_MUSCLE_FAT_PARTS: usize = 2;
 /// `to_array_body_parts` into named functions per case (see
 /// `construction::to_array_body_parts_scalar`, `construction::to_array_body_parts_by_name`).
 ///
-/// [`BySegment`](PerBodyPart::BySegment) carries an owned `[f64; 17]` rather than
+/// [`BySegment`](PerBodyPart::BySegment) carries an owned `[T; 17]` rather than
 /// borrowing a slice: a fixed-size array already statically has the length Python's
 /// runtime check enforces, so there is nothing left to validate — no
 /// `to_array_body_parts_from_slice` function exists in `construction` for this case,
@@ -114,26 +114,26 @@ pub const NUM_MUSCLE_FAT_PARTS: usize = 2;
 /// self-referential borrows of a [`Jos3Model`] it was built from (see
 /// [`Jos3Model::conditions`]).
 #[derive(Debug, Clone, Copy)]
-pub enum PerBodyPart<'a> {
+pub enum PerBodyPart<'a, T: Copy> {
     /// The same value for every body segment. Python: `to_array_body_parts(inp)` for
     /// `inp: int | float`.
-    Uniform(f64),
+    Uniform(T),
     /// One value per body segment, in `BODY_PART_NAMES` order. Python:
     /// `to_array_body_parts(inp)` for `inp: list | np.ndarray`.
-    BySegment([f64; NUM_BODY_PARTS]),
+    BySegment([T; NUM_BODY_PARTS]),
     /// Name/value pairs, order-independent, one for every entry in `BODY_PART_NAMES`.
     /// Python: `to_array_body_parts(inp)` for `inp: dict`.
-    ByName(&'a [(&'a str, f64)]),
+    ByName(&'a [(&'a str, T)]),
 }
 
-impl<'a> PerBodyPart<'a> {
-    /// Resolve to a `[f64; 17]` in `BODY_PART_NAMES` order.
+impl<T: Copy> PerBodyPart<'_, T> {
+    /// Resolve to a `[T; 17]` in `BODY_PART_NAMES` order.
     ///
     /// # Errors
     ///
     /// Returns [`BodyPartsInputError::MissingKey`] if a [`PerBodyPart::ByName`] input is
     /// missing one of the 17 body-part names.
-    pub fn resolve(&self) -> Result<[f64; NUM_BODY_PARTS], BodyPartsInputError> {
+    pub fn resolve(&self) -> Result<[T; NUM_BODY_PARTS], BodyPartsInputError> {
         match self {
             PerBodyPart::Uniform(value) => Ok(construction::to_array_body_parts_scalar(*value)),
             PerBodyPart::BySegment(values) => Ok(*values),
@@ -174,23 +174,23 @@ impl<'a> PerBodyPart<'a> {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Jos3Conditions<'a> {
-    /// Dry bulb air temperature, °C. Python: `JOS3.tdb`.
-    pub tdb: PerBodyPart<'a>,
-    /// Mean radiant temperature, °C. Python: `JOS3.tr`.
-    pub tr: PerBodyPart<'a>,
-    /// Relative humidity, %. Python: `JOS3.rh`.
-    pub rh: PerBodyPart<'a>,
-    /// Air velocity, m/s. Python: `JOS3.v`.
-    pub v: PerBodyPart<'a>,
-    /// Clothing insulation, clo. Python: `JOS3.clo`.
-    pub clo: PerBodyPart<'a>,
+    /// Dry bulb air temperature. Python: `JOS3.tdb`.
+    pub tdb: PerBodyPart<'a, Temperature>,
+    /// Mean radiant temperature. Python: `JOS3.tr`.
+    pub tr: PerBodyPart<'a, Temperature>,
+    /// Relative humidity. Python: `JOS3.rh`.
+    pub rh: PerBodyPart<'a, Humidity>,
+    /// Air velocity. Python: `JOS3.v`.
+    pub v: PerBodyPart<'a, Speed>,
+    /// Clothing insulation. Python: `JOS3.clo`.
+    pub clo: PerBodyPart<'a, ClothingInsulation>,
     /// Physical activity ratio. Python: `JOS3.par`.
     pub par: ActivityRatio,
     /// Body posture. Python: `JOS3.posture`.
     pub posture: Jos3Posture,
     /// Operative temperature override; when `Some`, replaces both `tdb` and `tr`.
     /// Python: `JOS3.to` setter.
-    pub to: Option<PerBodyPart<'a>>,
+    pub to: Option<PerBodyPart<'a, Temperature>>,
 }
 
 impl Default for Jos3Conditions<'_> {
@@ -201,11 +201,15 @@ impl Default for Jos3Conditions<'_> {
     /// use [`Jos3Model::conditions`].
     fn default() -> Self {
         Self {
-            tdb: PerBodyPart::Uniform(defaults::DRY_BULB_AIR_TEMPERATURE),
-            tr: PerBodyPart::Uniform(defaults::MEAN_RADIANT_TEMPERATURE),
-            rh: PerBodyPart::Uniform(defaults::RELATIVE_HUMIDITY),
-            v: PerBodyPart::Uniform(defaults::AIR_SPEED),
-            clo: PerBodyPart::Uniform(defaults::CLOTHING_INSULATION),
+            tdb: PerBodyPart::Uniform(Temperature::from_celsius(
+                defaults::DRY_BULB_AIR_TEMPERATURE,
+            )),
+            tr: PerBodyPart::Uniform(Temperature::from_celsius(
+                defaults::MEAN_RADIANT_TEMPERATURE,
+            )),
+            rh: PerBodyPart::Uniform(Humidity::from_percent(defaults::RELATIVE_HUMIDITY)),
+            v: PerBodyPart::Uniform(Speed::from_meters_per_second(defaults::AIR_SPEED)),
+            clo: PerBodyPart::Uniform(ClothingInsulation::from_clo(defaults::CLOTHING_INSULATION)),
             par: ActivityRatio::from_ratio(defaults::PHYSICAL_ACTIVITY_RATIO),
             posture: Jos3Posture::Standing,
             to: None,
@@ -370,7 +374,7 @@ impl From<Jos3Error> for Jos3BuildError {
 pub struct Jos3Builder {
     height: Length,
     weight: Mass,
-    age: i32,
+    age: Age,
     fat: BodyFat,
     sex: Sex,
     ci: CardiacIndex,
@@ -383,7 +387,7 @@ impl Default for Jos3Builder {
         Self {
             height: Length::from_meters(defaults::HEIGHT),
             weight: Mass::from_kilograms(defaults::WEIGHT),
-            age: defaults::AGE,
+            age: Age::from_years(defaults::AGE),
             fat: BodyFat::default(),
             sex: Sex::Male,
             ci: CardiacIndex::DEFAULT,
@@ -415,9 +419,9 @@ impl Jos3Builder {
         self
     }
 
-    /// Age, in years. Python: `age`.
+    /// Age. Python: `age`.
     #[must_use]
-    pub const fn age(mut self, age: i32) -> Self {
+    pub const fn age(mut self, age: Age) -> Self {
         self.age = age;
         self
     }
@@ -474,19 +478,20 @@ impl Jos3Builder {
         let height_m = self.height.as_meters();
         let weight_kg = self.weight.as_kilograms();
         let fat_percent = self.fat.as_percent();
-        construction::validate_body_parameters(height_m, weight_kg, self.age, fat_percent)?;
+        let age = self.age.as_years();
+        construction::validate_body_parameters(height_m, weight_kg, age, fat_percent)?;
 
         let ci = self.ci.as_liters_per_minute_per_square_meter();
         let bsa = construction::local_bsa(height_m, weight_kg, self.bsa_equation);
         let cdt = construction::conductance(height_m, weight_kg, self.bsa_equation, fat_percent);
-        let cap = construction::capacity(height_m, weight_kg, self.bsa_equation, self.age, ci);
+        let cap = construction::capacity(height_m, weight_kg, self.bsa_equation, age, ci);
 
         let mut model = Jos3Model {
             height_m,
             weight_kg,
-            fat_percent,
+            fat: self.fat,
             sex: self.sex,
-            age: self.age,
+            age,
             ci,
             bmr_equation: self.bmr_equation,
             bsa_equation: self.bsa_equation,
@@ -595,9 +600,9 @@ pub struct Jos3Model {
     // these after `__init__`).
     height_m: f64,
     weight_kg: f64,
-    fat_percent: f64,
+    fat: BodyFat,
     sex: Sex,
-    age: i32,
+    age: f64,
     ci: f64,
     bmr_equation: BmrEquation,
     bsa_equation: BsaFormula,
@@ -659,7 +664,7 @@ impl Jos3Model {
     /// Body fat percentage.
     #[must_use]
     pub fn fat(&self) -> BodyFat {
-        BodyFat::new(self.fat_percent).expect("validated at build time")
+        self.fat
     }
 
     /// Biological sex.
@@ -668,10 +673,10 @@ impl Jos3Model {
         self.sex
     }
 
-    /// Age, in years.
+    /// Age.
     #[must_use]
-    pub fn age(&self) -> i32 {
-        self.age
+    pub fn age(&self) -> Age {
+        Age::from_years(self.age)
     }
 
     /// Cardiac index.
@@ -687,15 +692,21 @@ impl Jos3Model {
         BODY_PART_NAMES
     }
 
-    /// Body surface area of each of the 17 body segments, \[m2\]. Python: `JOS3.bsa`.
+    /// Body surface area of each of the 17 body segments. Python: `JOS3.bsa`.
     #[must_use]
-    pub fn bsa(&self) -> [f64; NUM_BODY_PARTS] {
-        self.bsa
+    pub fn bsa(&self) -> [Area; NUM_BODY_PARTS] {
+        self.bsa.map(Area::from_square_meters)
     }
 
-    /// Basal metabolic rate, \[W/m2\]. Python: `JOS3.bmr`.
+    /// Basal metabolic rate per unit body surface area. Python: `JOS3.bmr`, which is
+    /// W/m² — read it back with [`MetabolicRate::as_w_per_m2`].
     #[must_use]
-    pub fn bmr(&self) -> f64 {
+    pub fn bmr(&self) -> MetabolicRate {
+        MetabolicRate::from_w_per_m2(self.bmr_w_m2())
+    }
+
+    /// Basal metabolic rate in W/m², the form the set-point search consumes.
+    fn bmr_w_m2(&self) -> f64 {
         threg::basal_met(
             self.height_m,
             self.weight_kg,
@@ -707,40 +718,40 @@ impl Jos3Model {
 
     // -- Environment getters (Python: read/write properties) --
 
-    /// Current dry bulb air temperature, °C, one per body segment. Python: `JOS3.tdb`.
+    /// Current dry bulb air temperature, one per body segment. Python: `JOS3.tdb`.
     #[must_use]
-    pub fn tdb(&self) -> [f64; NUM_BODY_PARTS] {
-        self.tdb
+    pub fn tdb(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.tdb)
     }
 
-    /// Current mean radiant temperature, °C, one per body segment. Python: `JOS3.tr`.
+    /// Current mean radiant temperature, one per body segment. Python: `JOS3.tr`.
     #[must_use]
-    pub fn tr(&self) -> [f64; NUM_BODY_PARTS] {
-        self.tr
+    pub fn tr(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.tr)
     }
 
-    /// Current relative humidity, %, one per body segment. Python: `JOS3.rh`.
+    /// Current relative humidity, one per body segment. Python: `JOS3.rh`.
     #[must_use]
-    pub fn rh(&self) -> [f64; NUM_BODY_PARTS] {
-        self.rh
+    pub fn rh(&self) -> [Humidity; NUM_BODY_PARTS] {
+        self.rh.map(Humidity::from_percent)
     }
 
-    /// Current air velocity, m/s, one per body segment. Python: `JOS3.v`.
+    /// Current air velocity, one per body segment. Python: `JOS3.v`.
     #[must_use]
-    pub fn v(&self) -> [f64; NUM_BODY_PARTS] {
-        self.v
+    pub fn v(&self) -> [Speed; NUM_BODY_PARTS] {
+        self.v.map(Speed::from_meters_per_second)
     }
 
-    /// Current clothing insulation, clo, one per body segment. Python: `JOS3.clo`.
+    /// Current clothing insulation, one per body segment. Python: `JOS3.clo`.
     #[must_use]
-    pub fn clo(&self) -> [f64; NUM_BODY_PARTS] {
-        self.clo
+    pub fn clo(&self) -> [ClothingInsulation; NUM_BODY_PARTS] {
+        self.clo.map(ClothingInsulation::from_clo)
     }
 
     /// Current physical activity ratio. Python: `JOS3.par`.
     #[must_use]
-    pub fn par(&self) -> f64 {
-        self.par
+    pub fn par(&self) -> ActivityRatio {
+        ActivityRatio::from_ratio(self.par)
     }
 
     /// Current posture. Python: `JOS3.posture`.
@@ -756,15 +767,20 @@ impl Jos3Model {
     /// Every field resolves through [`PerBodyPart::BySegment`], which owns its data, so
     /// the result does not borrow from `self` and does not block a later `&mut self`
     /// call such as `advance`.
+    ///
+    /// The temperatures pass through `Temperature`, which stores kelvin, so a value that
+    /// is not exactly representable after the offset can come back changed by one ULP
+    /// (about 2e-14 °C); JOS3 rounds its outputs to two decimals, so this is invisible
+    /// except on an input sitting exactly on a rounding boundary.
     #[must_use]
     pub fn conditions(&self) -> Jos3Conditions<'static> {
         Jos3Conditions {
-            tdb: PerBodyPart::BySegment(self.tdb),
-            tr: PerBodyPart::BySegment(self.tr),
-            rh: PerBodyPart::BySegment(self.rh),
-            v: PerBodyPart::BySegment(self.v),
-            clo: PerBodyPart::BySegment(self.clo),
-            par: ActivityRatio::from_ratio(self.par),
+            tdb: PerBodyPart::BySegment(self.tdb()),
+            tr: PerBodyPart::BySegment(self.tr()),
+            rh: PerBodyPart::BySegment(self.rh()),
+            v: PerBodyPart::BySegment(self.v()),
+            clo: PerBodyPart::BySegment(self.clo()),
+            par: self.par(),
             posture: self.posture,
             to: None,
         }
@@ -772,69 +788,99 @@ impl Jos3Model {
 
     // -- Body temperature state getters (Python: read-only properties) --
 
-    /// All 85 node temperatures, °C. Python: `JOS3.t_body`.
+    /// All 85 node temperatures, in `matrix::IDICT` node order. Python: `JOS3.t_body`.
     #[must_use]
-    pub fn t_body(&self) -> &[f64] {
-        &self.t_body
+    pub fn t_body(&self) -> [Temperature; NUM_NODES] {
+        let mut out = [Temperature::from_celsius(0.0); NUM_NODES];
+        for (slot, &t) in out.iter_mut().zip(self.t_body.iter()) {
+            *slot = Temperature::from_celsius(t);
+        }
+        out
     }
 
-    /// Skin temperature of each of the 17 body segments, °C. Python: `JOS3.t_skin`.
+    /// Skin temperature of each of the 17 body segments. Python: `JOS3.t_skin`.
     #[must_use]
-    pub fn t_skin(&self) -> [f64; NUM_BODY_PARTS] {
-        self.extract_full_layer(|li| li.skin)
+    pub fn t_skin(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.t_skin_c())
     }
 
-    /// Core temperature of each of the 17 body segments, °C. Python: `JOS3.t_core`.
+    /// Core temperature of each of the 17 body segments. Python: `JOS3.t_core`.
     #[must_use]
-    pub fn t_core(&self) -> [f64; NUM_BODY_PARTS] {
-        self.extract_full_layer(|li| li.core)
+    pub fn t_core(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.t_core_c())
     }
 
-    /// Arterial temperature of each of the 17 body segments, °C. Python: `JOS3.t_artery`.
+    /// Arterial temperature of each of the 17 body segments. Python: `JOS3.t_artery`.
     #[must_use]
-    pub fn t_artery(&self) -> [f64; NUM_BODY_PARTS] {
-        self.extract_full_layer(|li| li.artery)
+    pub fn t_artery(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.t_artery_c())
     }
 
-    /// Venous temperature of each of the 17 body segments, °C. Python: `JOS3.t_vein`.
+    /// Venous temperature of each of the 17 body segments. Python: `JOS3.t_vein`.
     #[must_use]
-    pub fn t_vein(&self) -> [f64; NUM_BODY_PARTS] {
-        self.extract_full_layer(|li| li.vein)
+    pub fn t_vein(&self) -> [Temperature; NUM_BODY_PARTS] {
+        celsius(self.t_vein_c())
     }
 
-    /// Central blood pool temperature, °C. Python: `JOS3.t_cb`.
+    /// Central blood pool temperature. Python: `JOS3.t_cb`.
     #[must_use]
-    pub fn t_cb(&self) -> f64 {
-        self.t_body[matrix::CB]
+    pub fn t_cb(&self) -> Temperature {
+        Temperature::from_celsius(self.t_body[matrix::CB])
     }
 
-    /// Superficial vein temperature of the 12 limb segments that have one, °C, in
+    /// Superficial vein temperature of the 12 limb segments that have one, in
     /// `BODY_PART_NAMES` order restricted to those segments. Python:
     /// `JOS3.t_superficial_vein`.
     #[must_use]
-    pub fn t_superficial_vein(&self) -> [f64; NUM_SFVEIN_PARTS] {
-        self.extract_nodes(matrix::index_by_layer("sfvein"))
+    pub fn t_superficial_vein(&self) -> [Temperature; NUM_SFVEIN_PARTS] {
+        celsius(self.t_superficial_vein_c())
     }
 
-    /// Muscle temperature of head and pelvis (the only segments with a muscle layer),
-    /// °C. Python: `JOS3.t_muscle`.
+    /// Muscle temperature of head and pelvis (the only segments with a muscle layer).
+    /// Python: `JOS3.t_muscle`.
     #[must_use]
-    pub fn t_muscle(&self) -> [f64; NUM_MUSCLE_FAT_PARTS] {
-        self.extract_nodes(matrix::index_by_layer("muscle"))
+    pub fn t_muscle(&self) -> [Temperature; NUM_MUSCLE_FAT_PARTS] {
+        celsius(self.extract_nodes(matrix::index_by_layer("muscle")))
     }
 
-    /// Fat temperature of head and pelvis (the only segments with a fat layer), °C.
+    /// Fat temperature of head and pelvis (the only segments with a fat layer).
     /// Python: `JOS3.t_fat`.
     #[must_use]
-    pub fn t_fat(&self) -> [f64; NUM_MUSCLE_FAT_PARTS] {
-        self.extract_nodes(matrix::index_by_layer("fat"))
+    pub fn t_fat(&self) -> [Temperature; NUM_MUSCLE_FAT_PARTS] {
+        celsius(self.extract_nodes(matrix::index_by_layer("fat")))
     }
 
-    /// Mean skin temperature, weighted by local body surface area, °C. Python:
+    /// Mean skin temperature, weighted by local body surface area. Python:
     /// `JOS3.t_skin_mean`.
     #[must_use]
-    pub fn t_skin_mean(&self) -> f64 {
-        threg::weighted_average(&self.t_skin(), &defaults::LOCAL_BSA)
+    pub fn t_skin_mean(&self) -> Temperature {
+        Temperature::from_celsius(threg::weighted_average(
+            &self.t_skin_c(),
+            &defaults::LOCAL_BSA,
+        ))
+    }
+
+    // The simulation works in °C throughout; these are the f64 forms of the getters
+    // above, so no value is re-wrapped mid-calculation.
+
+    fn t_skin_c(&self) -> [f64; NUM_BODY_PARTS] {
+        self.extract_full_layer(|li| li.skin)
+    }
+
+    fn t_core_c(&self) -> [f64; NUM_BODY_PARTS] {
+        self.extract_full_layer(|li| li.core)
+    }
+
+    fn t_artery_c(&self) -> [f64; NUM_BODY_PARTS] {
+        self.extract_full_layer(|li| li.artery)
+    }
+
+    fn t_vein_c(&self) -> [f64; NUM_BODY_PARTS] {
+        self.extract_full_layer(|li| li.vein)
+    }
+
+    fn t_superficial_vein_c(&self) -> [f64; NUM_SFVEIN_PARTS] {
+        self.extract_nodes(matrix::index_by_layer("sfvein"))
     }
 
     /// Accumulated per-step results, one entry per call to [`Jos3Model::advance`] (the
@@ -892,7 +938,9 @@ impl Jos3Model {
     /// sim.advance(&conditions, 30, Duration::from_secs(60))?;
     ///
     /// // Step the air temperature down and carry straight on from the current state.
-    /// conditions.tdb = thermalcomfort::models::jos3::PerBodyPart::Uniform(20.0);
+    /// conditions.tdb = thermalcomfort::models::jos3::PerBodyPart::Uniform(
+    ///     thermalcomfort::Temperature::from_celsius(20.0),
+    /// );
     /// sim.advance(&conditions, 30, Duration::from_secs(60))?;
     ///
     /// assert_eq!(sim.results().t_skin_mean.len(), 61); // initial row + 60 steps
@@ -914,16 +962,18 @@ impl Jos3Model {
         Ok(())
     }
 
+    /// Resolve the typed conditions and convert them to the °C, %, m/s and clo numbers
+    /// the simulation works in. This is the one place the newtypes are unwrapped.
     fn apply_conditions(&mut self, conditions: &Jos3Conditions<'_>) -> Result<(), Jos3Error> {
-        self.tdb = conditions.tdb.resolve()?;
-        self.tr = conditions.tr.resolve()?;
-        self.rh = conditions.rh.resolve()?;
-        self.v = conditions.v.resolve()?;
-        self.clo = conditions.clo.resolve()?;
+        self.tdb = conditions.tdb.resolve()?.map(|t| t.as_celsius());
+        self.tr = conditions.tr.resolve()?.map(|t| t.as_celsius());
+        self.rh = conditions.rh.resolve()?.map(|h| h.as_percent());
+        self.v = conditions.v.resolve()?.map(|v| v.as_meters_per_second());
+        self.clo = conditions.clo.resolve()?.map(|c| c.as_clo());
         self.par = conditions.par.as_ratio();
         self.posture = conditions.posture;
         if let Some(to) = &conditions.to {
-            let resolved = to.resolve()?;
+            let resolved = to.resolve()?.map(|t| t.as_celsius());
             self.tdb = resolved;
             self.tr = resolved;
         }
@@ -934,7 +984,7 @@ impl Jos3Model {
     /// the history with the resulting state. Python: `JOS3._reset_setpt`.
     fn reset_setpoint(&mut self) -> Result<(), Jos3Error> {
         let par = defaults::PHYSICAL_ACTIVITY_RATIO;
-        let met = self.bmr() * par / MetabolicRate::MET_TO_W_M2;
+        let met = self.bmr_w_m2() * par / MetabolicRate::MET_TO_W_M2;
         let rh = defaults::RELATIVE_HUMIDITY;
         let v = defaults::AIR_SPEED;
         let clo = 0.0;
@@ -954,8 +1004,8 @@ impl Jos3Model {
         }
         self.options.ava_zero = false;
 
-        self.cr_set_point = self.t_core();
-        self.sk_set_point = self.t_skin();
+        self.cr_set_point = self.t_core_c();
+        self.sk_set_point = self.t_skin_c();
 
         // Python appends this last passive-step row as history[0] even though the
         // set points above were only just derived from it — see the module docs'
@@ -971,8 +1021,8 @@ impl Jos3Model {
     /// temperatures are the current body temperatures rather than `cr_set_point`/
     /// `sk_set_point`, and `ava_zero` applies if enabled).
     fn run_step(&mut self, dtime: f64, passive: bool) -> Result<Jos3Row, Jos3Error> {
-        let tcr = self.t_core();
-        let tsk = self.t_skin();
+        let tcr = self.t_core_c();
+        let tsk = self.t_skin_c();
 
         let hc = threg::fixed_hc(
             threg::conv_coef(self.posture, self.v, self.tdb, tsk),
@@ -1116,7 +1166,8 @@ impl Jos3Model {
 
         // Respiratory heat loss uses the head segment's tdb/vapor pressure (index 0),
         // exactly as Python's `self._tdb[0]`/`p_a[0]` does.
-        let p_a0 = antoine(Temperature::from_celsius(self.tdb[0])) * self.rh[0] / 100.0;
+        let p_a0 =
+            antoine(Temperature::from_celsius(self.tdb[0])).as_kilopascals() * self.rh[0] / 100.0;
         let (res_sh, res_lh) = threg::resp_heat_loss(self.tdb[0], p_a0, q_thermogenesis_total);
 
         let mut shl_sk = [0.0; NUM_BODY_PARTS];
@@ -1255,8 +1306,8 @@ impl Jos3Model {
         // ------------------------------------------------------------------
         // Output row
         // ------------------------------------------------------------------
-        let new_t_skin = self.t_skin();
-        let new_t_core = self.t_core();
+        let new_t_skin = self.t_skin_c();
+        let new_t_core = self.t_core_c();
         let muscle_positions = matrix::valid_index_by_layer("muscle");
         let fat_positions = matrix::valid_index_by_layer("fat");
 
@@ -1279,7 +1330,7 @@ impl Jos3Model {
             height: self.height_m,
             weight: self.weight_kg,
             bsa: round_arr(self.bsa, 2),
-            fat: self.fat_percent,
+            fat: self.fat,
             sex: self.sex,
             age: self.age,
             t_core_set: round_arr(setpt_cr, 2),
@@ -1290,9 +1341,9 @@ impl Jos3Model {
             // builtin `round(…)` in that return block is handed a `numpy.float64`, whose
             // `__round__` is numpy's rule -- see `round_to_exact_decimal`.
             t_cb: round_to_exact_decimal(self.t_body[matrix::CB], 2),
-            t_artery: round_arr(self.t_artery(), 2),
-            t_vein: round_arr(self.t_vein(), 2),
-            t_superficial_vein: round_arr(self.t_superficial_vein(), 2),
+            t_artery: round_arr(self.t_artery_c(), 2),
+            t_vein: round_arr(self.t_vein_c(), 2),
+            t_superficial_vein: round_arr(self.t_superficial_vein_c(), 2),
             t_muscle: round_arr(pick2(&self.t_body, &matrix::index_by_layer("muscle")), 2),
             t_fat: round_arr(pick2(&self.t_body, &matrix::index_by_layer("fat")), 2),
             to: round_arr(to, 2),
@@ -1346,6 +1397,16 @@ fn round_arr<const N: usize>(values: [f64; N], decimals: i32) -> [f64; N] {
     out
 }
 
+/// Wrap an array of °C values as `Temperature`s at the output boundary.
+fn celsius<const N: usize>(values: [f64; N]) -> [Temperature; N] {
+    values.map(Temperature::from_celsius)
+}
+
+/// Wrap an array of watt values as `Power`s at the output boundary.
+fn watts<const N: usize>(values: [f64; N]) -> [Power; N] {
+    values.map(Power::from_watts)
+}
+
 fn add_arr(a: [f64; NUM_BODY_PARTS], b: [f64; NUM_BODY_PARTS]) -> [f64; NUM_BODY_PARTS] {
     let mut out = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
@@ -1394,9 +1455,9 @@ struct Jos3Row {
     height: f64,
     weight: f64,
     bsa: [f64; NUM_BODY_PARTS],
-    fat: f64,
+    fat: BodyFat,
     sex: Sex,
-    age: i32,
+    age: f64,
     t_core_set: [f64; NUM_BODY_PARTS],
     t_skin_set: [f64; NUM_BODY_PARTS],
     t_cb: f64,
@@ -1446,79 +1507,143 @@ struct Jos3Row {
 ///
 /// Mirrors Python's `JOS3.results()`/`JOS3.dict_results()`: a struct of `alloc::Vec`
 /// trajectories rather than a `Vec` of per-step structs, the same shape used for
-/// [`crate::models::two_nodes_gagge_sleep::GaggeTwoNodesSleepResult`]. Field names and
-/// units match `JOS3Output` exactly, with two systematic type differences:
+/// [`crate::models::two_nodes_gagge_sleep::GaggeTwoNodesSleepResult`]. Field names
+/// match `JOS3Output` exactly; each value is wrapped in the crate's type for its
+/// quantity where one exists, and stays `f64` with the unit in its doc comment where
+/// none does (blood flows in L/h, resistances, wettedness). Two structural differences:
 ///
-/// - `simulation_time` is elapsed seconds (`f64`) rather than Python's
-///   `datetime.timedelta`, since there is no timedelta type in `no_std`.
-/// - The four fields that only exist for head and pelvis (`t_muscle`, `t_fat`,
-///   `bf_muscle`, `bf_fat`, and the three `q_bmr_muscle`/`q_bmr_fat`/
-///   `q_thermogenesis_muscle`/`q_thermogenesis_fat` pairs) are `[f64; 2]` — the head and
-///   pelvis values Python actually computes — rather than a 17-slot structure with 15
-///   unused/`None` entries (Python's `pass_values_to_jos3_body_parts(..., body_parts=
-///   ["head", "pelvis"])`, which only ever sets those two of `JOS3BodyParts`'s 17
-///   fields).
+/// - `simulation_time` and `dt` are [`Duration`]s rather than Python's
+///   `datetime.timedelta` and float seconds.
+/// - The fields that only exist for head and pelvis (`t_muscle`, `t_fat`,
+///   `bf_muscle`, `bf_fat`, and the `q_bmr_muscle`/`q_bmr_fat`/
+///   `q_thermogenesis_muscle`/`q_thermogenesis_fat` pairs) are two-element arrays — the
+///   head and pelvis values Python actually computes — rather than a 17-slot structure
+///   with 15 unused/`None` entries (Python's `pass_values_to_jos3_body_parts(...,
+///   body_parts=["head", "pelvis"])`, which only ever sets those two of
+///   `JOS3BodyParts`'s 17 fields).
+///
+/// Every field has one entry per recorded step; upstream rounds most values to two
+/// decimals before recording them, and this port records the same rounded values.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Jos3Results {
-    pub simulation_time: Vec<f64>,
-    pub dt: Vec<f64>,
-    pub t_skin_mean: Vec<f64>,
-    pub t_skin: Vec<[f64; NUM_BODY_PARTS]>,
-    pub t_core: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Elapsed simulation time at the end of the step. Python: a `datetime.timedelta`.
+    pub simulation_time: Vec<Duration>,
+    /// Length of the step.
+    pub dt: Vec<Duration>,
+    /// Mean skin temperature of the whole body, weighted by local body surface area.
+    pub t_skin_mean: Vec<Temperature>,
+    /// Skin temperature of each body segment.
+    pub t_skin: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Core temperature of each body segment.
+    pub t_core: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Mean skin wettedness of the whole body, dimensionless.
     pub w_mean: Vec<f64>,
+    /// Skin wettedness of each body segment, dimensionless.
     pub w: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Weight loss by evaporation and respiration, in g/s.
     pub weight_loss_by_evap_and_res: Vec<f64>,
+    /// Cardiac output, in L/h.
     pub cardiac_output: Vec<f64>,
-    pub q_thermogenesis_total: Vec<f64>,
-    pub q_res: Vec<f64>,
-    pub q_skin2env: Vec<[f64; NUM_BODY_PARTS]>,
-    pub height: Vec<f64>,
-    pub weight: Vec<f64>,
-    pub bsa: Vec<[f64; NUM_BODY_PARTS]>,
-    pub fat: Vec<f64>,
+    /// Total thermogenesis of the whole body.
+    pub q_thermogenesis_total: Vec<Power>,
+    /// Heat loss by respiration.
+    pub q_res: Vec<Power>,
+    /// Total heat loss from the skin to the environment, per body segment.
+    pub q_skin2env: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Body height.
+    pub height: Vec<Length>,
+    /// Body weight.
+    pub weight: Vec<Mass>,
+    /// Body surface area of each body segment.
+    pub bsa: Vec<[Area; NUM_BODY_PARTS]>,
+    /// Body fat.
+    pub fat: Vec<BodyFat>,
+    /// Biological sex.
     pub sex: Vec<Sex>,
-    pub age: Vec<i32>,
-    pub t_core_set: Vec<[f64; NUM_BODY_PARTS]>,
-    pub t_skin_set: Vec<[f64; NUM_BODY_PARTS]>,
-    pub t_cb: Vec<f64>,
-    pub t_artery: Vec<[f64; NUM_BODY_PARTS]>,
-    pub t_vein: Vec<[f64; NUM_BODY_PARTS]>,
-    pub t_superficial_vein: Vec<[f64; NUM_SFVEIN_PARTS]>,
-    pub t_muscle: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub t_fat: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub to: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Age.
+    pub age: Vec<Age>,
+    /// Core set-point temperature of each body segment.
+    pub t_core_set: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Skin set-point temperature of each body segment.
+    pub t_skin_set: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Central blood temperature.
+    pub t_cb: Vec<Temperature>,
+    /// Arterial blood temperature of each body segment.
+    pub t_artery: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Venous blood temperature of each body segment.
+    pub t_vein: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Superficial venous blood temperature of the 12 limb segments that have one.
+    pub t_superficial_vein: Vec<[Temperature; NUM_SFVEIN_PARTS]>,
+    /// Muscle temperature of head and pelvis.
+    pub t_muscle: Vec<[Temperature; NUM_MUSCLE_FAT_PARTS]>,
+    /// Fat temperature of head and pelvis.
+    pub t_fat: Vec<[Temperature; NUM_MUSCLE_FAT_PARTS]>,
+    /// Operative temperature at each body segment.
+    pub to: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Dry (sensible) heat resistance of each body segment, in m²·K/W.
     pub r_t: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Evaporative heat resistance of each body segment, in m²·kPa/W.
     pub r_et: Vec<[f64; NUM_BODY_PARTS]>,
-    pub tdb: Vec<[f64; NUM_BODY_PARTS]>,
-    pub tr: Vec<[f64; NUM_BODY_PARTS]>,
-    pub rh: Vec<[f64; NUM_BODY_PARTS]>,
-    pub v: Vec<[f64; NUM_BODY_PARTS]>,
-    pub par: Vec<f64>,
-    pub clo: Vec<[f64; NUM_BODY_PARTS]>,
-    pub e_skin: Vec<[f64; NUM_BODY_PARTS]>,
-    pub e_max: Vec<[f64; NUM_BODY_PARTS]>,
-    pub e_sweat: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Dry bulb air temperature at each body segment.
+    pub tdb: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Mean radiant temperature at each body segment.
+    pub tr: Vec<[Temperature; NUM_BODY_PARTS]>,
+    /// Relative humidity at each body segment.
+    pub rh: Vec<[Humidity; NUM_BODY_PARTS]>,
+    /// Air velocity at each body segment.
+    pub v: Vec<[Speed; NUM_BODY_PARTS]>,
+    /// Physical activity ratio.
+    pub par: Vec<ActivityRatio>,
+    /// Clothing insulation of each body segment.
+    pub clo: Vec<[ClothingInsulation; NUM_BODY_PARTS]>,
+    /// Evaporative heat loss from the skin, per body segment.
+    pub e_skin: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Maximum evaporative heat loss from the skin, per body segment.
+    pub e_max: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Evaporative heat loss from the skin by sweating alone, per body segment.
+    pub e_sweat: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Core blood flow of each body segment, in L/h.
     pub bf_core: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Muscle blood flow of head and pelvis, in L/h.
     pub bf_muscle: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
+    /// Fat blood flow of head and pelvis, in L/h.
     pub bf_fat: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
+    /// Skin blood flow of each body segment, in L/h.
     pub bf_skin: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Arteriovenous-anastomosis blood flow of one hand, in L/h.
     pub bf_ava_hand: Vec<f64>,
+    /// Arteriovenous-anastomosis blood flow of one foot, in L/h.
     pub bf_ava_foot: Vec<f64>,
-    pub q_bmr_core: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_bmr_muscle: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub q_bmr_fat: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub q_bmr_skin: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_work: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_shiv: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_nst: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_thermogenesis_core: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_thermogenesis_muscle: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub q_thermogenesis_fat: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    pub q_thermogenesis_skin: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_skin2env_sensible: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_skin2env_latent: Vec<[f64; NUM_BODY_PARTS]>,
-    pub q_res_sensible: Vec<f64>,
-    pub q_res_latent: Vec<f64>,
+    /// Core thermogenesis by basal metabolism, per body segment.
+    pub q_bmr_core: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Muscle thermogenesis by basal metabolism, head and pelvis.
+    pub q_bmr_muscle: Vec<[Power; NUM_MUSCLE_FAT_PARTS]>,
+    /// Fat thermogenesis by basal metabolism, head and pelvis.
+    pub q_bmr_fat: Vec<[Power; NUM_MUSCLE_FAT_PARTS]>,
+    /// Skin thermogenesis by basal metabolism, per body segment.
+    pub q_bmr_skin: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Thermogenesis by work, per body segment.
+    pub q_work: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Thermogenesis by shivering, per body segment.
+    pub q_shiv: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Thermogenesis by non-shivering, per body segment.
+    pub q_nst: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Core total thermogenesis, per body segment.
+    pub q_thermogenesis_core: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Muscle total thermogenesis, head and pelvis.
+    pub q_thermogenesis_muscle: Vec<[Power; NUM_MUSCLE_FAT_PARTS]>,
+    /// Fat total thermogenesis, head and pelvis.
+    pub q_thermogenesis_fat: Vec<[Power; NUM_MUSCLE_FAT_PARTS]>,
+    /// Skin total thermogenesis, per body segment.
+    pub q_thermogenesis_skin: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Sensible heat loss from the skin to the environment, per body segment.
+    pub q_skin2env_sensible: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Latent heat loss from the skin to the environment, per body segment.
+    pub q_skin2env_latent: Vec<[Power; NUM_BODY_PARTS]>,
+    /// Sensible heat loss by respiration.
+    pub q_res_sensible: Vec<Power>,
+    /// Latent heat loss by respiration.
+    pub q_res_latent: Vec<Power>,
 }
 
 impl Jos3Results {
@@ -1587,66 +1712,76 @@ impl Jos3Results {
     }
 
     fn push(&mut self, row: Jos3Row) {
-        self.simulation_time.push(row.simulation_time);
-        self.dt.push(row.dt);
-        self.t_skin_mean.push(row.t_skin_mean);
-        self.t_skin.push(row.t_skin);
-        self.t_core.push(row.t_core);
+        self.simulation_time
+            .push(Duration::from_secs_f64(row.simulation_time));
+        self.dt.push(Duration::from_secs_f64(row.dt));
+        self.t_skin_mean
+            .push(Temperature::from_celsius(row.t_skin_mean));
+        self.t_skin.push(celsius(row.t_skin));
+        self.t_core.push(celsius(row.t_core));
         self.w_mean.push(row.w_mean);
         self.w.push(row.w);
         self.weight_loss_by_evap_and_res
             .push(row.weight_loss_by_evap_and_res);
         self.cardiac_output.push(row.cardiac_output);
-        self.q_thermogenesis_total.push(row.q_thermogenesis_total);
-        self.q_res.push(row.q_res);
-        self.q_skin2env.push(row.q_skin2env);
-        self.height.push(row.height);
-        self.weight.push(row.weight);
-        self.bsa.push(row.bsa);
+        self.q_thermogenesis_total
+            .push(Power::from_watts(row.q_thermogenesis_total));
+        self.q_res.push(Power::from_watts(row.q_res));
+        self.q_skin2env.push(watts(row.q_skin2env));
+        self.height.push(Length::from_meters(row.height));
+        self.weight.push(Mass::from_kilograms(row.weight));
+        self.bsa.push(row.bsa.map(Area::from_square_meters));
         self.fat.push(row.fat);
         self.sex.push(row.sex);
-        self.age.push(row.age);
-        self.t_core_set.push(row.t_core_set);
-        self.t_skin_set.push(row.t_skin_set);
-        self.t_cb.push(row.t_cb);
-        self.t_artery.push(row.t_artery);
-        self.t_vein.push(row.t_vein);
-        self.t_superficial_vein.push(row.t_superficial_vein);
-        self.t_muscle.push(row.t_muscle);
-        self.t_fat.push(row.t_fat);
-        self.to.push(row.to);
+        self.age.push(Age::from_years(row.age));
+        self.t_core_set.push(celsius(row.t_core_set));
+        self.t_skin_set.push(celsius(row.t_skin_set));
+        self.t_cb.push(Temperature::from_celsius(row.t_cb));
+        self.t_artery.push(celsius(row.t_artery));
+        self.t_vein.push(celsius(row.t_vein));
+        self.t_superficial_vein
+            .push(celsius(row.t_superficial_vein));
+        self.t_muscle.push(celsius(row.t_muscle));
+        self.t_fat.push(celsius(row.t_fat));
+        self.to.push(celsius(row.to));
         self.r_t.push(row.r_t);
         self.r_et.push(row.r_et);
-        self.tdb.push(row.tdb);
-        self.tr.push(row.tr);
-        self.rh.push(row.rh);
-        self.v.push(row.v);
-        self.par.push(row.par);
-        self.clo.push(row.clo);
-        self.e_skin.push(row.e_skin);
-        self.e_max.push(row.e_max);
-        self.e_sweat.push(row.e_sweat);
+        self.tdb.push(celsius(row.tdb));
+        self.tr.push(celsius(row.tr));
+        self.rh.push(row.rh.map(Humidity::from_percent));
+        self.v.push(row.v.map(Speed::from_meters_per_second));
+        self.par.push(ActivityRatio::from_ratio(row.par));
+        self.clo.push(row.clo.map(ClothingInsulation::from_clo));
+        self.e_skin.push(watts(row.e_skin));
+        self.e_max.push(watts(row.e_max));
+        self.e_sweat.push(watts(row.e_sweat));
         self.bf_core.push(row.bf_core);
         self.bf_muscle.push(row.bf_muscle);
         self.bf_fat.push(row.bf_fat);
         self.bf_skin.push(row.bf_skin);
         self.bf_ava_hand.push(row.bf_ava_hand);
         self.bf_ava_foot.push(row.bf_ava_foot);
-        self.q_bmr_core.push(row.q_bmr_core);
-        self.q_bmr_muscle.push(row.q_bmr_muscle);
-        self.q_bmr_fat.push(row.q_bmr_fat);
-        self.q_bmr_skin.push(row.q_bmr_skin);
-        self.q_work.push(row.q_work);
-        self.q_shiv.push(row.q_shiv);
-        self.q_nst.push(row.q_nst);
-        self.q_thermogenesis_core.push(row.q_thermogenesis_core);
-        self.q_thermogenesis_muscle.push(row.q_thermogenesis_muscle);
-        self.q_thermogenesis_fat.push(row.q_thermogenesis_fat);
-        self.q_thermogenesis_skin.push(row.q_thermogenesis_skin);
-        self.q_skin2env_sensible.push(row.q_skin2env_sensible);
-        self.q_skin2env_latent.push(row.q_skin2env_latent);
-        self.q_res_sensible.push(row.q_res_sensible);
-        self.q_res_latent.push(row.q_res_latent);
+        self.q_bmr_core.push(watts(row.q_bmr_core));
+        self.q_bmr_muscle.push(watts(row.q_bmr_muscle));
+        self.q_bmr_fat.push(watts(row.q_bmr_fat));
+        self.q_bmr_skin.push(watts(row.q_bmr_skin));
+        self.q_work.push(watts(row.q_work));
+        self.q_shiv.push(watts(row.q_shiv));
+        self.q_nst.push(watts(row.q_nst));
+        self.q_thermogenesis_core
+            .push(watts(row.q_thermogenesis_core));
+        self.q_thermogenesis_muscle
+            .push(watts(row.q_thermogenesis_muscle));
+        self.q_thermogenesis_fat
+            .push(watts(row.q_thermogenesis_fat));
+        self.q_thermogenesis_skin
+            .push(watts(row.q_thermogenesis_skin));
+        self.q_skin2env_sensible
+            .push(watts(row.q_skin2env_sensible));
+        self.q_skin2env_latent.push(watts(row.q_skin2env_latent));
+        self.q_res_sensible
+            .push(Power::from_watts(row.q_res_sensible));
+        self.q_res_latent.push(Power::from_watts(row.q_res_latent));
     }
 }
 
@@ -1662,6 +1797,10 @@ mod tests {
         a.iter().zip(b.iter()).all(|(x, y)| approx_eq(*x, *y, tol))
     }
 
+    fn as_celsius<const N: usize>(a: [Temperature; N]) -> [f64; N] {
+        a.map(|t| t.as_celsius())
+    }
+
     #[test]
     fn default_builder_matches_python_defaults() {
         let model = Jos3Builder::new()
@@ -1669,7 +1808,7 @@ mod tests {
             .expect("default parameters are valid");
         assert!(approx_eq(model.height().as_meters(), 1.72, 1e-12));
         assert!(approx_eq(model.weight().as_kilograms(), 74.43, 1e-12));
-        assert_eq!(model.age(), 20);
+        assert_eq!(model.age(), Age::from_years(20.0));
         assert!(approx_eq(model.fat().as_percent(), 15.0, 1e-12));
         assert_eq!(model.sex(), Sex::Male);
     }
@@ -1690,9 +1829,13 @@ mod tests {
         let model = Jos3Builder::new()
             .build()
             .expect("default parameters are valid");
-        let bsa_sum: f64 = model.bsa().iter().sum();
+        let bsa_sum: f64 = model.bsa().iter().map(|a| a.as_square_meters()).sum();
         assert!(approx_eq(bsa_sum, 1.868_970_306_502_213_9, 1e-9));
-        assert!(approx_eq(model.bmr(), 47.062_749_886_388_204, 1e-6));
+        assert!(approx_eq(
+            model.bmr().as_w_per_m2(),
+            47.062_749_886_388_204,
+            1e-6
+        ));
     }
 
     /// Cross-checked against pythermalcomfort 4.4.0, `JOS3()` immediately after
@@ -1724,7 +1867,7 @@ mod tests {
         let mut model = Jos3Builder::new()
             .height(Length::from_meters(1.55))
             .weight(Mass::from_kilograms(74.43))
-            .age(20)
+            .age(Age::from_years(20.0))
             .fat(BodyFat::new(20.0).expect("20% is in range"))
             .sex(Sex::Female)
             .cardiac_index(CardiacIndex::from_liters_per_minute_per_square_meter(2.59))
@@ -1741,10 +1884,10 @@ mod tests {
         let results = model.results();
         let last = results.t_skin_mean.len() - 1;
         assert!(
-            approx_eq(results.t_skin_mean[last], 32.93, 1e-9),
+            approx_eq(results.t_skin_mean[last].as_celsius(), 32.93, 1e-9),
             "t_skin_mean = {}, pythermalcomfort gives 32.93 (35.22 means the retry \
              branch never fired)",
-            results.t_skin_mean[last]
+            results.t_skin_mean[last].as_celsius()
         );
         assert!(
             approx_eq(results.cardiac_output[last], 290.3, 1e-9),
@@ -1760,7 +1903,7 @@ mod tests {
             .expect("default parameters are valid");
         let first = model.results();
         assert_eq!(first.t_skin.len(), 1);
-        assert!(approx_eq(first.t_skin_mean[0], 34.46, 1e-9));
+        assert!(approx_eq(first.t_skin_mean[0].as_celsius(), 34.46, 1e-9));
 
         let want_t_skin = [
             34.99, 35.11, 34.62, 34.52, 35.84, 34.25, 33.86, 34.31, 34.25, 33.86, 34.31, 34.15,
@@ -1770,10 +1913,18 @@ mod tests {
             37.28, 36.82, 37.05, 37.11, 37.26, 36.25, 35.72, 34.9, 36.25, 35.72, 34.9, 36.68,
             36.32, 34.6, 36.68, 36.32, 34.6,
         ];
-        assert!(approx_eq_arr(first.t_skin[0], want_t_skin, 1e-9));
-        assert!(approx_eq_arr(first.t_core[0], want_t_core, 1e-9));
-        assert!(approx_eq(first.dt[0], 60_000.0, 1e-9));
-        assert!(approx_eq(first.simulation_time[0], 0.0, 1e-9));
+        assert!(approx_eq_arr(
+            as_celsius(first.t_skin[0]),
+            want_t_skin,
+            1e-9
+        ));
+        assert!(approx_eq_arr(
+            as_celsius(first.t_core[0]),
+            want_t_core,
+            1e-9
+        ));
+        assert_eq!(first.dt[0], Duration::from_secs(60_000));
+        assert_eq!(first.simulation_time[0], Duration::ZERO);
     }
 
     /// Cross-checked against pythermalcomfort 4.4.0:
@@ -1804,14 +1955,22 @@ mod tests {
         assert_eq!(results.t_skin.len(), 61); // initial reset-setpoint row + 60 steps
         let last = results.t_skin.len() - 1;
 
-        assert!(approx_eq(results.t_skin_mean[last], 34.69, 1e-9));
-        assert!(approx_eq(results.t_cb[last], 36.73, 1e-9));
+        assert!(approx_eq(
+            results.t_skin_mean[last].as_celsius(),
+            34.69,
+            1e-9
+        ));
+        assert!(approx_eq(results.t_cb[last].as_celsius(), 36.73, 1e-9));
         assert!(approx_eq(results.cardiac_output[last], 316.2, 1e-6));
-        assert!(approx_eq(results.q_thermogenesis_total[last], 110.42, 1e-6));
-        assert!(approx_eq(results.q_res[last], 8.26, 1e-6));
+        assert!(approx_eq(
+            results.q_thermogenesis_total[last].as_watts(),
+            110.42,
+            1e-6
+        ));
+        assert!(approx_eq(results.q_res[last].as_watts(), 8.26, 1e-6));
         assert!(approx_eq(results.w_mean[last], 0.06, 1e-9));
-        assert!(approx_eq(results.dt[last], 60.0, 1e-9));
-        assert!(approx_eq(results.simulation_time[last], 3600.0, 1e-9));
+        assert_eq!(results.dt[last], Duration::from_secs(60));
+        assert_eq!(results.simulation_time[last], Duration::from_secs(3600));
 
         let want_t_skin = [
             34.86, 34.97, 34.49, 34.4, 35.73, 34.44, 34.76, 35.49, 34.44, 34.76, 35.49, 34.16,
@@ -1821,8 +1980,16 @@ mod tests {
             37.11, 36.65, 36.88, 36.94, 37.11, 36.29, 36.08, 35.89, 36.29, 36.08, 35.89, 36.62,
             36.44, 35.67, 36.62, 36.44, 35.67,
         ];
-        assert!(approx_eq_arr(results.t_skin[last], want_t_skin, 1e-9));
-        assert!(approx_eq_arr(results.t_core[last], want_t_core, 1e-9));
+        assert!(approx_eq_arr(
+            as_celsius(results.t_skin[last]),
+            want_t_skin,
+            1e-9
+        ));
+        assert!(approx_eq_arr(
+            as_celsius(results.t_core[last]),
+            want_t_core,
+            1e-9
+        ));
     }
 
     #[test]
@@ -1831,12 +1998,12 @@ mod tests {
             .build()
             .expect("default parameters are valid");
         let mut conditions = model.conditions();
-        conditions.v = PerBodyPart::Uniform(0.5);
+        conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(0.5));
         // This would not compile if `conditions` still borrowed `model`.
         model
             .advance(&conditions, 1, Duration::from_secs(60))
             .expect("valid conditions");
-        assert!(approx_eq(model.v()[0], 0.5, 1e-12));
+        assert!(approx_eq(model.v()[0].as_meters_per_second(), 0.5, 1e-12));
     }
 
     #[test]

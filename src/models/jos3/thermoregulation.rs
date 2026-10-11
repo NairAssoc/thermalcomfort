@@ -467,7 +467,7 @@ pub(crate) fn evaporation(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
 ) -> (
     [f64; NUM_BODY_PARTS],
     [f64; NUM_BODY_PARTS],
@@ -483,8 +483,8 @@ pub(crate) fn evaporation(
 
     let mut e_max = [0.0; NUM_BODY_PARTS];
     for i in 0..NUM_BODY_PARTS {
-        let p_a = antoine(Temperature::from_celsius(tdb[i])) * rh[i] / 100.0; // Saturated vapor pressure of ambient [kPa]
-        let p_sk_s = antoine(Temperature::from_celsius(t_skin[i])); // Saturated vapor pressure at the skin [kPa]
+        let p_a = antoine(Temperature::from_celsius(tdb[i])).as_kilopascals() * rh[i] / 100.0; // Ambient vapour pressure [kPa]
+        let p_sk_s = antoine(Temperature::from_celsius(t_skin[i])).as_kilopascals(); // Saturated vapour pressure at the skin [kPa]
         let mut e_max_i = (p_sk_s - p_a) / ret[i] * bsa[i]; // Maximum evaporative heat loss
         // Replace any zero values with 0.001 to avoid causing a divide by 0 error
         if e_max_i == 0.0 {
@@ -504,7 +504,7 @@ pub(crate) fn evaporation(
     sig_sweat *= bsar;
 
     // Signal decrement by aging
-    let sd_sweat: [f64; NUM_BODY_PARTS] = if age < 60 {
+    let sd_sweat: [f64; NUM_BODY_PARTS] = if age < 60.0 {
         [1.0; NUM_BODY_PARTS]
     } else {
         // age >= 60
@@ -541,7 +541,7 @@ pub(crate) fn skin_blood_flow(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     ci: f64,
 ) -> [f64; NUM_BODY_PARTS] {
     let (wrms, clds) = error_signals(err_sk);
@@ -568,7 +568,7 @@ pub(crate) fn skin_blood_flow(
     sig_stric = py_max(sig_stric, 0.0);
 
     // Signal decrement by aging
-    let (sd_dilat, sd_stric): ([f64; NUM_BODY_PARTS], [f64; NUM_BODY_PARTS]) = if age < 60 {
+    let (sd_dilat, sd_stric): ([f64; NUM_BODY_PARTS], [f64; NUM_BODY_PARTS]) = if age < 60.0 {
         ([1.0; NUM_BODY_PARTS], [1.0; NUM_BODY_PARTS])
     } else {
         // age >= 60
@@ -609,7 +609,7 @@ pub(crate) fn ava_blood_flow(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     ci: f64,
 ) -> (f64, f64) {
     // Cal. mean error body core temp.
@@ -646,11 +646,10 @@ pub(crate) fn ava_blood_flow(
 pub(crate) fn basal_met(
     height: f64,
     weight: f64,
-    age: i32,
+    age: f64,
     sex: Sex,
     bmr_equation: BmrEquation,
 ) -> f64 {
-    let age = f64::from(age);
     let mut bmr = match bmr_equation {
         BmrEquation::HarrisBenedict => match sex {
             Sex::Male => 88.362 + 13.397 * weight + 500.3 * height - 5.677 * age,
@@ -687,7 +686,7 @@ pub(crate) fn basal_met(
 pub(crate) fn local_mbase(
     height: f64,
     weight: f64,
-    age: i32,
+    age: f64,
     sex: Sex,
     bmr_equation: BmrEquation,
 ) -> (
@@ -794,7 +793,7 @@ pub(crate) fn shivering(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     sex: Sex,
     dtime: f64,
     options: Option<ShiveringOptions>,
@@ -848,17 +847,17 @@ pub(crate) fn shivering(
     }
 
     // Signal sd_shiv by aging
-    let sd_shiv = if age < 30 {
+    let sd_shiv = if age < 30.0 {
         1.0
-    } else if age < 40 {
+    } else if age < 40.0 {
         0.97514
-    } else if age < 50 {
+    } else if age < 50.0 {
         0.95028
-    } else if age < 60 {
+    } else if age < 60.0 {
         0.92818
-    } else if age < 70 {
+    } else if age < 70.0 {
         0.90055
-    } else if age < 80 {
+    } else if age < 80.0 {
         0.86188
     } else {
         // age >= 80
@@ -885,7 +884,7 @@ pub(crate) fn nonshivering(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     cold_acclimation: bool,
     batpositive: bool,
 ) -> [f64; NUM_BODY_PARTS] {
@@ -899,9 +898,9 @@ pub(crate) fn nonshivering(
     let mut bat = pow(10.0, -0.10502 * bmi + 2.7708);
 
     // age factor
-    if age < 30 {
+    if age < 30.0 {
         bat *= 1.61;
-    } else if age < 40 {
+    } else if age < 40.0 {
         bat *= 1.00;
     } else {
         // age >= 40
@@ -914,16 +913,16 @@ pub(crate) fn nonshivering(
 
     if !batpositive {
         // incidence age factor: T.Yoneshiro 2011
-        if age < 30 {
+        if age < 30.0 {
             // age = 20s or younger
             bat *= 44.0 / 83.0;
-        } else if age < 40 {
+        } else if age < 40.0 {
             // age = 30s
             bat *= 15.0 / 38.0;
-        } else if age < 50 {
+        } else if age < 50.0 {
             // age = 40s
             bat *= 7.0 / 26.0;
-        } else if age < 60 {
+        } else if age < 60.0 {
             // age = 50s
             bat *= 1.0 / 8.0;
         } else {
@@ -1025,7 +1024,7 @@ pub(crate) fn cr_ms_fat_blood_flow(
     height: f64,
     weight: f64,
     bsa_equation: BsaFormula,
-    age: i32,
+    age: f64,
     ci: f64,
 ) -> (
     [f64; NUM_BODY_PARTS],
@@ -1470,7 +1469,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
         );
         let want_wet = [
             0.707_318_472_812_767_5,
@@ -1507,7 +1506,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            70,
+            70.0,
         );
         assert!(approx_eq(wet70[0], 0.506_649_746_240_809_7, 1e-9));
         assert!(approx_eq(e_sweat70[0], 3.493_601_488_507_876, 1e-6));
@@ -1528,7 +1527,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
         );
         assert!(approx_eq_arr(wet_eq, [1.0; NUM_BODY_PARTS], 1e-9));
     }
@@ -1544,7 +1543,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             2.59,
         );
         let want30 = [
@@ -1575,7 +1574,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            70,
+            70.0,
             2.59,
         );
         assert!(approx_eq(got70[0], 2.985_108_734_280_808_5, 1e-9));
@@ -1591,7 +1590,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             2.59,
         );
         assert!(approx_eq(hand, 1.712_582_604_924_341_8, 1e-9));
@@ -1600,14 +1599,14 @@ mod tests {
         // Clamped high: err_cr = err_sk = 3.0 everywhere -> sig_ava_foot saturates at 1.
         let hot = [3.0; NUM_BODY_PARTS];
         let (hand_hi, foot_hi) =
-            ava_blood_flow(hot, hot, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+            ava_blood_flow(hot, hot, 1.72, 74.43, BsaFormula::DuBois, 30.0, 2.59);
         assert!(approx_eq(hand_hi, 1.712_582_604_924_341_8, 1e-9)); // already saturated at baseline
         assert!(approx_eq(foot_hi, 2.163_262_237_799_169, 1e-9));
 
         // Clamped low: err_cr = err_sk = -3.0 everywhere -> both signals clamp to 0.
         let cold = [-3.0; NUM_BODY_PARTS];
         let (hand_lo, foot_lo) =
-            ava_blood_flow(cold, cold, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+            ava_blood_flow(cold, cold, 1.72, 74.43, BsaFormula::DuBois, 30.0, 2.59);
         assert!(approx_eq(hand_lo, 0.0, 1e-12));
         assert!(approx_eq(foot_lo, 0.0, 1e-12));
     }
@@ -1618,12 +1617,12 @@ mod tests {
     fn basal_met_matches_python_all_equations_and_sexes() {
         // Python: basal_met(1.72, 74.43, 20, sex, equation) for every combination.
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict),
+            basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict),
             87.958_882_08,
             1e-9
         ));
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Female, BmrEquation::HarrisBenedict),
+            basal_met(1.72, 74.43, 20.0, Sex::Female, BmrEquation::HarrisBenedict),
             89.984_410_08,
             1e-9
         ));
@@ -1631,7 +1630,7 @@ mod tests {
             basal_met(
                 1.72,
                 74.43,
-                20,
+                20.0,
                 Sex::Male,
                 BmrEquation::HarrisBenedictOriginal
             ),
@@ -1642,7 +1641,7 @@ mod tests {
             basal_met(
                 1.72,
                 74.43,
-                20,
+                20.0,
                 Sex::Female,
                 BmrEquation::HarrisBenedictOriginal
             ),
@@ -1651,12 +1650,12 @@ mod tests {
         ));
         // Japanese covers both Python's "japanese" and "ganpule" (identical results).
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::Japanese),
+            basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::Japanese),
             79.182_604_873_387_49,
             1e-9
         ));
         assert!(approx_eq(
-            basal_met(1.72, 74.43, 20, Sex::Female, BmrEquation::Japanese),
+            basal_met(1.72, 74.43, 20.0, Sex::Female, BmrEquation::Japanese),
             72.906_828_475_871_96,
             1e-9
         ));
@@ -1664,7 +1663,7 @@ mod tests {
         // Python: basal_met(0.5, 20.0, 100, "female", "japanese") == 68 (clamped to the
         // minimum).
         assert!(approx_eq(
-            basal_met(0.5, 20.0, 100, Sex::Female, BmrEquation::Japanese),
+            basal_met(0.5, 20.0, 100.0, Sex::Female, BmrEquation::Japanese),
             68.0,
             1e-12
         ));
@@ -1674,7 +1673,7 @@ mod tests {
     fn local_mbase_matches_python() {
         // Python: local_mbase(1.72, 74.43, 20, "male", "harris-benedict")
         let (cr, ms, fat, sk) =
-            local_mbase(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+            local_mbase(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
         assert!(approx_eq(cr[0], 17.196_841_035_460_8, 1e-9));
         assert!(approx_eq(cr[2], 25.234_523_679_931_197, 1e-9));
         assert!(approx_eq(ms[0], 0.221_656_382_841_6, 1e-9));
@@ -1692,7 +1691,7 @@ mod tests {
 
     #[test]
     fn local_q_work_matches_python() {
-        let bmr = basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+        let bmr = basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
         // Python: local_q_work(bmr, 1.5)
         let got = local_q_work(bmr, 1.5).unwrap();
         let want = [
@@ -1742,7 +1741,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             Sex::Male,
             60.0,
             None,
@@ -1779,7 +1778,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            85,
+            85.0,
             Sex::Female,
             60.0,
             None,
@@ -1802,7 +1801,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             Sex::Male,
             60.0,
             Some(opts_threshold),
@@ -1822,7 +1821,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             Sex::Male,
             60.0,
             Some(ShiveringOptions {
@@ -1843,7 +1842,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             Sex::Male,
             60.0,
             Some(ShiveringOptions {
@@ -1898,13 +1897,13 @@ mod tests {
             0.0,
             0.0,
         ];
-        let got = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25, false, true);
+        let got = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25.0, false, true);
         assert!(approx_eq_arr(got, want, 1e-9));
 
         // batpositive=False path is exercised (all these ages hit a different age-factor
         // branch); clds isn't large enough here to exceed the resulting NST threshold,
         // so the result is identical to the batpositive=True case at this signal level.
-        for age in [25, 35, 45, 55, 65] {
+        for age in [25.0, 35.0, 45.0, 55.0, 65.0] {
             let got_batneg =
                 nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, age, false, false);
             assert!(approx_eq_arr(got_batneg, want, 1e-9));
@@ -1912,7 +1911,8 @@ mod tests {
 
         // cold_acclimation=True is exercised; also below the NST threshold at this
         // signal level, so identical here too.
-        let got_cold_acc = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25, true, true);
+        let got_cold_acc =
+            nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25.0, true, true);
         assert!(approx_eq_arr(got_cold_acc, want, 1e-9));
     }
 
@@ -1920,8 +1920,8 @@ mod tests {
 
     #[test]
     fn sum_m_matches_python() {
-        let mbase = local_mbase(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
-        let bmr = basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+        let mbase = local_mbase(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
+        let bmr = basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
         let q_work = local_q_work(bmr, 1.5).unwrap();
         let err_cr_shiv = [
             -0.5, 0.1, 0.15, 0.05, 0.3, 0.0, -0.1, 0.05, 0.0, -0.1, 0.05, 0.02, -0.05, 0.01, 0.02,
@@ -1935,7 +1935,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             Sex::Male,
             60.0,
             Some(ShiveringOptions {
@@ -1944,7 +1944,7 @@ mod tests {
             }),
             0.0,
         );
-        let q_nst = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25, false, true);
+        let q_nst = nonshivering(ERR_SK17, 1.72, 74.43, BsaFormula::DuBois, 25.0, false, true);
 
         // Python: sum_m(mbase, q_work, q_shiv, q_nst) with q_shiv from the
         // shivering_threshold-zeroed call above (all zeros).
@@ -1959,13 +1959,13 @@ mod tests {
 
     #[test]
     fn cr_ms_fat_blood_flow_matches_python() {
-        let bmr = basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+        let bmr = basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
         let q_work = local_q_work(bmr, 1.5).unwrap();
         let q_shiv = [0.0; NUM_BODY_PARTS];
 
         // Python: cr_ms_fat_blood_flow(q_work, [0]*17, 1.72, 74.43, "dubois", 30, 2.59)
         let (bf_core, bf_muscle, bf_fat) =
-            cr_ms_fat_blood_flow(q_work, q_shiv, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+            cr_ms_fat_blood_flow(q_work, q_shiv, 1.72, 74.43, BsaFormula::DuBois, 30.0, 2.59);
         assert!(approx_eq(bf_core[0], 35.304_239_418_823_37, 1e-9));
         assert!(approx_eq(bf_core[2], 92.789_951_120_572_94, 1e-9));
         assert!(approx_eq(bf_muscle[0], 0.683_030_021_379_182, 1e-9));
@@ -1976,18 +1976,18 @@ mod tests {
 
     #[test]
     fn sum_bf_matches_python() {
-        let bmr = basal_met(1.72, 74.43, 20, Sex::Male, BmrEquation::HarrisBenedict);
+        let bmr = basal_met(1.72, 74.43, 20.0, Sex::Male, BmrEquation::HarrisBenedict);
         let q_work = local_q_work(bmr, 1.5).unwrap();
         let q_shiv = [0.0; NUM_BODY_PARTS];
         let (bf_core, bf_muscle, bf_fat) =
-            cr_ms_fat_blood_flow(q_work, q_shiv, 1.72, 74.43, BsaFormula::DuBois, 30, 2.59);
+            cr_ms_fat_blood_flow(q_work, q_shiv, 1.72, 74.43, BsaFormula::DuBois, 30.0, 2.59);
         let bf_skin = skin_blood_flow(
             ERR_CR17,
             ERR_SK17,
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             2.59,
         );
         let (bf_ava_hand, bf_ava_foot) = ava_blood_flow(
@@ -1996,7 +1996,7 @@ mod tests {
             1.72,
             74.43,
             BsaFormula::DuBois,
-            30,
+            30.0,
             2.59,
         );
 

@@ -63,13 +63,14 @@ fn main() {
     );
 
     println!("\nWBGT Heat Stress Assessment:");
-    println!("  WBGT: {:.1}°C", wbgt_result1);
+    let wbgt_c1 = wbgt_result1.as_celsius();
+    println!("  WBGT: {wbgt_c1:.1}°C");
 
-    if wbgt_result1 < 28.0 {
+    if wbgt_c1 < 28.0 {
         println!("  Risk level: Low - Normal activities OK");
-    } else if wbgt_result1 < 31.0 {
+    } else if wbgt_c1 < 31.0 {
         println!("  Risk level: Moderate - Caution for prolonged exposure");
-    } else if wbgt_result1 < 33.0 {
+    } else if wbgt_c1 < 33.0 {
         println!("  Risk level: High - Limit strenuous activities");
     } else {
         println!("  Risk level: Extreme - Avoid outdoor work");
@@ -123,9 +124,10 @@ fn main() {
     );
 
     println!("\nWBGT Heat Stress Assessment:");
-    println!("  WBGT: {:.1}°C", wbgt_result2);
+    let wbgt_c2 = wbgt_result2.as_celsius();
+    println!("  WBGT: {wbgt_c2:.1}°C");
 
-    if wbgt_result2 >= 33.0 {
+    if wbgt_c2 >= 33.0 {
         println!("  ⚠ EXTREME HEAT STRESS");
         println!("  Recommendations:");
         println!("    • Avoid outdoor physical work");

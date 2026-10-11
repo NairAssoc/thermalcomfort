@@ -204,7 +204,10 @@ impl Default for VerticalTmpGradPpdOptions {
 ///
 /// # Returns
 ///
-/// Tuple of (ppd %, acceptability bool)
+/// Tuple of (ppd %, acceptability bool). The PPD is ASHRAE 55's offset-logistic fit,
+/// `(x / (1 + x) - 0.345) * 100` with `x = exp(0.13 (PMV - 1.91)² + 0.15 gradient - 1.6)`,
+/// so it is negative for small gradients (about -1.6 % at a 3 K gradient near PMV 0),
+/// exactly as pythermalcomfort reports it.
 ///
 /// # Examples
 ///
@@ -396,6 +399,11 @@ pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f6
 ///
 /// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
 /// match pythermalcomfort.
+///
+/// The arguments are in the order the name gives, `sharp` then `altitude`, which is the
+/// reverse of [`SolarGainInputs`](crate::models::solar_gain::SolarGainInputs), where
+/// `sol_altitude` precedes `sharp`. Both are `Angle`s, so a swap compiles: name the
+/// values rather than passing positionally from that struct.
 ///
 /// # Examples
 ///

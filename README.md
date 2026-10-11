@@ -15,12 +15,15 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 - **Complete coverage**: every pythermalcomfort v4.4.2 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
-- **Rigorously Validated**: 423 tests (203 unit + 94 Python comparison + 72 doctests +
-  47 differential sweeps + 7 harness self-tests). Every public function with a
-  pythermalcomfort counterpart has a cross-library parity test *and* is driven through the
-  randomised differential sweep. The examples on this page are compiled by
-  `cargo test --doc`, so they cannot drift from the API.
-- **Type-safe**: All physical quantities use typed wrappers to prevent unit errors at compile time
+- **Rigorously Validated**: every public function with a pythermalcomfort counterpart has
+  a cross-library parity test *and* is driven through the randomised differential sweep,
+  and `make parity-coverage` fails the build if either stops being true. The code on this
+  page is compiled by `cargo test --doc`, and every program under `examples/` is run by
+  `make examples`, so neither can drift from the API.
+- **Type-safe**: every input and result whose quantity has a type is that type —
+  temperatures come back as `Temperature`, durations as `core::time::Duration`, clothing as
+  `ClothingInsulation` — so a unit error is a compile error (see
+  [Re-exported Types](#re-exported-types) for the rule)
 - **Standards Compliant**: ISO 7730, ISO 7933, ASHRAE 55, EN 16798-1, ISO 9920
 
 ### Re-exported Types
@@ -43,6 +46,7 @@ Defined in this crate:
 - `AirPermeability` - Air permeability of clothing (l/(m²·s)), per ISO 11079
 - `ClothingInsulation` - Clothing insulation (clo, tog, m²·K/W)
 - `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
+- `Age` - Age in years, shared by PET, the ridge-regression predictor and JOS3
 - `Sex` - Biological sex for physiological models
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
@@ -53,11 +57,24 @@ Also defined here and used on **results**, not just inputs:
 - `CardiacIndex`, `ActivityRatio`, `BodyFat`, `BmrEquation` - JOS3's body parameters
 - `Angle` - re-exported from `measurements` for solar geometry
 
-Physical quantities are newtypes on inputs **and** outputs: an absolute temperature comes
-back as `Temperature`, a temperature *difference* as `TemperatureDelta`, a heat flow as
-`HeatFluxDensity`. Genuinely dimensionless results (PMV, PPD, and indices such as WBGT and
-UTCI that are expressed in temperature-like units without being thermodynamic temperatures)
-stay `f64`.
+The rule for what is typed, on inputs **and** outputs:
+
+- A result or input is a newtype when a type for its quantity already exists in this crate
+  or in `measurements`. A result is `Temperature` when it is a temperature — measured,
+  equivalent or weighted: SET, PET, WBGT, apparent temperature, net effective temperature,
+  wind-chill temperature, operative and mean radiant temperature. A result stays `f64` when
+  it is a classification index whose value is read against bands — UTCI, humidex, heat
+  index (both), discomfort index, THI, ESI — or is dimensionless (PMV, PPD, fractions,
+  percentages, coefficients). UTCI additionally keeps its `Units` option because upstream
+  rounds it in the output unit.
+- Durations are `core::time::Duration`, inputs and outputs alike. Models that step in
+  one-minute increments round the duration to whole minutes (at least one) and say so in
+  the field's doc comment.
+- Ages are `Age`.
+- Quantities with no existing type (mass and volume flows such as kg/h/m² and L/h, thermal
+  and evaporative resistances, specific enthalpy J/kg, W·min/m² accumulators, W/s rate
+  limits) stay `f64` with the unit stated in the field's doc comment. There are no one-off
+  newtypes for them.
 
 Every model takes a named `XInputs` struct for the parameters upstream requires, plus a
 defaulted `XOptions` for the ones it defaults — mirroring pythermalcomfort's own split, so a

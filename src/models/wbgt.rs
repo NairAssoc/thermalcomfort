@@ -73,7 +73,7 @@ impl Default for WbgtOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// assert!((result - 27.1).abs() < 0.1);
+/// assert!((result.as_celsius() - 27.1).abs() < 0.1);
 ///
 /// // Outdoor environment (with solar load)
 /// let options = WbgtOptions {
@@ -88,13 +88,13 @@ impl Default for WbgtOptions {
 ///     },
 ///     options,
 /// );
-/// assert!((result - 25.9).abs() < 0.1);
+/// assert!((result.as_celsius() - 25.9).abs() < 0.1);
 /// ```
 ///
 /// # References
 ///
 /// - ISO 7243:2017 - Ergonomics of the thermal environment
-pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> f64 {
+pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> Temperature {
     let WbgtInputs { twb, tg } = inputs;
     let wet_bulb_celsius = twb.as_celsius();
     let globe_celsius = tg.as_celsius();
@@ -102,7 +102,7 @@ pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> f64 {
 
     // Validate that tdb is provided when solar load is present
     if options.with_solar_load && dry_bulb_celsius_opt.is_none() {
-        return f64::NAN;
+        return Temperature::from_celsius(f64::NAN);
     }
 
     // Calculate WBGT based on solar load condition
@@ -122,7 +122,7 @@ pub fn wbgt(inputs: WbgtInputs, options: WbgtOptions) -> f64 {
         wbgt_value = crate::utilities::round_half_even(wbgt_value * 10.0) / 10.0;
     }
 
-    wbgt_value
+    Temperature::from_celsius(wbgt_value)
 }
 
 #[cfg(test)]
@@ -140,7 +140,7 @@ mod tests {
     fn test_wbgt_indoor() {
         // Test without solar load (indoor environment)
         let result = wbgt(inputs(25.0, 32.0), Default::default());
-        assert!((result - 27.1).abs() < 0.1);
+        assert!((result.as_celsius() - 27.1).abs() < 0.1);
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
             round_output: true,
         };
         let result = wbgt(inputs(25.0, 32.0), options);
-        assert!((result - 25.9).abs() < 0.1);
+        assert!((result.as_celsius() - 25.9).abs() < 0.1);
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
         };
         let result = wbgt(inputs(25.0, 32.0), options);
         // 0.7 * 25 + 0.3 * 32 = 17.5 + 9.6 = 27.1
-        assert!((result - 27.1).abs() < 0.001);
+        assert!((result.as_celsius() - 27.1).abs() < 0.001);
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod tests {
             round_output: true,
         };
         let result = wbgt(inputs(25.0, 32.0), options);
-        assert!(result.is_nan());
+        assert!(result.as_celsius().is_nan());
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
                 round_output: false,
             },
         );
-        assert!((result - 31.5).abs() < 0.001);
+        assert!((result.as_celsius() - 31.5).abs() < 0.001);
 
         // With solar: 0.7 * 30 + 0.2 * 35 + 0.1 * 28 = 21 + 7 + 2.8 = 30.8
         let result = wbgt(
@@ -203,6 +203,6 @@ mod tests {
                 round_output: false,
             },
         );
-        assert!((result - 30.8).abs() < 0.001);
+        assert!((result.as_celsius() - 30.8).abs() < 0.001);
     }
 }

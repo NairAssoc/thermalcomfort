@@ -8,7 +8,7 @@ use thermalcomfort::models::{
     WindChillTemperatureInputs, at, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
     heat_index_schoen, humidex, net, thi, wci, wind_chill_temperature,
 };
-use thermalcomfort::{Humidity, Speed, Temperature};
+use thermalcomfort::{HeatFluxDensity, Humidity, Speed, Temperature};
 
 fn main() {
     println!("=== Thermal Stress Indices ===\n");
@@ -127,17 +127,18 @@ fn main() {
         },
         Default::default(),
     );
-    println!("  Normal Effective Temperature: {net_val:.1}°C");
-    if net_val > 27.0 {
+    let net_c = net_val.as_celsius();
+    println!("  Normal Effective Temperature: {net_c:.1}°C");
+    if net_c > 27.0 {
         println!("    Hot");
-    } else if net_val > 23.0 {
+    } else if net_c > 23.0 {
         println!("    Warm");
     } else {
         println!("    Comfortable or cooler");
     }
 
     // Apparent Temperature (Steadman / Australian BoM), in shade and in sun.
-    // `q` is the net radiation absorbed per unit body surface [W/m²].
+    // `q` is the net radiation absorbed per unit body surface.
     let at_shade = at(
         AtInputs {
             tdb: hot_temp,
@@ -153,16 +154,22 @@ fn main() {
             v: hot_wind,
         },
         AtOptions {
-            q: Some(200.0),
+            q: Some(HeatFluxDensity::from_watts_per_square_meter(200.0)),
             ..Default::default()
         },
     );
-    println!("  Apparent Temperature (shade):      {at_shade:.1}°C");
-    println!("  Apparent Temperature (200 W/m² sun): {at_sun:.1}°C");
+    println!(
+        "  Apparent Temperature (shade):      {:.1}°C",
+        at_shade.as_celsius()
+    );
+    println!(
+        "  Apparent Temperature (200 W/m² sun): {:.1}°C",
+        at_sun.as_celsius()
+    );
 
     // Environmental Stress Index (Moran): temperature, humidity and global solar
     // radiation, designed to track WBGT without a globe thermometer.
-    let sol_radiation_global = 800.0; // W/m², clear midday sky
+    let sol_radiation_global = HeatFluxDensity::from_watts_per_square_meter(800.0); // clear midday sky
     let esi_val = esi(
         EsiInputs {
             tdb: hot_temp,
@@ -171,7 +178,10 @@ fn main() {
         },
         Default::default(),
     );
-    println!("  Environmental Stress Index ({sol_radiation_global:.0} W/m² solar): {esi_val:.1}");
+    println!(
+        "  Environmental Stress Index ({:.0} W/m² solar): {esi_val:.1}",
+        sol_radiation_global.as_watts_per_square_meter()
+    );
 
     // COLD STRESS INDICES
     println!("\n\n--- Cold Stress Assessment ---\n");
@@ -190,24 +200,26 @@ fn main() {
         WindChillTemperatureInputs { tdb: cold_temp, v },
         Default::default(),
     );
+    let wct_c = wct.as_celsius();
     println!("Wind Chill Temperature:");
-    println!("  {:.1}°C (feels like)", wct);
-    if wct > -10.0 {
+    println!("  {wct_c:.1}°C (feels like)");
+    if wct_c > -10.0 {
         println!("  Low risk");
-    } else if wct > -28.0 {
+    } else if wct_c > -28.0 {
         println!("  Low risk of frostbite");
-    } else if wct > -40.0 {
+    } else if wct_c > -40.0 {
         println!("  Moderate risk: frostbite in 10-30 minutes");
-    } else if wct > -48.0 {
+    } else if wct_c > -48.0 {
         println!("  High risk: frostbite in 5-10 minutes");
     } else {
         println!("  Extreme risk: frostbite in 2-5 minutes");
     }
 
     // Wind Chill Index
-    let wci_val = wci(WciInputs { tdb: cold_temp, v }, Default::default());
+    let wci_val =
+        wci(WciInputs { tdb: cold_temp, v }, Default::default()).as_watts_per_square_meter();
     println!("\nWind Chill Index:");
-    println!("  {:.0} W/m²", wci_val);
+    println!("  {wci_val:.0} W/m²");
     if wci_val < 600.0 {
         println!("  Comfortable with proper clothing");
     } else if wci_val < 1200.0 {

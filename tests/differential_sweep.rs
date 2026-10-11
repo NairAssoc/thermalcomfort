@@ -64,10 +64,10 @@ use thermalcomfort::utilities::{
     body_surface_area, clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae,
     clo_dynamic_iso, clo_individual_garment, clo_insulation_air_layer,
     clo_intrinsic_insulation_ensemble, clo_total_insulation, clo_tout, clo_typical_ensemble,
-    hr_to_rh, p_sat, p_sat_antoine, p_sat_torr, running_mean_outdoor_temperature, v_relative,
+    hr_to_rh, p_sat, p_sat_torr, running_mean_outdoor_temperature, v_relative,
 };
 use thermalcomfort::{
-    ActivityRatio, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
+    ActivityRatio, Age, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
     ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Power, Pressure,
     Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
 };
@@ -84,6 +84,12 @@ fn py_float(obj: &Bound<'_, PyAny>, field: &str) -> Result<f64, String> {
     attr.call_method0("item")
         .and_then(|i| i.extract::<f64>())
         .map_err(|e| format!("{field}: could not read as a number: {e}"))
+}
+
+/// A PHS exposure limit as the minutes Python reports: NaN when the port returns `None`
+/// (inputs out of range), which is exactly when Python's limits are NaN too.
+fn limit_minutes(limit: Option<Duration>) -> f64 {
+    limit.map_or(f64::NAN, |d| d.as_secs_f64() / 60.0)
 }
 
 /// The PMV/PPD input space shared by the ISO and ASHRAE variants.
@@ -1083,9 +1089,9 @@ fn sweep_phs() {
                     weight: Mass::from_kilograms(weight),
                     height: Length::from_meters(height),
                     walk_sp: Speed::from_meters_per_second(walk_sp),
-                    theta,
+                    theta: Angle::from_degrees(theta),
                     acclimatized,
-                    duration,
+                    duration: Duration::from_secs(u64::try_from(duration).unwrap() * 60),
                     ..Default::default()
                 },
             );
@@ -1096,9 +1102,9 @@ fn sweep_phs() {
                 rust.t_cr.as_celsius(),
                 rust.t_cr_eq.as_celsius(),
                 rust.t_sk_t_cr_wg,
-                rust.d_lim_loss_50,
-                rust.d_lim_loss_95,
-                rust.d_lim_t_re,
+                limit_minutes(rust.d_lim_loss_50),
+                limit_minutes(rust.d_lim_loss_95),
+                limit_minutes(rust.d_lim_t_re),
                 rust.sweat_loss_g.as_grams(),
                 rust.sweat_rate_watt.as_watts_per_square_meter(),
                 rust.evap_load_wm2_min,
@@ -1372,7 +1378,7 @@ fn sweep_two_nodes_gagge_ji() {
                     position: posture,
                     acclimatized,
                     body_weight: Mass::from_kilograms(body_weight),
-                    length_time_simulation,
+                    duration: Duration::from_secs(length_time_simulation as u64 * 60),
                     initial_skin_temp: Temperature::from_celsius(init_skin),
                     initial_core_temp: Temperature::from_celsius(init_core),
                 },
@@ -2141,6 +2147,19 @@ fn jos3_reference_is_ulp_unstable(
     Ok((0..=last).any(|i| a[i] != b[i]))
 }
 
+/// Unwrap a typed result series to the plain numbers the Python side reports.
+fn f64s<T: Copy>(series: &[T], unwrap: impl Fn(T) -> f64) -> Vec<f64> {
+    series.iter().map(|&x| unwrap(x)).collect()
+}
+
+/// Unwrap a typed per-segment result series to plain numbers.
+fn f64_arrays<T: Copy, const N: usize>(
+    series: &[[T; N]],
+    unwrap: impl Fn(T) -> f64,
+) -> Vec<[f64; N]> {
+    series.iter().map(|a| a.map(&unwrap)).collect()
+}
+
 /// Compare every field of a Rust [`Jos3Results`] against a Python `JOS3.results()`
 /// object, over every step. `results()`, not `dict_results()` -- see
 /// `tests/python_comparison.rs` for why (a genuine pythermalcomfort 4.4.0 bug makes
@@ -2149,28 +2168,34 @@ fn jos3_reference_is_ulp_unstable(
 fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), Jos3Mismatch> {
     let n = rust.simulation_time.len();
 
-    let scalar_fields: [(&str, &Vec<f64>); 16] = [
-        ("dt", &rust.dt),
-        ("t_skin_mean", &rust.t_skin_mean),
-        ("w_mean", &rust.w_mean),
+    let scalar_fields: [(&str, Vec<f64>); 16] = [
+        ("dt", f64s(&rust.dt, |d| d.as_secs_f64())),
+        ("t_skin_mean", f64s(&rust.t_skin_mean, |t| t.as_celsius())),
+        ("w_mean", rust.w_mean.clone()),
         (
             "weight_loss_by_evap_and_res",
-            &rust.weight_loss_by_evap_and_res,
+            rust.weight_loss_by_evap_and_res.clone(),
         ),
-        ("cardiac_output", &rust.cardiac_output),
-        ("q_thermogenesis_total", &rust.q_thermogenesis_total),
-        ("q_res", &rust.q_res),
-        ("height", &rust.height),
-        ("weight", &rust.weight),
-        ("fat", &rust.fat),
-        ("t_cb", &rust.t_cb),
-        ("par", &rust.par),
-        ("bf_ava_hand", &rust.bf_ava_hand),
-        ("bf_ava_foot", &rust.bf_ava_foot),
-        ("q_res_sensible", &rust.q_res_sensible),
-        ("q_res_latent", &rust.q_res_latent),
+        ("cardiac_output", rust.cardiac_output.clone()),
+        (
+            "q_thermogenesis_total",
+            f64s(&rust.q_thermogenesis_total, |p| p.as_watts()),
+        ),
+        ("q_res", f64s(&rust.q_res, |p| p.as_watts())),
+        ("height", f64s(&rust.height, |h| h.as_meters())),
+        ("weight", f64s(&rust.weight, |w| w.as_kilograms())),
+        ("fat", f64s(&rust.fat, |f| f.as_percent())),
+        ("t_cb", f64s(&rust.t_cb, |t| t.as_celsius())),
+        ("par", f64s(&rust.par, |p| p.as_ratio())),
+        ("bf_ava_hand", rust.bf_ava_hand.clone()),
+        ("bf_ava_foot", rust.bf_ava_foot.clone()),
+        (
+            "q_res_sensible",
+            f64s(&rust.q_res_sensible, |p| p.as_watts()),
+        ),
+        ("q_res_latent", f64s(&rust.q_res_latent, |p| p.as_watts())),
     ];
-    for (field, rust_series) in scalar_fields {
+    for (field, rust_series) in &scalar_fields {
         if rust_series.len() != n {
             return Err(Jos3Mismatch::Shape(format!(
                 "{field}: rust length {} != {n}",
@@ -2189,40 +2214,58 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         }
     }
 
-    let body17_fields: [(&str, &Vec<[f64; 17]>); 31] = [
-        ("t_skin", &rust.t_skin),
-        ("t_core", &rust.t_core),
-        ("w", &rust.w),
-        ("q_skin2env", &rust.q_skin2env),
-        ("bsa", &rust.bsa),
-        ("t_core_set", &rust.t_core_set),
-        ("t_skin_set", &rust.t_skin_set),
-        ("t_artery", &rust.t_artery),
-        ("t_vein", &rust.t_vein),
-        ("to", &rust.to),
-        ("r_t", &rust.r_t),
-        ("r_et", &rust.r_et),
-        ("tdb", &rust.tdb),
-        ("tr", &rust.tr),
-        ("rh", &rust.rh),
-        ("v", &rust.v),
-        ("clo", &rust.clo),
-        ("e_skin", &rust.e_skin),
-        ("e_max", &rust.e_max),
-        ("e_sweat", &rust.e_sweat),
-        ("bf_core", &rust.bf_core),
-        ("bf_skin", &rust.bf_skin),
-        ("q_bmr_core", &rust.q_bmr_core),
-        ("q_bmr_skin", &rust.q_bmr_skin),
-        ("q_work", &rust.q_work),
-        ("q_shiv", &rust.q_shiv),
-        ("q_nst", &rust.q_nst),
-        ("q_thermogenesis_core", &rust.q_thermogenesis_core),
-        ("q_thermogenesis_skin", &rust.q_thermogenesis_skin),
-        ("q_skin2env_sensible", &rust.q_skin2env_sensible),
-        ("q_skin2env_latent", &rust.q_skin2env_latent),
+    let body17_fields: [(&str, Vec<[f64; 17]>); 31] = [
+        ("t_skin", f64_arrays(&rust.t_skin, |t| t.as_celsius())),
+        ("t_core", f64_arrays(&rust.t_core, |t| t.as_celsius())),
+        ("w", rust.w.clone()),
+        ("q_skin2env", f64_arrays(&rust.q_skin2env, |p| p.as_watts())),
+        ("bsa", f64_arrays(&rust.bsa, |a| a.as_square_meters())),
+        (
+            "t_core_set",
+            f64_arrays(&rust.t_core_set, |t| t.as_celsius()),
+        ),
+        (
+            "t_skin_set",
+            f64_arrays(&rust.t_skin_set, |t| t.as_celsius()),
+        ),
+        ("t_artery", f64_arrays(&rust.t_artery, |t| t.as_celsius())),
+        ("t_vein", f64_arrays(&rust.t_vein, |t| t.as_celsius())),
+        ("to", f64_arrays(&rust.to, |t| t.as_celsius())),
+        ("r_t", rust.r_t.clone()),
+        ("r_et", rust.r_et.clone()),
+        ("tdb", f64_arrays(&rust.tdb, |t| t.as_celsius())),
+        ("tr", f64_arrays(&rust.tr, |t| t.as_celsius())),
+        ("rh", f64_arrays(&rust.rh, |h| h.as_percent())),
+        ("v", f64_arrays(&rust.v, |v| v.as_meters_per_second())),
+        ("clo", f64_arrays(&rust.clo, |c| c.as_clo())),
+        ("e_skin", f64_arrays(&rust.e_skin, |p| p.as_watts())),
+        ("e_max", f64_arrays(&rust.e_max, |p| p.as_watts())),
+        ("e_sweat", f64_arrays(&rust.e_sweat, |p| p.as_watts())),
+        ("bf_core", rust.bf_core.clone()),
+        ("bf_skin", rust.bf_skin.clone()),
+        ("q_bmr_core", f64_arrays(&rust.q_bmr_core, |p| p.as_watts())),
+        ("q_bmr_skin", f64_arrays(&rust.q_bmr_skin, |p| p.as_watts())),
+        ("q_work", f64_arrays(&rust.q_work, |p| p.as_watts())),
+        ("q_shiv", f64_arrays(&rust.q_shiv, |p| p.as_watts())),
+        ("q_nst", f64_arrays(&rust.q_nst, |p| p.as_watts())),
+        (
+            "q_thermogenesis_core",
+            f64_arrays(&rust.q_thermogenesis_core, |p| p.as_watts()),
+        ),
+        (
+            "q_thermogenesis_skin",
+            f64_arrays(&rust.q_thermogenesis_skin, |p| p.as_watts()),
+        ),
+        (
+            "q_skin2env_sensible",
+            f64_arrays(&rust.q_skin2env_sensible, |p| p.as_watts()),
+        ),
+        (
+            "q_skin2env_latent",
+            f64_arrays(&rust.q_skin2env_latent, |p| p.as_watts()),
+        ),
     ];
-    for (field, rust_series) in body17_fields {
+    for (field, rust_series) in &body17_fields {
         if rust_series.len() != n {
             return Err(Jos3Mismatch::Shape(format!(
                 "{field}: rust length {} != {n}",
@@ -2249,17 +2292,26 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         }
     }
 
-    let body2_fields: [(&str, &Vec<[f64; 2]>); 8] = [
-        ("t_muscle", &rust.t_muscle),
-        ("t_fat", &rust.t_fat),
-        ("bf_muscle", &rust.bf_muscle),
-        ("bf_fat", &rust.bf_fat),
-        ("q_bmr_muscle", &rust.q_bmr_muscle),
-        ("q_bmr_fat", &rust.q_bmr_fat),
-        ("q_thermogenesis_muscle", &rust.q_thermogenesis_muscle),
-        ("q_thermogenesis_fat", &rust.q_thermogenesis_fat),
+    let body2_fields: [(&str, Vec<[f64; 2]>); 8] = [
+        ("t_muscle", f64_arrays(&rust.t_muscle, |t| t.as_celsius())),
+        ("t_fat", f64_arrays(&rust.t_fat, |t| t.as_celsius())),
+        ("bf_muscle", rust.bf_muscle.clone()),
+        ("bf_fat", rust.bf_fat.clone()),
+        (
+            "q_bmr_muscle",
+            f64_arrays(&rust.q_bmr_muscle, |p| p.as_watts()),
+        ),
+        ("q_bmr_fat", f64_arrays(&rust.q_bmr_fat, |p| p.as_watts())),
+        (
+            "q_thermogenesis_muscle",
+            f64_arrays(&rust.q_thermogenesis_muscle, |p| p.as_watts()),
+        ),
+        (
+            "q_thermogenesis_fat",
+            f64_arrays(&rust.q_thermogenesis_fat, |p| p.as_watts()),
+        ),
     ];
-    for (field, rust_series) in body2_fields {
+    for (field, rust_series) in &body2_fields {
         if rust_series.len() != n {
             return Err(Jos3Mismatch::Shape(format!(
                 "{field}: rust length {} != {n}",
@@ -2295,7 +2347,7 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
             jos3_close(
                 &format!("t_superficial_vein[{k}]"),
                 step,
-                rust.t_superficial_vein[step][k],
+                rust.t_superficial_vein[step][k].as_celsius(),
                 p,
             )?;
         }
@@ -2358,7 +2410,7 @@ fn sweep_jos3() {
         run_sweep("sweep_jos3", &domain, |s: &Sample| {
             let height = s.real("height");
             let weight = s.real("weight");
-            let age = s.real("age").round() as i32;
+            let age = s.real("age").round();
             let fat = s.real("fat");
             let ci = s.real("ci");
             let (bmr, py_bmr) = match s.index("bmr_equation") {
@@ -2446,7 +2498,7 @@ fn sweep_jos3() {
             let mut rust_model = Jos3Builder::new()
                 .height(Length::from_meters(height))
                 .weight(Mass::from_kilograms(weight))
-                .age(age)
+                .age(Age::from_years(age))
                 .fat(BodyFat::new(fat).expect("domain stays inside [1, 90]"))
                 .sex(sex)
                 .cardiac_index(CardiacIndex::from_liters_per_minute_per_square_meter(ci))
@@ -2456,11 +2508,11 @@ fn sweep_jos3() {
                 .map_err(|e| format!("rust build failed where python succeeded: {e}"))?;
 
             let mut conditions = rust_model.conditions();
-            conditions.tdb = PerBodyPart::Uniform(tdb);
-            conditions.tr = PerBodyPart::Uniform(tr);
-            conditions.rh = PerBodyPart::Uniform(rh);
-            conditions.v = PerBodyPart::Uniform(v);
-            conditions.clo = PerBodyPart::Uniform(clo);
+            conditions.tdb = PerBodyPart::Uniform(Temperature::from_celsius(tdb));
+            conditions.tr = PerBodyPart::Uniform(Temperature::from_celsius(tr));
+            conditions.rh = PerBodyPart::Uniform(Humidity::from_percent(rh));
+            conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(v));
+            conditions.clo = PerBodyPart::Uniform(ClothingInsulation::from_clo(clo));
             conditions.par = ActivityRatio::from_ratio(par);
             conditions.posture = posture;
 
@@ -3153,7 +3205,11 @@ fn sweep_wci() {
                 WciOptions { round_output },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "wci")?)
+            compare_field(
+                &field,
+                rust.as_watts_per_square_meter(),
+                py_float(&py_result, "wci")?,
+            )
         });
     });
 }
@@ -3196,7 +3252,7 @@ fn sweep_wind_chill_temperature() {
                 WindChillTemperatureOptions { round_output },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "wct")?)
+            compare_field(&field, rust.as_celsius(), py_float(&py_result, "wct")?)
         });
     });
 }
@@ -3240,7 +3296,7 @@ fn sweep_net() {
                 NetOptions { round_output },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "net")?)
+            compare_field(&field, rust.as_celsius(), py_float(&py_result, "net")?)
         });
     });
 }
@@ -3294,12 +3350,12 @@ fn sweep_at() {
                     v: Speed::from_meters_per_second(v),
                 },
                 AtOptions {
-                    q: supply_q.then_some(q),
+                    q: supply_q.then_some(HeatFluxDensity::from_watts_per_square_meter(q)),
                     round_output,
                 },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "at")?)
+            compare_field(&field, rust.as_celsius(), py_float(&py_result, "at")?)
         });
     });
 }
@@ -3338,7 +3394,7 @@ fn sweep_esi() {
                 EsiInputs {
                     tdb: Temperature::from_celsius(tdb),
                     rh: Humidity::from_percent(rh),
-                    sol_radiation_global: sol,
+                    sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(sol),
                 },
                 EsiOptions { round_output },
             );
@@ -3406,7 +3462,7 @@ fn sweep_wbgt() {
                 },
             );
 
-            compare_field(&field, rust, py_float(&py_result, "wbgt")?)
+            compare_field(&field, rust.as_celsius(), py_float(&py_result, "wbgt")?)
         });
     });
 }
@@ -3609,7 +3665,7 @@ def call(args, kwargs):
                     clo: ClothingInsulation::from_clo(clo),
                 },
                 PetOptions {
-                    age,
+                    age: Age::from_years(age),
                     sex,
                     height: Length::from_meters(height),
                     weight: Mass::from_kilograms(weight),
@@ -3621,7 +3677,8 @@ def call(args, kwargs):
                 },
             );
 
-            if rust.pet.is_nan() {
+            let rust_pet = rust.pet.as_celsius();
+            if rust_pet.is_nan() {
                 unconverged.set(unconverged.get() + 1);
             }
 
@@ -3650,12 +3707,12 @@ def call(args, kwargs):
             )
             .nan(NanPolicy::RustMayBeNan);
             if std::env::var("PET_MEASURE").is_ok()
-                && !rust.pet.is_nan()
-                && (rust.pet - py_pet).abs() > 0.0051
+                && !rust_pet.is_nan()
+                && (rust_pet - py_pet).abs() > 0.0051
             {
                 eprintln!(
                     "DELTA {:.4} clo={:.3} tdb={:.1} rh={:.1} met={:.2} v={:.2}",
-                    (rust.pet - py_pet).abs(),
+                    (rust_pet - py_pet).abs(),
                     s.real("clo"),
                     tdb,
                     rh,
@@ -3663,7 +3720,7 @@ def call(args, kwargs):
                     v
                 );
             }
-            compare_field(&field, rust.pet, py_pet)
+            compare_field(&field, rust_pet, py_pet)
         });
 
         // Measured with the `ier` convergence check above, which -- unlike the global
@@ -4367,7 +4424,9 @@ fn compare_dle(
 
     match rust {
         DurationLimitedExposure::NotApplicable if value.is_nan() => Ok(()),
-        DurationLimitedExposure::Hours(h) if (h - value).abs() <= tol => Ok(()),
+        DurationLimitedExposure::Limited(d) if (d.as_secs_f64() / 3600.0 - value).abs() <= tol => {
+            Ok(())
+        }
         _ => Err(format!("{field}: Rust {rust}, Python {value}")),
     }
 }
@@ -4716,12 +4775,12 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                 let rust = ridge_regression_predict_t_re_t_sk(
                     RidgeRegressionInputs {
                         sex,
-                        age,
+                        age: Age::from_years(age),
                         height: Length::from_meters(height),
                         weight: Mass::from_kilograms(weight),
                         tdb: Temperature::from_celsius(tdb),
                         rh: Humidity::from_percent(rh),
-                        duration,
+                        duration: Duration::from_secs(duration as u64 * 60),
                     },
                     RidgeRegressionOptions {
                         t_re: supply_initials.then(|| Temperature::from_celsius(t_re0)),
@@ -4799,14 +4858,11 @@ fn sweep_saturation_pressures() {
                 py_util(&utils, "p_sat_torr", (tdb,))?,
             )?;
 
-            // Python's `antoine` is kPa. The port exposes it both as a bare kPa float
-            // and as `p_sat_antoine`, a `Pressure`; both are checked against it.
-            let py_antoine = py_util(&utils, "antoine", (tdb,))?;
-            compare_field(&FieldCmp::new("antoine", 1e-9), antoine(t), py_antoine)?;
+            // Python's `antoine` is kPa; the port returns a `Pressure`, read back in kPa.
             compare_field(
-                &FieldCmp::new("p_sat_antoine", 1e-6),
-                p_sat_antoine(t).as_pascals(),
-                py_antoine * 1000.0,
+                &FieldCmp::new("antoine", 1e-9),
+                antoine(t).as_kilopascals(),
+                py_util(&utils, "antoine", (tdb,))?,
             )
         });
     });
@@ -4874,7 +4930,8 @@ fn sweep_v_relative_and_clo_dynamic() {
                         i_a: ClothingInsulation::from_clo(i_a),
                         model: iso9920_model,
                     },
-                ),
+                )
+                .as_clo(),
                 py_util(&utils, "clo_dynamic_iso", (clo, met, v, i_a))?,
             )
         });
@@ -4919,7 +4976,8 @@ fn sweep_clo_insulation_helpers() {
                     vr: Speed::from_meters_per_second(vr),
                     v_walk: Speed::from_meters_per_second(v_walk),
                     i_a_static: ClothingInsulation::from_clo(i_a_static),
-                }),
+                })
+                .as_clo(),
                 py_util(&utils, "clo_insulation_air_layer", (vr, v_walk, i_a_static))?,
             )?;
 
@@ -4945,7 +5003,8 @@ fn sweep_clo_insulation_helpers() {
                     v_walk: Speed::from_meters_per_second(v_walk),
                     i_a_static: ClothingInsulation::from_clo(i_a_static),
                     i_cl: ClothingInsulation::from_clo(i_cl),
-                }),
+                })
+                .as_clo(),
                 py_util(
                     &utils,
                     "clo_total_insulation",
@@ -4960,7 +5019,7 @@ fn sweep_clo_insulation_helpers() {
                 .map_err(|e| format!("clo_tout raised: {e}"))?;
             compare_field(
                 &FieldCmp::new("clo_tout", 1e-9),
-                clo_tout(Temperature::from_celsius(tout)),
+                clo_tout(Temperature::from_celsius(tout)).as_clo(),
                 py_float(&py_clo_tout, "clo_tout")?,
             )
         });
@@ -5031,7 +5090,8 @@ fn sweep_body_surface_area_and_hr_to_rh() {
                         hr,
                         Temperature::from_celsius(tdb),
                         Pressure::from_pascals(p_atm),
-                    ),
+                    )
+                    .as_percent(),
                     py_util(&utils, "hr_to_rh", (hr, tdb, p_atm))?,
                 )
             },
@@ -5122,7 +5182,7 @@ fn sweep_running_mean_and_ensemble() {
                 .collect();
             compare_field(
                 &FieldCmp::new("clo_intrinsic_insulation_ensemble", 1e-9),
-                clo_intrinsic_insulation_ensemble(&rust_garments),
+                clo_intrinsic_insulation_ensemble(&rust_garments).as_clo(),
                 py_util(
                     &utils,
                     "clo_intrinsic_insulation_ensemble",
@@ -5227,7 +5287,8 @@ fn sweep_clo_lookup_tables() {
                     clo_typical_ensemble(&name)
                 };
                 let rust_value = rust_value
-                    .unwrap_or_else(|| panic!("{label} {name:?} is missing from the Rust table"));
+                    .unwrap_or_else(|| panic!("{label} {name:?} is missing from the Rust table"))
+                    .as_clo();
                 assert!(
                     (rust_value - py_value).abs() < 1e-9,
                     "{label} {name:?}: Rust {rust_value}, Python {py_value}"

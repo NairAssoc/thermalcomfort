@@ -4,6 +4,7 @@
 //! IREQ (ISO 11079) for cold work, PET as an outdoor comfort temperature, and the sports
 //! heat stress risk scale.
 
+use std::time::Duration;
 use thermalcomfort::models::{
     DurationLimitedExposure, IreqInputs, PetInputs, PhsInputs, PhsPosture, Sports,
     SportsHeatStressRiskInputs, ireq, pet_steady, phs, sports_heat_stress_risk,
@@ -50,15 +51,19 @@ fn main() {
         "  Sweat loss:                {:.0} g",
         strain.sweat_loss_g.as_grams()
     );
+    // The limits are `None` only when the inputs were outside ISO 7933's range.
     println!("Exposure limits:");
-    println!("  Rectal temperature 38 °C:  {:.0} min", strain.d_lim_t_re);
     println!(
-        "  Water loss, 50% of people: {:.0} min",
-        strain.d_lim_loss_50
+        "  Rectal temperature 38 °C:  {}",
+        describe_limit(strain.d_lim_t_re)
     );
     println!(
-        "  Water loss, 95% of people: {:.0} min",
-        strain.d_lim_loss_95
+        "  Water loss, 50% of people: {}",
+        describe_limit(strain.d_lim_loss_50)
+    );
+    println!(
+        "  Water loss, 95% of people: {}",
+        describe_limit(strain.d_lim_loss_95)
     );
 
     // --- IREQ ---
@@ -152,10 +157,18 @@ fn main() {
     }
 }
 
+/// Render a PHS exposure limit in minutes.
+fn describe_limit(limit: Option<Duration>) -> String {
+    match limit {
+        Some(d) => format!("{:.0} min", d.as_secs_f64() / 60.0),
+        None => "outside ISO 7933 limits".to_string(),
+    }
+}
+
 /// Render a duration-limited exposure in words.
 fn describe_dle(dle: DurationLimitedExposure) -> String {
     match dle {
-        DurationLimitedExposure::Hours(h) => format!("{h:.1} h"),
+        DurationLimitedExposure::Limited(d) => format!("{:.1} h", d.as_secs_f64() / 3600.0),
         DurationLimitedExposure::MoreThanEight => "more than 8 h".to_string(),
         DurationLimitedExposure::NotApplicable => "outside ISO 11079 limits".to_string(),
     }
