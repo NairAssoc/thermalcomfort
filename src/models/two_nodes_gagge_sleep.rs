@@ -12,6 +12,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::num::NonZeroU32;
 
 use crate::utilities::{py_max, py_min};
 use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
@@ -43,26 +44,33 @@ pub struct SleepInputs<'a> {
     pub thickness_quilt: &'a [Length],
 }
 
-/// The six schedules did not all have the same length, so the duration is ambiguous.
+/// The schedules describe no night the model can simulate.
 ///
-/// Upstream raises `ValueError` for this; there is no sensible answer to fall back on.
+/// Upstream raises `ValueError` for both; there is no sensible answer to fall back on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MismatchedScheduleLengths {
-    /// Lengths of `tdb`, `tr`, `v`, `rh`, `clo` and `thickness_quilt`, in that order
-    pub lengths: [usize; 6],
+pub enum SleepScheduleError {
+    /// The six schedules did not all have the same length, so the duration is ambiguous.
+    MismatchedLengths {
+        /// Lengths of `tdb`, `tr`, `v`, `rh`, `clo` and `thickness_quilt`, in that order
+        lengths: [usize; 6],
+    },
+    /// Every schedule is empty, so there is no minute to simulate.
+    Empty,
 }
 
-impl core::fmt::Display for MismatchedScheduleLengths {
+impl core::fmt::Display for SleepScheduleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "tdb, tr, v, rh, clo and thickness_quilt must have the same length; got {:?}",
-            self.lengths
-        )
+        match self {
+            Self::MismatchedLengths { lengths } => write!(
+                f,
+                "tdb, tr, v, rh, clo and thickness_quilt must have the same length; got {lengths:?}"
+            ),
+            Self::Empty => f.write_str("time-series inputs must not be empty"),
+        }
     }
 }
 
-impl core::error::Error for MismatchedScheduleLengths {}
+impl core::error::Error for SleepScheduleError {}
 
 /// Tuning coefficients and initial physiological state for the sleep model.
 ///
@@ -76,8 +84,9 @@ pub struct GaggeTwoNodesSleepOptions {
     /// Atmospheric pressure
     pub p_atm: Pressure,
     /// Sub-steps per simulated minute: a count, not a duration. Each schedule entry
-    /// covers one minute, integrated in this many equal steps.
-    pub ltime: u32,
+    /// covers one minute, integrated in this many equal steps. Non-zero by type, as
+    /// upstream rejects `ltime < 1`.
+    pub ltime: NonZeroU32,
     /// Body height
     pub height: Length,
     /// Body weight
@@ -122,7 +131,7 @@ impl Default for GaggeTwoNodesSleepOptions {
         Self {
             wme: MetabolicRate::from_met(0.0),
             p_atm: Pressure::from_pascals(101325.0),
-            ltime: 1,
+            ltime: NonZeroU32::MIN,
             height: Length::from_centimeters(171.0),
             weight: Mass::from_kilograms(70.0),
             c_sw: 170.0,
@@ -269,7 +278,7 @@ fn sleep_set(
     let mut t_cl_old = t_cl;
     let mut flag = false;
 
-    for _ in 0..options.ltime {
+    for _ in 0..options.ltime.get() {
         if flag {
             t_cl = (r_a * t_skin + r_clo * t_op) / (r_a + r_clo);
             if abs(t_cl - t_cl_old) > 0.01 {
@@ -481,9 +490,9 @@ struct SleepMinute {
 ///
 /// # Errors
 ///
-/// Returns [`MismatchedScheduleLengths`] unless all six schedules are the same length,
+/// Returns [`SleepScheduleError`] unless all six schedules are the same non-zero length,
 /// since that length is the duration and there is no meaningful way to reconcile a
-/// disagreement.
+/// disagreement or to simulate an empty night.
 ///
 /// # Examples
 ///
@@ -517,7 +526,7 @@ struct SleepMinute {
 pub fn two_nodes_gagge_sleep(
     inputs: SleepInputs<'_>,
     options: GaggeTwoNodesSleepOptions,
-) -> Result<GaggeTwoNodesSleepResult, MismatchedScheduleLengths> {
+) -> Result<GaggeTwoNodesSleepResult, SleepScheduleError> {
     let lengths = [
         inputs.tdb.len(),
         inputs.tr.len(),
@@ -527,9 +536,12 @@ pub fn two_nodes_gagge_sleep(
         inputs.thickness_quilt.len(),
     ];
     if lengths.iter().any(|&l| l != lengths[0]) {
-        return Err(MismatchedScheduleLengths { lengths });
+        return Err(SleepScheduleError::MismatchedLengths { lengths });
     }
     let duration = lengths[0];
+    if duration == 0 {
+        return Err(SleepScheduleError::Empty);
+    }
 
     let mut state = SleepState {
         t_skin: options.temp_skin_neutral.as_celsius(),
@@ -747,6 +759,28 @@ mod tests {
             Default::default(),
         )
         .expect_err("tr is shorter than the rest, so the duration is ambiguous");
-        assert_eq!(err.lengths, [3, 2, 3, 3, 3, 3]);
+        assert_eq!(
+            err,
+            SleepScheduleError::MismatchedLengths {
+                lengths: [3, 2, 3, 3, 3, 3]
+            }
+        );
+    }
+
+    #[test]
+    fn empty_schedules_are_rejected() {
+        let err = two_nodes_gagge_sleep(
+            SleepInputs {
+                tdb: &[],
+                tr: &[],
+                v: &[],
+                rh: &[],
+                clo: &[],
+                thickness_quilt: &[],
+            },
+            Default::default(),
+        )
+        .expect_err("an empty night has nothing to simulate");
+        assert_eq!(err, SleepScheduleError::Empty);
     }
 }

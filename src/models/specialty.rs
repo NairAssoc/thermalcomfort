@@ -205,9 +205,9 @@ impl Default for VerticalTmpGradPpdOptions {
 /// # Returns
 ///
 /// Tuple of (ppd %, acceptability bool). The PPD is ASHRAE 55's offset-logistic fit,
-/// `(x / (1 + x) - 0.345) * 100` with `x = exp(0.13 (PMV - 1.91)² + 0.15 gradient - 1.6)`,
-/// so it is negative for small gradients (about -1.6 % at a 3 K gradient near PMV 0),
-/// exactly as pythermalcomfort reports it.
+/// `max((x / (1 + x) - 0.345) * 100, 0)` with
+/// `x = exp(0.13 (PMV - 1.91)² + 0.15 gradient - 1.6)`: the 34.5 % term is the baseline
+/// share of dissatisfied occupants, so small gradients near PMV 0 give 0 %.
 ///
 /// # Examples
 ///
@@ -276,7 +276,10 @@ pub fn vertical_tmp_grad_ppd(
 
     // PPD calculation for vertical temperature gradient using ASHRAE 55-2023 formula
     let numerator = libm::exp(0.13 * libm::pow(pmv - 1.91, 2.0) + 0.15 * vertical_tmp_grad - 1.6);
-    let ppd_vtg = (numerator / (1.0 + numerator) - 0.345) * 100.0;
+    // The model subtracts a 34.5 % baseline of dissatisfied occupants; below it the
+    // dissatisfaction is zero, not negative. NaN propagates as upstream's np.maximum does.
+    let ppd_vtg =
+        crate::utilities::np_maximum((numerator / (1.0 + numerator) - 0.345) * 100.0, 0.0);
     // Acceptability is judged on the unrounded value, then the value is rounded.
     // (ankle_draft rounds first - the port had applied ankle_draft's ordering to both.)
     let acceptability_raw = ppd_vtg <= 5.0;

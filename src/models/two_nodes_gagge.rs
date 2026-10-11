@@ -216,7 +216,7 @@ pub fn two_nodes_gagge(
     let speed_mps = v.as_meters_per_second();
     let rh_percent = rh.as_percent();
 
-    let p_sat_torr_val = p_sat_torr(tdb).as_pascals() / 133.322; // Convert Pa back to torr
+    let p_sat_torr_val = p_sat_torr(tdb).as_torrs();
     let vapor_pressure = rh_percent * p_sat_torr_val / 100.0;
 
     let raw = gagge_two_nodes_optimized(

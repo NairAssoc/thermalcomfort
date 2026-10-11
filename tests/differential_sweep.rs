@@ -10,6 +10,7 @@
 
 mod support;
 
+use core::num::NonZeroU32;
 use core::time::Duration;
 use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::ffi::c_str;
@@ -1750,7 +1751,7 @@ fn sweep_two_nodes_gagge_sleep() {
                 GaggeTwoNodesSleepOptions {
                     wme: MetabolicRate::from_met(wme),
                     p_atm: Pressure::from_pascals(p_atm),
-                    ltime,
+                    ltime: NonZeroU32::new(ltime).expect("ltime is drawn from 1..=3"),
                     height: Length::from_centimeters(height),
                     weight: Mass::from_kilograms(weight),
                     c_sw,
@@ -4854,7 +4855,7 @@ fn sweep_saturation_pressures() {
             // Python returns torr; the port carries the equivalent `Pressure`.
             compare_field(
                 &FieldCmp::new("p_sat_torr", 1e-9),
-                p_sat_torr(t).as_pascals() / 133.322,
+                p_sat_torr(t).as_torrs(),
                 py_util(&utils, "p_sat_torr", (tdb,))?,
             )?;
 

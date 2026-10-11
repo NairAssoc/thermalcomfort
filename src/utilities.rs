@@ -219,9 +219,9 @@ pub fn v_relative(v: Speed, met: MetabolicRate) -> Speed {
     Speed::from_meters_per_second(vr_ms)
 }
 
-/// Check if value is within valid range, return f64::NAN if not
+/// Mirrors upstream's private `_valid_range`: the value inside `[min, max]`, else NaN.
 #[inline]
-pub fn valid_range(value: f64, min: f64, max: f64) -> f64 {
+pub(crate) fn valid_range(value: f64, min: f64, max: f64) -> f64 {
     if value >= min && value <= max {
         value
     } else {
@@ -427,8 +427,9 @@ pub fn antoine(tdb: Temperature) -> Pressure {
 pub fn p_sat_torr(tdb: Temperature) -> Pressure {
     let tdb_celsius = tdb.as_celsius();
     let p_torr = exp(18.6686 - 4030.183 / (tdb_celsius + 235.0));
-    // Convert torr to Pa (1 torr = 133.322 Pa)
-    Pressure::from_pascals(p_torr * 133.322)
+    // Built from torr so `.as_torrs()` returns upstream's value exactly; a hand-rolled
+    // torr-to-pascal factor would disagree with the one `Pressure` converts back with.
+    Pressure::from_torrs(p_torr)
 }
 
 /// Calculate saturation vapor pressure

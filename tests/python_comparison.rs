@@ -6,6 +6,7 @@
 mod support;
 
 use approx::assert_abs_diff_eq;
+use core::num::NonZeroU32;
 use core::time::Duration;
 use measurements::{Angle, Humidity, Length, Power, Pressure, Speed, Temperature};
 use pyo3::exceptions::PyValueError;
@@ -580,11 +581,11 @@ fn test_compare_saturation_pressures() {
                 call("p_sat"),
                 epsilon = 0.1
             );
-            // Python returns torr here; the Rust port normalises to Pa
+            // Python returns torr here; the Rust port returns a `Pressure`, read back in torr
             assert_abs_diff_eq!(
-                p_sat_torr(Temperature::from_celsius(tdb)).as_pascals(),
-                call("p_sat_torr") * 133.322,
-                epsilon = 0.1
+                p_sat_torr(Temperature::from_celsius(tdb)).as_torrs(),
+                call("p_sat_torr"),
+                epsilon = 1e-9
             );
             // Python's antoine returns kPa; the Rust port returns a `Pressure`
             assert_abs_diff_eq!(
@@ -4860,7 +4861,7 @@ fn test_two_nodes_gagge_sleep_follows_upstream_secant_runaway() {
             GaggeTwoNodesSleepOptions {
                 wme: MetabolicRate::from_met(wme),
                 p_atm: Pressure::from_pascals(p_atm),
-                ltime,
+                ltime: NonZeroU32::new(ltime).unwrap(),
                 height: Length::from_centimeters(height),
                 weight: Mass::from_kilograms(weight),
                 c_sw,
@@ -6496,4 +6497,477 @@ fn test_jos3_multiphase_run_comparison() {
             assert_jos3_matches_python(&py_model, rust_model.results(), subject.label);
         }
     });
+}
+
+// ---------------------------------------------------------------------------------------
+// Fixtures introduced by pythermalcomfort 4.4.3 – 4.6.1. Each pins the behaviour that
+// release changed, against upstream's own expected values as well as the live reference,
+// so a regression to the earlier behaviour fails without the sweep having to find it.
+// ---------------------------------------------------------------------------------------
+
+/// 4.4.3 replaced `log1p` with `log` in the Hardy/Wexler saturation vapour pressure,
+/// which moved every UTCI value upstream had documented. These are the IP expectations
+/// from upstream's `test_utci.py`, where the 0.1 °C change is visible after rounding.
+#[test]
+fn test_utci_hardy_wexler_fixtures() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+        let kwargs = [("units", "IP")].into_py_dict(py).unwrap();
+
+        for (tdb_f, expected) in [(77.0, 76.3), (104.0, 110.5)] {
+            let py_utci: f64 = pythermal
+                .getattr("utci")
+                .unwrap()
+                .call((tdb_f, tdb_f, 3.28084, 50.0), Some(&kwargs))
+                .unwrap()
+                .getattr("utci")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let rust = utci(
+                UtciInputs {
+                    tdb: Temperature::from_fahrenheit(tdb_f),
+                    tr: Temperature::from_fahrenheit(tdb_f),
+                    v: Speed::from_meters_per_second(3.28084 * 0.3048),
+                    rh: Humidity::from_percent(50.0),
+                },
+                UtciOptions {
+                    units: Units::IP,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(py_utci, expected, "reference drifted at {tdb_f} °F");
+            assert_eq!(rust.utci, expected, "utci IP fixture at {tdb_f} °F");
+        }
+
+        // Category is mapped from the rounded SI value by default, from the unrounded
+        // value with `round_output: false`; 26.27 °C straddles the 26 °C band edge.
+        let at = |round_output: bool| {
+            utci(
+                UtciInputs {
+                    tdb: Temperature::from_celsius(26.27),
+                    tr: Temperature::from_celsius(26.27),
+                    v: Speed::from_meters_per_second(1.0),
+                    rh: Humidity::from_percent(50.0),
+                },
+                UtciOptions {
+                    round_output,
+                    ..Default::default()
+                },
+            )
+        };
+        let rounded = at(true);
+        let unrounded = at(false);
+        assert_eq!(rounded.utci, 26.0);
+        assert_eq!(
+            rounded.stress_category.map(|c| c.as_str()),
+            Some("no thermal stress")
+        );
+        assert!(unrounded.utci > 26.0, "unrounded {}", unrounded.utci);
+        assert_eq!(
+            unrounded.stress_category.map(|c| c.as_str()),
+            Some("moderate heat stress")
+        );
+
+        // Hot and humid is where the old log1p term was ~0.7 °C off: the vapour pressure
+        // the Rust polynomial sees must agree with the reference's `p_sat`, so the result
+        // must agree with the reference to the 0.1 °C upstream's own regression test uses.
+        let py_hot: f64 = pythermal
+            .getattr("utci")
+            .unwrap()
+            .call(
+                (40.0, 40.0, 1.0, 80.0),
+                Some(&[("round_output", false)].into_py_dict(py).unwrap()),
+            )
+            .unwrap()
+            .getattr("utci")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let rust_hot = utci(
+            UtciInputs {
+                tdb: Temperature::from_celsius(40.0),
+                tr: Temperature::from_celsius(40.0),
+                v: Speed::from_meters_per_second(1.0),
+                rh: Humidity::from_percent(80.0),
+            },
+            UtciOptions {
+                round_output: false,
+                ..Default::default()
+            },
+        );
+        assert_abs_diff_eq!(rust_hot.utci, py_hot, epsilon = 1e-9);
+    });
+}
+
+/// 4.6.0: heat-index stress categories are judged on the unrounded index, so a value a
+/// hair above a band edge keeps the higher band even though it rounds onto the edge.
+/// Inputs and expectations are upstream's `test_heat_index_rothfusz.py` /
+/// `test_heat_index_schoen.py`.
+#[test]
+fn test_heat_index_categories_use_unrounded_value() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let rothfusz_cases = [
+            (26.583615, 27.0, "caution"),
+            (30.645013, 32.0, "extreme caution"),
+            (35.152822, 41.0, "danger"),
+            (39.775673, 54.0, "extreme danger"),
+        ];
+        for (tdb, rounded_hi, category) in rothfusz_cases {
+            for round_output in [true, false] {
+                let kwargs = [("round_output", round_output), ("limit_inputs", false)]
+                    .into_py_dict(py)
+                    .unwrap();
+                let py_result = pythermal
+                    .getattr("heat_index_rothfusz")
+                    .unwrap()
+                    .call((tdb, 50.0), Some(&kwargs))
+                    .unwrap();
+                let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+                let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+                let rust = heat_index_rothfusz(
+                    HeatIndexRothfuszInputs {
+                        tdb: Temperature::from_celsius(tdb),
+                        rh: Humidity::from_percent(50.0),
+                    },
+                    thermalcomfort::models::HeatIndexRothfuszOptions {
+                        round_output,
+                        limit_inputs: false,
+                    },
+                );
+                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                if round_output {
+                    assert_eq!(rust.hi, rounded_hi, "rothfusz hi at tdb={tdb}");
+                } else {
+                    assert!(
+                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        "rothfusz unrounded hi {} at tdb={tdb}",
+                        rust.hi
+                    );
+                }
+                assert_eq!(py_category.as_deref(), Some(category));
+                assert_eq!(
+                    rust.stress_category.map(|c| c.as_str()),
+                    Some(category),
+                    "rothfusz category at tdb={tdb} round_output={round_output}"
+                );
+            }
+        }
+
+        let schoen_cases = [
+            (26.689952, 27.0, "caution"),
+            (30.436055, 32.0, "extreme caution"),
+            (35.979625, 41.0, "danger"),
+            (41.740423, 54.0, "extreme danger"),
+        ];
+        for (tdb, rounded_hi, category) in schoen_cases {
+            for round_output in [true, false] {
+                let kwargs = [("round_output", round_output)].into_py_dict(py).unwrap();
+                let py_result = pythermal
+                    .getattr("heat_index_schoen")
+                    .unwrap()
+                    .call((tdb, 50.0), Some(&kwargs))
+                    .unwrap();
+                let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
+                let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
+
+                let rust = heat_index_schoen(
+                    HeatIndexSchoenInputs {
+                        tdb: Temperature::from_celsius(tdb),
+                        rh: Humidity::from_percent(50.0),
+                    },
+                    thermalcomfort::models::HeatIndexSchoenOptions { round_output },
+                );
+                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                if round_output {
+                    assert_eq!(rust.hi, rounded_hi, "schoen hi at tdb={tdb}");
+                } else {
+                    assert!(
+                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        "schoen unrounded hi {} at tdb={tdb}",
+                        rust.hi
+                    );
+                }
+                assert_eq!(py_category.as_deref(), Some(category));
+                assert_eq!(
+                    rust.stress_category.map(|c| c.as_str()),
+                    Some(category),
+                    "schoen category at tdb={tdb} round_output={round_output}"
+                );
+            }
+        }
+
+        // The applicability limit still blanks both fields.
+        let cold = heat_index_rothfusz(
+            HeatIndexRothfuszInputs {
+                tdb: Temperature::from_celsius(25.0),
+                rh: Humidity::from_percent(50.0),
+            },
+            Default::default(),
+        );
+        assert!(cold.hi.is_nan());
+        assert_eq!(cold.stress_category, None);
+    });
+}
+
+/// 4.6.1: `ppd_vg` is clamped at the 34.5 % baseline, so small gradients give 0 rather
+/// than a negative percentage. Expectations from upstream's `test_vertical_tmp_grad_ppd.py`.
+#[test]
+fn test_vertical_tmp_grad_ppd_clamped_at_zero() {
+    Python::with_gil(|py| {
+        let pythermal = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        for (tdb, grad, expected_ppd, expected_ok) in [
+            (24.0, 1.0, 0.0, true),
+            (24.0, 0.0, 0.0, true),
+            (25.0, 7.0, 12.6, false),
+        ] {
+            let py_result = pythermal
+                .getattr("vertical_tmp_grad_ppd")
+                .unwrap()
+                .call1((tdb, tdb, 0.1, 50.0, 1.2, 0.5, grad))
+                .unwrap();
+            let py_ppd: f64 = py_result.getattr("ppd_vg").unwrap().extract().unwrap();
+            // A 0-d numpy bool: `.item()` unwraps it to a Python scalar, which pyo3 reads
+            // back as a float rather than a bool.
+            let py_ok: f64 = py_result
+                .getattr("acceptability")
+                .unwrap()
+                .call_method0("item")
+                .unwrap()
+                .extract()
+                .unwrap();
+            let py_ok = py_ok != 0.0;
+
+            let (rust_ppd, rust_ok) = vertical_tmp_grad_ppd(
+                VerticalTmpGradPpdInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tdb),
+                    vr: Speed::from_meters_per_second(0.1),
+                    rh: Humidity::from_percent(50.0),
+                    met: MetabolicRate::from_met(1.2),
+                    clo: ClothingInsulation::from_clo(0.5),
+                    vertical_tmp_grad: TemperatureDelta::from_celsius(grad),
+                },
+                Default::default(),
+            );
+            assert_eq!(py_ppd, expected_ppd, "reference drifted at gradient {grad}");
+            assert_eq!(rust_ppd, expected_ppd, "ppd_vg at gradient {grad}");
+            assert_eq!(py_ok, expected_ok);
+            assert_eq!(rust_ok, expected_ok, "acceptability at gradient {grad}");
+        }
+
+        // The clamp must not swallow NaN from an out-of-range input.
+        let (nan_ppd, _) = vertical_tmp_grad_ppd(
+            VerticalTmpGradPpdInputs {
+                tdb: Temperature::from_celsius(24.0),
+                tr: Temperature::from_celsius(24.0),
+                vr: Speed::from_meters_per_second(0.5),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(1.2),
+                clo: ClothingInsulation::from_clo(0.5),
+                vertical_tmp_grad: TemperatureDelta::from_celsius(3.0),
+            },
+            Default::default(),
+        );
+        assert!(
+            nan_ppd.is_nan(),
+            "vr above 0.2 m/s must give NaN, got {nan_ppd}"
+        );
+    });
+}
+
+/// 4.4.3 compiled the sleep model's loop and pinned its full time series at 1e-12 in
+/// upstream's `test_two_nodes_gagge_sleep.py`. Those values are pinned here too, so the
+/// port is held to the reference's own fixture and not only to whatever the live import
+/// returns.
+#[test]
+fn test_two_nodes_gagge_sleep_upstream_fixture() {
+    let tdb = [18.0, 19.0, 20.0].map(Temperature::from_celsius);
+    let tr = [18.0, 18.5, 19.0].map(Temperature::from_celsius);
+    let v = [0.05, 0.1, 0.15].map(Speed::from_meters_per_second);
+    let rh = [50.0, 55.0, 60.0].map(Humidity::from_percent);
+    let clo = [1.4, 1.3, 1.2].map(ClothingInsulation::from_clo);
+    let quilt = [1.76, 1.6, 1.5].map(Length::from_centimeters);
+    let result = two_nodes_gagge_sleep(
+        SleepInputs {
+            tdb: &tdb,
+            tr: &tr,
+            v: &v,
+            rh: &rh,
+            clo: &clo,
+            thickness_quilt: &quilt,
+        },
+        Default::default(),
+    )
+    .expect("three-minute schedules");
+
+    let celsius = |t: &Vec<Temperature>| -> Vec<f64> { t.iter().map(|t| t.as_celsius()).collect() };
+    let flux = |t: &Vec<HeatFluxDensity>| -> Vec<f64> {
+        t.iter().map(|t| t.as_watts_per_square_meter()).collect()
+    };
+    let expected: [(&str, Vec<f64>, [f64; 3]); 10] = [
+        (
+            "set",
+            celsius(&result.set),
+            [24.285471240487254, 23.69753060178574, 23.55973896722113],
+        ),
+        (
+            "t_core",
+            celsius(&result.t_core),
+            [37.03223590335804, 37.026301386399254, 37.022232367376795],
+        ),
+        (
+            "t_skin",
+            celsius(&result.t_skin),
+            [33.670550615860265, 33.56972917281989, 33.522385202322575],
+        ),
+        (
+            "wet",
+            result.wet.clone(),
+            [0.2709382101612528, 0.11868202497357694, 0.08468947408201234],
+        ),
+        (
+            "t_sens",
+            result.t_sens.clone(),
+            [
+                1.1283814676194304,
+                0.2030740970076956,
+                -0.00007100712419982713,
+            ],
+        ),
+        (
+            "disc",
+            result.disc.clone(),
+            [1.479755896275013, 0.29422228310400694, 0.02764862771183254],
+        ),
+        (
+            "e_skin",
+            flux(&result.e_skin),
+            [28.76139367298244, 12.562622189484204, 9.061735937484093],
+        ),
+        (
+            "met_shivering",
+            flux(&result.met_shivering),
+            [0.0, 0.0, 0.0],
+        ),
+        (
+            "alfa",
+            result.alfa.clone(),
+            [
+                0.13861663831083165,
+                0.14512664326204494,
+                0.14635629215748827,
+            ],
+        ),
+        (
+            "skin_blood_flow",
+            result.skin_blood_flow.clone(),
+            [7.1093443630662945, 6.624666007608543, 6.5398921420592],
+        ),
+    ];
+    for (field, actual, reference) in expected {
+        assert_eq!(actual.len(), 3, "{field}");
+        for (i, (a, r)) in actual.iter().zip(reference).enumerate() {
+            let tol = 1e-12 + 1e-12 * r.abs();
+            assert!(
+                (a - r).abs() <= tol,
+                "{field}[{i}] = {a}, upstream fixture {r}, diff {:e}",
+                a - r
+            );
+        }
+    }
+}
+
+/// 4.6.0 compiled the Ji model's loop and pinned its time series to the previous
+/// implementation in upstream's `test_two_nodes_gagge_ji.py`. Pinned here likewise.
+#[test]
+fn test_two_nodes_gagge_ji_upstream_fixture() {
+    let weight = Mass::from_kilograms(80.1);
+    let bsa = thermalcomfort::utilities::body_surface_area_dubois(weight, Length::from_meters(1.8));
+    let run = |tdb: f64, tr: f64, v: f64, met: f64, clo: f64, rh: f64, minutes: u64| {
+        two_nodes_gagge_ji(
+            GaggeTwoNodesJiInputs {
+                tdb: Temperature::from_celsius(tdb),
+                tr: Temperature::from_celsius(tr),
+                v: Speed::from_meters_per_second(v),
+                met: MetabolicRate::from_met(met),
+                clo: ClothingInsulation::from_clo(clo),
+                vapor_pressure: Pressure::from_torrs(
+                    rh / 100.0 * p_sat_torr(Temperature::from_celsius(tdb)).as_torrs(),
+                ),
+            },
+            thermalcomfort::models::GaggeTwoNodesJiOptions {
+                body_surface_area: bsa,
+                body_weight: weight,
+                duration: Duration::from_secs(minutes * 60),
+                ..Default::default()
+            },
+        )
+    };
+    let check = |label: &str, actual: &[Temperature], reference: &[f64]| {
+        assert_eq!(actual.len(), reference.len(), "{label} length");
+        for (i, (a, r)) in actual.iter().zip(reference).enumerate() {
+            let a = a.as_celsius();
+            assert!(
+                (a - r).abs() <= 1e-9,
+                "{label}[{i}] = {a}, upstream fixture {r}, diff {:e}",
+                a - r
+            );
+        }
+    };
+
+    let hot = run(36.5, 36.5, 0.25, 0.95, 0.1, 20.0, 6);
+    check(
+        "hot t_core",
+        &hot.t_core,
+        &[
+            36.516105213824275,
+            36.547685700888465,
+            36.576012449954796,
+            36.60164288217578,
+            36.62502377928286,
+            36.64651422522319,
+        ],
+    );
+    check(
+        "hot t_skin",
+        &hot.t_skin,
+        &[
+            36.774035566875106,
+            36.40807561844041,
+            36.11486504764158,
+            35.87955212231442,
+            35.69038774391016,
+            35.53809246343035,
+        ],
+    );
+
+    let warm = run(31.0, 31.5, 0.2, 0.7, 0.67, 60.0, 4);
+    check(
+        "warm t_core",
+        &warm.t_core,
+        &[
+            36.51006711047728,
+            36.534910362727736,
+            36.5569230515869,
+            36.57647015573995,
+        ],
+    );
+    check(
+        "warm t_skin",
+        &warm.t_skin,
+        &[
+            36.67827501809432,
+            36.34939739292867,
+            36.064690097764036,
+            35.81939854020882,
+        ],
+    );
 }

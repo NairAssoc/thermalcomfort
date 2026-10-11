@@ -668,13 +668,15 @@ pub fn heat_index_rothfusz(
         };
     }
 
+    // The category is judged on the unrounded index; rounding only affects `hi`.
+    let stress_category = HeatIndexStress::from_hi_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
         hi,
-        stress_category: HeatIndexStress::from_hi_opt(hi),
+        stress_category,
     }
 }
 
@@ -753,13 +755,15 @@ pub fn heat_index_schoen(
             * libm::exp(0.03755 * dry_bulb_celsius)
             * (1.0 - libm::exp(0.0801 * (t_dew_celsius - 14.0)));
 
+    // The category is judged on the unrounded index; rounding only affects `hi`.
+    let stress_category = HeatIndexStress::from_hi_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
         hi,
-        stress_category: HeatIndexStress::from_hi_opt(hi),
+        stress_category,
     }
 }
 

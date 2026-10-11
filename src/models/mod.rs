@@ -70,7 +70,7 @@ pub use two_nodes_gagge::{
     two_nodes_gagge_ji,
 };
 pub use two_nodes_gagge_sleep::{
-    GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, MismatchedScheduleLengths, SleepInputs,
+    GaggeTwoNodesSleepOptions, GaggeTwoNodesSleepResult, SleepInputs, SleepScheduleError,
     two_nodes_gagge_sleep,
 };
 pub use use_fans_heatwaves::{
