@@ -2,6 +2,8 @@
 
 use crate::support::domain::{Axis, Domain, Sample, draw};
 use crate::support::rng::Rng;
+use core::ffi::CStr;
+use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::sync::Once;
@@ -63,6 +65,9 @@ pub fn seed() -> u64 {
 /// leaves a half-initialised module in `sys.modules`, so every later test in the process
 /// fails too. Released: Python's import machinery drops the GIL mid-import, so a thread
 /// waiting on the `Once` while still holding it would deadlock the thread doing the work.
+///
+/// The load also re-compiles every `parallel=True` numba function in pythermalcomfort as a
+/// serial one (see [`SERIALISE_NUMBA`]).
 pub fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'py, PyModule>> {
     static LOADED: Once = Once::new();
     py.allow_threads(|| {
@@ -74,6 +79,12 @@ pub fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'p
                         panic!("could not import {name}: {e}\n{}", traceback(py, &e));
                     }
                 }
+                if let Err(e) = py.run(SERIALISE_NUMBA, None, None) {
+                    panic!(
+                        "could not serialise pythermalcomfort's parallel numba functions: {e}\n{}",
+                        traceback(py, &e)
+                    );
+                }
             })
         })
     });
@@ -84,6 +95,35 @@ pub fn import_reference<'py>(py: Python<'py>, module: &str) -> PyResult<Bound<'p
         e
     })
 }
+
+/// Replace every `parallel=True` numba dispatcher in pythermalcomfort with a serial
+/// compilation of the same Python function.
+///
+/// The test binaries call the reference from many threads at once. A `parallel=True`
+/// function runs its `prange` loop on numba's threading layer, and the layer numba falls
+/// back to when neither TBB nor OpenMP is available — `workqueue`, the only one on the
+/// macOS runners — is not thread-safe: two overlapping parallel regions abort the whole
+/// process with "Concurrent access has been detected". Every such function in
+/// pythermalcomfort is a `prange` over independent samples, and the tests pass one sample
+/// at a time, so a serial `range` is the same arithmetic in the same order. Re-jitting
+/// from `py_func` keeps the function otherwise identical (`nopython`, bounds checking);
+/// only `parallel` changes, and the on-disk cache is bypassed because numba's cache index
+/// does not include compile flags, so a cached dispatcher here would load the *parallel*
+/// object file and the guard would be a no-op. Scanning for dispatchers rather than naming
+/// them means an upstream release that adds one is covered without a change here.
+const SERIALISE_NUMBA: &CStr = c_str!(
+    r#"
+import sys
+import numba
+from numba.core.registry import CPUDispatcher
+
+for module in [m for n, m in sys.modules.items() if n.startswith("pythermalcomfort")]:
+    for name, obj in list(vars(module).items()):
+        if isinstance(obj, CPUDispatcher) and obj.targetoptions.get("parallel"):
+            options = {**obj.targetoptions, "parallel": False}
+            setattr(module, name, numba.jit(cache=False, **options)(obj.py_func))
+"#
+);
 
 /// The formatted Python traceback of `err`, or an empty string if it has none.
 pub fn traceback(py: Python<'_>, err: &PyErr) -> String {
