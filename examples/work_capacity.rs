@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 use thermalcomfort::models::{
-    RidgeRegressionInputs, RidgeRegressionOptions, WorkCapacityIntensityOptions, WorkIntensity,
+    RidgeRegressionOptions, WorkCapacityIntensityOptions, WorkIntensity,
     ridge_regression_predict_t_re_t_sk, work_capacity_dunne, work_capacity_hothaps,
     work_capacity_iso, work_capacity_niosh,
 };
@@ -67,25 +67,32 @@ fn main() {
     // A 60-year-old man resting for an hour at 35 °C and 60% RH. The model returns one
     // prediction per minute.
     let minutes: usize = 60;
-    let inputs = RidgeRegressionInputs {
-        sex: Sex::Male,
-        age: Age::from_years(60.0),
-        height: Length::from_meters(1.80),
-        weight: Mass::from_kilograms(75.0),
-        tdb: Temperature::from_celsius(35.0),
-        rh: Humidity::from_percent(60.0),
-        duration: Duration::from_secs(minutes as u64 * 60),
-    };
+    let (sex, age) = (Sex::Male, Age::from_years(60.0));
+    let (height, weight) = (Length::from_meters(1.80), Mass::from_kilograms(75.0));
+    let (tdb, rh) = (
+        Temperature::from_celsius(35.0),
+        Humidity::from_percent(60.0),
+    );
+    let duration = Duration::from_secs(minutes as u64 * 60);
     println!(
         "Male, {:.0} years, {:.2} m, {:.0} kg at {:.0}°C, {:.0}% RH for {minutes} min\n",
-        inputs.age.as_years(),
-        inputs.height.as_meters(),
-        inputs.weight.as_kilograms(),
-        inputs.tdb.as_celsius(),
-        inputs.rh.as_percent()
+        age.as_years(),
+        height.as_meters(),
+        weight.as_kilograms(),
+        tdb.as_celsius(),
+        rh.as_percent()
     );
 
-    let predicted = ridge_regression_predict_t_re_t_sk(inputs, Default::default());
+    let predicted = ridge_regression_predict_t_re_t_sk(
+        sex,
+        age,
+        height,
+        weight,
+        tdb,
+        rh,
+        duration,
+        Default::default(),
+    );
     println!("  Default initial temperatures:");
     for minute in [0, 15, 30, 45, minutes - 1] {
         println!(
@@ -98,7 +105,13 @@ fn main() {
 
     // Start from measured temperatures instead of the model's defaults.
     let warmed_up = ridge_regression_predict_t_re_t_sk(
-        inputs,
+        sex,
+        age,
+        height,
+        weight,
+        tdb,
+        rh,
+        duration,
         RidgeRegressionOptions {
             t_re: Some(Temperature::from_celsius(37.4)),
             t_sk: Some(Temperature::from_celsius(34.5)),

@@ -28,31 +28,6 @@ pub struct PredictedBodyTemperatures {
     pub t_sk: Vec<Temperature>,
 }
 
-/// The comfort inputs to [`ridge_regression_predict_t_re_t_sk`].
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RidgeRegressionInputs {
-    /// Biological sex
-    pub sex: Sex,
-    /// Age
-    pub age: Age,
-    /// Body height
-    pub height: Length,
-    /// Body weight
-    pub weight: Mass,
-    /// Ambient (dry bulb) air temperature
-    pub tdb: Temperature,
-    /// Relative humidity
-    pub rh: Humidity,
-    /// Duration of the simulation in the specified environment.
-    ///
-    /// The model predicts one value per minute, so the duration is rounded to the nearest
-    /// whole minute (a duration under thirty seconds runs no steps): each output vector has that many
-    /// entries.
-    pub duration: Duration,
-}
-
 /// Options for ridge regression prediction
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RidgeRegressionOptions {
@@ -269,22 +244,18 @@ fn predict_temperature_simulation(
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::models::ridge_regression::{
-///     ridge_regression_predict_t_re_t_sk, RidgeRegressionInputs, RidgeRegressionOptions
-/// };
+/// use thermalcomfort::models::ridge_regression::{ridge_regression_predict_t_re_t_sk, RidgeRegressionOptions};
 /// use thermalcomfort::{Age, Sex, Temperature, Length, Mass, Humidity};
 /// use core::time::Duration;
 ///
 /// let result = ridge_regression_predict_t_re_t_sk(
-///     RidgeRegressionInputs {
-///         sex: Sex::Male,
-///         age: Age::from_years(60.0),
-///         height: Length::from_meters(1.8),
-///         weight: Mass::from_kilograms(75.0),
-///         tdb: Temperature::from_celsius(35.0),
-///         rh: Humidity::from_percent(60.0),
-///         duration: Duration::from_secs(540 * 60),
-///     },
+///     Sex::Male,
+///     Age::from_years(60.0),
+///     Length::from_meters(1.8),
+///     Mass::from_kilograms(75.0),
+///     Temperature::from_celsius(35.0),
+///     Humidity::from_percent(60.0),
+///     Duration::from_secs(540 * 60),
 ///     Default::default()
 /// );
 ///
@@ -295,19 +266,17 @@ fn predict_temperature_simulation(
 /// # References
 ///
 /// - Forbes et al. (2025), doi:10.1016/j.jtherbio.2025.104078
+#[allow(clippy::too_many_arguments)]
 pub fn ridge_regression_predict_t_re_t_sk(
-    inputs: RidgeRegressionInputs,
+    sex: Sex,
+    age: Age,
+    height: Length,
+    weight: Mass,
+    tdb: Temperature,
+    rh: Humidity,
+    duration: Duration,
     options: RidgeRegressionOptions,
 ) -> PredictedBodyTemperatures {
-    let RidgeRegressionInputs {
-        sex,
-        age,
-        height,
-        weight,
-        tdb,
-        rh,
-        duration,
-    } = inputs;
     let tdb_c = tdb.as_celsius();
     let height_m = height.as_meters();
     let height_cm = height_m * 100.0;
@@ -402,15 +371,13 @@ mod tests {
     #[test]
     fn test_ridge_regression_basic() {
         let result = ridge_regression_predict_t_re_t_sk(
-            RidgeRegressionInputs {
-                sex: Sex::Male,
-                age: Age::from_years(60.0),
-                height: Length::from_meters(1.8),
-                weight: Mass::from_kilograms(75.0),
-                tdb: Temperature::from_celsius(35.0),
-                rh: Humidity::from_percent(60.0),
-                duration: Duration::from_secs(540 * 60),
-            },
+            Sex::Male,
+            Age::from_years(60.0),
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(60.0),
+            Duration::from_secs(540 * 60),
             Default::default(),
         );
 
@@ -441,15 +408,13 @@ mod tests {
     #[test]
     fn test_ridge_regression_out_of_range() {
         let result = ridge_regression_predict_t_re_t_sk(
-            RidgeRegressionInputs {
-                sex: Sex::Male,
-                age: Age::from_years(50.0), // Too young (< 60)
-                height: Length::from_meters(1.8),
-                weight: Mass::from_kilograms(75.0),
-                tdb: Temperature::from_celsius(35.0),
-                rh: Humidity::from_percent(60.0),
-                duration: Duration::from_secs(10 * 60),
-            },
+            Sex::Male,
+            Age::from_years(50.0),
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(60.0),
+            Duration::from_secs(10 * 60),
             Default::default(),
         );
 
@@ -468,15 +433,13 @@ mod tests {
         };
 
         let result = ridge_regression_predict_t_re_t_sk(
-            RidgeRegressionInputs {
-                sex: Sex::Female,
-                age: Age::from_years(65.0),
-                height: Length::from_meters(1.65),
-                weight: Mass::from_kilograms(60.0),
-                tdb: Temperature::from_celsius(40.0),
-                rh: Humidity::from_percent(50.0),
-                duration: Duration::from_secs(60 * 60),
-            },
+            Sex::Female,
+            Age::from_years(65.0),
+            Length::from_meters(1.65),
+            Mass::from_kilograms(60.0),
+            Temperature::from_celsius(40.0),
+            Humidity::from_percent(50.0),
+            Duration::from_secs(60 * 60),
             options,
         );
 

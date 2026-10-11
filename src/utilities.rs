@@ -251,18 +251,6 @@ pub fn body_surface_area_dubois(weight: Mass, height: Length) -> Area {
     Area::from_square_meters(0.202 * pow(weight_kg, 0.425) * pow(height_m, 0.725))
 }
 
-/// The inputs to [`body_surface_area`]: weight and height are both required in
-/// pythermalcomfort's signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BodySurfaceAreaInputs {
-    /// Body weight
-    pub weight: Mass,
-    /// Body height
-    pub height: Length,
-}
-
 /// Optional parameters for [`body_surface_area`], with pythermalcomfort's default
 /// (`formula: str = BodySurfaceAreaEquations.dubois.value`, `utilities.py:610-616`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -287,20 +275,17 @@ pub struct BodySurfaceAreaOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::{body_surface_area, BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula};
+/// use thermalcomfort::utilities::{body_surface_area, BodySurfaceAreaOptions, BsaFormula};
 /// use thermalcomfort::{Mass, Length};
 ///
 /// let bsa = body_surface_area(
-///     BodySurfaceAreaInputs {
-///         weight: Mass::from_kilograms(70.0),
-///         height: Length::from_meters(1.75),
-///     },
+///     Mass::from_kilograms(70.0),
+///     Length::from_meters(1.75),
 ///     BodySurfaceAreaOptions { formula: BsaFormula::DuBois },
 /// );
 /// assert!((bsa.as_square_meters() - 1.844).abs() < 0.01);
 /// ```
-pub fn body_surface_area(inputs: BodySurfaceAreaInputs, options: BodySurfaceAreaOptions) -> Area {
-    let BodySurfaceAreaInputs { weight, height } = inputs;
+pub fn body_surface_area(weight: Mass, height: Length, options: BodySurfaceAreaOptions) -> Area {
     let BodySurfaceAreaOptions { formula } = options;
     let weight_kg = weight.as_kilograms();
     let height_m = height.as_meters();
@@ -661,13 +646,7 @@ pub type Ashrae55Model = crate::clothing::Ashrae55Model;
 pub type Iso9920Model = crate::clothing::Iso9920Model;
 
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
-pub type CloDynamicAshraeInputs = crate::clothing::CloDynamicAshraeInputs;
-
-#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
 pub type CloDynamicAshraeOptions = crate::clothing::CloDynamicAshraeOptions;
-
-#[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
-pub type CloDynamicIsoInputs = crate::clothing::CloDynamicIsoInputs;
 
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
 pub type CloDynamicIsoOptions = crate::clothing::CloDynamicIsoOptions;
@@ -691,19 +670,22 @@ pub fn clo_area_factor(i_cl: ClothingInsulation) -> f64 {
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
 #[inline]
 pub fn clo_dynamic_ashrae(
-    inputs: crate::clothing::CloDynamicAshraeInputs,
+    clo: ClothingInsulation,
+    met: crate::MetabolicRate,
     options: crate::clothing::CloDynamicAshraeOptions,
 ) -> ClothingInsulation {
-    crate::clothing::clo_dynamic_ashrae(inputs, options)
+    crate::clothing::clo_dynamic_ashrae(clo, met, options)
 }
 
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]
 #[inline]
 pub fn clo_dynamic_iso(
-    inputs: crate::clothing::CloDynamicIsoInputs,
+    clo: ClothingInsulation,
+    met: crate::MetabolicRate,
+    v: Speed,
     options: crate::clothing::CloDynamicIsoOptions,
 ) -> ClothingInsulation {
-    crate::clothing::clo_dynamic_iso(inputs, options)
+    crate::clothing::clo_dynamic_iso(clo, met, v, options)
 }
 
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::clothing`")]

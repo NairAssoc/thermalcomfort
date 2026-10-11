@@ -14,18 +14,16 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool};
 use support::sweep::{assert_reference_version, import_reference};
 use thermalcomfort::clothing::{
-    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicAshraeOptions,
-    CloDynamicIsoInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
-    CloTotalInsulationInputs, clo_area_factor, clo_correction_factor_environment,
-    clo_dynamic_ashrae, clo_insulation_air_layer, clo_intrinsic_insulation_ensemble,
-    clo_total_insulation,
+    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeOptions, CloDynamicIsoOptions,
+    CloInsulationAirLayerInputs, CloTotalInsulationInputs, clo_area_factor,
+    clo_correction_factor_environment, clo_dynamic_ashrae, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation,
 };
 use thermalcomfort::environment::{
     FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
     OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
-    ScaleWindSpeedLogInputs, ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature,
-    operative_temperature, running_mean_outdoor_temperature, scale_wind_speed_log,
-    transpose_sharp_altitude, v_relative,
+    ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature, operative_temperature,
+    running_mean_outdoor_temperature, scale_wind_speed_log, transpose_sharp_altitude, v_relative,
 };
 use thermalcomfort::models::adaptive::{AdaptiveInputs, AdaptiveOptions};
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
@@ -37,29 +35,26 @@ use thermalcomfort::models::specialty::{
     AnkleDraftInputs, AnkleDraftOptions, VerticalTmpGradPpdInputs, VerticalTmpGradPpdOptions,
 };
 use thermalcomfort::models::{
-    AtInputs, CoolingEffectInputs, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs,
-    GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesSleepOptions, HeatIndexLuInputs,
-    HeatIndexLuOptions, HeatIndexRothfuszInputs, HeatIndexSchoenInputs, HumidexInputs,
-    HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model, NetInputs, PetInputs,
-    PetOptions, PhsInputs, PhsOptions, PhsPosture, RidgeRegressionInputs, SetInputs, SleepInputs,
-    SolarGainInputs, SolarGainOptions, SolarGainPosture, SportsHeatStressRiskInputs, ThiInputs,
+    CoolingEffectInputs, DurationLimitedExposure, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs,
+    GaggeTwoNodesSleepOptions, HeatIndexLuOptions, HumidexModel, HumidexOptions, IreqInputs,
+    IreqOptions, Iso7933Model, PetInputs, PetOptions, PhsInputs, PhsOptions, PhsPosture, SetInputs,
+    SleepInputs, SolarGainInputs, SolarGainOptions, SolarGainPosture, SportsHeatStressRiskInputs,
     UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
-    WbgtOptions, WciInputs, WindChillTemperatureInputs, WorkCapacityIntensityOptions,
-    WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
-    esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
-    phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
-    set_tmp, solar_gain, thi, two_nodes_gagge, two_nodes_gagge_ji, two_nodes_gagge_sleep,
-    use_fans_heatwaves, utci, vertical_tmp_grad_ppd, wbgt, wci, wind_chill_temperature,
-    work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
+    WbgtOptions, WorkCapacityIntensityOptions, WorkIntensity, adaptive_ashrae, adaptive_en,
+    ankle_draft, at, cooling_effect, discomfort_index, esi, heat_index_lu, heat_index_rothfusz,
+    heat_index_schoen, humidex, ireq, net, pet_steady, phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae,
+    pmv_ppd_iso, ridge_regression_predict_t_re_t_sk, set_tmp, solar_gain, thi, two_nodes_gagge,
+    two_nodes_gagge_ji, two_nodes_gagge_sleep, use_fans_heatwaves, utci, vertical_tmp_grad_ppd,
+    wbgt, wci, wind_chill_temperature, work_capacity_dunne, work_capacity_hothaps,
+    work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
-    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
-    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat, p_sat_torr,
+    psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS,
-    CLO_TYPICAL_ENSEMBLES, Units, body_surface_area, clo_individual_garment, clo_tout,
-    clo_typical_ensemble,
+    BodySurfaceAreaOptions, BsaFormula, CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Units,
+    body_surface_area, clo_individual_garment, clo_tout, clo_typical_ensemble,
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
@@ -429,10 +424,8 @@ fn test_compare_heat_index_schoen() {
             let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
             let rust_result = heat_index_schoen(
-                HeatIndexSchoenInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -742,10 +735,8 @@ fn test_compare_body_surface_area() {
                     .unwrap();
 
                 let rust_bsa = body_surface_area(
-                    BodySurfaceAreaInputs {
-                        weight: Mass::from_kilograms(weight),
-                        height: Length::from_meters(height),
-                    },
+                    Mass::from_kilograms(weight),
+                    Length::from_meters(height),
                     BodySurfaceAreaOptions { formula },
                 );
                 assert_abs_diff_eq!(rust_bsa.as_square_meters(), py_bsa, epsilon = 1e-6);
@@ -850,10 +841,8 @@ fn test_compare_clo_dynamic_ashrae() {
                 .unwrap();
 
             let rust_clo = clo_dynamic_ashrae(
-                CloDynamicAshraeInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                },
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
                 CloDynamicAshraeOptions::default(),
             );
             assert_abs_diff_eq!(rust_clo.as_clo(), py_clo, epsilon = 1e-6);
@@ -1116,11 +1105,9 @@ fn test_compare_clo_dynamic_iso() {
                 .unwrap();
 
             let rust_clo_dyn = thermalcomfort::clothing::clo_dynamic_iso(
-                CloDynamicIsoInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                    v: Speed::from_meters_per_second(v),
-                },
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+                Speed::from_meters_per_second(v),
                 CloDynamicIsoOptions::default(),
             );
 
@@ -1290,10 +1277,8 @@ fn test_psychrometrics() {
 
             // Call Rust function
             let rust_result = psy_ta_rh(
-                PsyTaRhInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 PsyTaRhOptions {
                     p_atm: Pressure::from_pascals(p_atm),
                 },
@@ -1927,10 +1912,8 @@ fn test_banded_indices_at_exact_edges() {
             let py_category = extract_category(&py_result.getattr("discomfort").unwrap());
 
             let rust = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(50.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(50.0),
                 HumidexOptions::default(),
             );
 
@@ -1974,10 +1957,8 @@ fn test_banded_indices_at_exact_edges() {
             let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
             let rust = heat_index_rothfusz(
-                HeatIndexRothfuszInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(50.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(50.0),
                 thermalcomfort::models::HeatIndexRothfuszOptions {
                     limit_inputs: false,
                     ..Default::default()
@@ -2656,10 +2637,8 @@ fn test_discomfort_index_bands_before_rounding() {
             let py_di: f64 = py_result.getattr("di").unwrap().extract().unwrap();
             let py_category = extract_category(&py_result.getattr("discomfort_condition").unwrap());
 
-            let rust = discomfort_index(DiscomfortIndexInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(50.0),
-            });
+            let rust =
+                discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(50.0));
 
             assert_eq!(
                 py_di, 21.0,
@@ -3457,10 +3436,8 @@ fn test_compare_heat_index_rothfusz() {
                 py_result.getattr("stress_category").unwrap().extract().ok();
 
             let rust_result = heat_index_rothfusz(
-                HeatIndexRothfuszInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3494,10 +3471,8 @@ fn test_compare_heat_index_lu() {
             let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
             let rust_result = heat_index_lu(
-                HeatIndexLuInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3531,10 +3506,8 @@ fn test_compare_heat_index_lu_round_output() {
                 let py_hi: f64 = py_result.getattr("hi").unwrap().extract().unwrap();
 
                 let rust_result = heat_index_lu(
-                    HeatIndexLuInputs {
-                        tdb: Temperature::from_celsius(tdb),
-                        rh: Humidity::from_percent(rh),
-                    },
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(rh),
                     HeatIndexLuOptions { round_output },
                 );
 
@@ -3573,10 +3546,8 @@ fn test_compare_humidex() {
                 .expect("humidex always yields a discomfort category");
 
             let rust_result = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3622,10 +3593,8 @@ fn test_compare_humidex_masterson() {
                 .expect("humidex always yields a discomfort category");
 
             let rust_result = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HumidexOptions {
                     model: HumidexModel::Masterson,
                     round_output: true,
@@ -3658,10 +3627,8 @@ fn test_compare_thi() {
             let py_thi: f64 = py_result.getattr("thi").unwrap().extract().unwrap();
 
             let rust_result = thi(
-                ThiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 Default::default(),
             );
 
@@ -3702,10 +3669,8 @@ fn test_compare_discomfort_index() {
                 .extract()
                 .unwrap();
 
-            let rust_result = discomfort_index(DiscomfortIndexInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(rh),
-            });
+            let rust_result =
+                discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             assert_abs_diff_eq!(rust_result.di, py_di, epsilon = 0.1);
             assert_eq!(
@@ -3737,11 +3702,9 @@ fn test_compare_at() {
             let py_at: f64 = py_result.getattr("at").unwrap().extract().unwrap();
 
             let rust_result = at(
-                AtInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3768,11 +3731,9 @@ fn test_compare_net() {
             let py_net: f64 = py_result.getattr("net").unwrap().extract().unwrap();
 
             let rust_result = net(
-                NetInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3799,11 +3760,9 @@ fn test_compare_esi() {
             let py_esi: f64 = py_result.getattr("esi").unwrap().extract().unwrap();
 
             let rust_result = esi(
-                EsiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(0.0),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                HeatFluxDensity::from_watts_per_square_meter(0.0),
                 Default::default(),
             );
 
@@ -3826,10 +3785,8 @@ fn test_compare_wci() {
             let py_wci: f64 = py_result.getattr("wci").unwrap().extract().unwrap();
 
             let rust_result = wci(
-                WciInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_meters_per_second(v),
                 Default::default(),
             );
 
@@ -3860,10 +3817,8 @@ fn test_compare_wind_chill_temperature() {
             let py_wct: f64 = py_result.getattr("wct").unwrap().extract().unwrap();
 
             let rust_result = wind_chill_temperature(
-                WindChillTemperatureInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_kilometers_per_hour(v), // Python expects km/h
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_kilometers_per_hour(v),
                 Default::default(),
             );
 
@@ -4267,10 +4222,8 @@ fn test_scenario_psychrometric() {
 
         // Rust calculation
         let psychro = psy_ta_rh(
-            PsyTaRhInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(rh),
-            },
+            Temperature::from_celsius(tdb),
+            Humidity::from_percent(rh),
             PsyTaRhOptions {
                 p_atm: Pressure::from_pascals(p_atm),
             },
@@ -4996,15 +4949,13 @@ fn test_ridge_regression_comparison() {
 
         // Call Rust function
         let rust_result = ridge_regression_predict_t_re_t_sk(
-            RidgeRegressionInputs {
-                sex: Sex::Male,
-                age: Age::from_years(60.0),
-                height: Length::from_meters(1.8),
-                weight: Mass::from_kilograms(75.0),
-                tdb: Temperature::from_celsius(35.0),
-                rh: Humidity::from_percent(60.0),
-                duration: Duration::from_secs(60 * 60),
-            },
+            Sex::Male,
+            Age::from_years(60.0),
+            Length::from_meters(1.8),
+            Mass::from_kilograms(75.0),
+            Temperature::from_celsius(35.0),
+            Humidity::from_percent(60.0),
+            Duration::from_secs(60 * 60),
             Default::default(),
         );
 
@@ -6644,10 +6595,8 @@ fn test_heat_index_categories_use_unrounded_value() {
                 let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
                 let rust = heat_index_rothfusz(
-                    HeatIndexRothfuszInputs {
-                        tdb: Temperature::from_celsius(tdb),
-                        rh: Humidity::from_percent(50.0),
-                    },
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(50.0),
                     thermalcomfort::models::HeatIndexRothfuszOptions {
                         round_output,
                         limit_inputs: false,
@@ -6690,10 +6639,8 @@ fn test_heat_index_categories_use_unrounded_value() {
                 let py_category = extract_category(&py_result.getattr("stress_category").unwrap());
 
                 let rust = heat_index_schoen(
-                    HeatIndexSchoenInputs {
-                        tdb: Temperature::from_celsius(tdb),
-                        rh: Humidity::from_percent(50.0),
-                    },
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(50.0),
                     thermalcomfort::models::HeatIndexSchoenOptions { round_output },
                 );
                 assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
@@ -6717,10 +6664,8 @@ fn test_heat_index_categories_use_unrounded_value() {
 
         // The applicability limit still blanks both fields.
         let cold = heat_index_rothfusz(
-            HeatIndexRothfuszInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         assert!(cold.hi.is_nan());
@@ -7020,10 +6965,8 @@ fn test_compare_scale_wind_speed_log() {
                 .extract()
                 .unwrap();
             let rust_v = scale_wind_speed_log(
-                ScaleWindSpeedLogInputs {
-                    v_z1: Speed::from_meters_per_second(v_z1),
-                    z2: Length::from_meters(z2),
-                },
+                Speed::from_meters_per_second(v_z1),
+                Length::from_meters(z2),
                 ScaleWindSpeedLogOptions {
                     z1: Length::from_meters(z1),
                     z0: Length::from_meters(z0),
@@ -7048,10 +6991,8 @@ fn test_compare_scale_wind_speed_log() {
         assert_eq!(default_v, 3.84);
         assert_eq!(
             scale_wind_speed_log(
-                ScaleWindSpeedLogInputs {
-                    v_z1: Speed::from_meters_per_second(5.0),
-                    z2: Length::from_meters(2.0),
-                },
+                Speed::from_meters_per_second(5.0),
+                Length::from_meters(2.0),
                 Default::default(),
             )
             .unwrap()
@@ -7096,10 +7037,8 @@ fn test_compare_scale_wind_speed_log() {
             );
             assert_eq!(
                 scale_wind_speed_log(
-                    ScaleWindSpeedLogInputs {
-                        v_z1: Speed::from_meters_per_second(v_z1),
-                        z2: Length::from_meters(z2),
-                    },
+                    Speed::from_meters_per_second(v_z1),
+                    Length::from_meters(z2),
                     ScaleWindSpeedLogOptions {
                         z1: Length::from_meters(z1),
                         z0: Length::from_meters(z0),

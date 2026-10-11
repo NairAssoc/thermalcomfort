@@ -4,10 +4,10 @@
 //! the dynamic corrections for body movement and air speed from ASHRAE 55 and ISO 9920.
 
 use thermalcomfort::clothing::{
-    CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs, CloDynamicIsoInputs,
-    CloDynamicIsoOptions, CloInsulationAirLayerInputs, CloTotalInsulationInputs, clo_area_factor,
-    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
-    clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation,
+    CloCorrectionFactorEnvironmentInputs, CloDynamicIsoOptions, CloInsulationAirLayerInputs,
+    CloTotalInsulationInputs, clo_area_factor, clo_correction_factor_environment,
+    clo_dynamic_ashrae, clo_dynamic_iso, clo_insulation_air_layer,
+    clo_intrinsic_insulation_ensemble, clo_total_insulation,
 };
 use thermalcomfort::utilities::{clo_individual_garment, clo_tout, clo_typical_ensemble};
 use thermalcomfort::{ClothingInsulation, MetabolicRate, Speed, Temperature};
@@ -71,13 +71,8 @@ fn main() {
     // 1.2 met and leaves it alone below.
     let clo_static = ClothingInsulation::from_clo(1.0);
     for met in [1.0, 1.2, 2.0, 3.0] {
-        let dynamic = clo_dynamic_ashrae(
-            CloDynamicAshraeInputs {
-                clo: clo_static,
-                met: MetabolicRate::from_met(met),
-            },
-            Default::default(),
-        );
+        let dynamic =
+            clo_dynamic_ashrae(clo_static, MetabolicRate::from_met(met), Default::default());
         println!(
             "  {:.1} clo at {met:.1} met -> {:.2} clo",
             clo_static.as_clo(),
@@ -91,11 +86,9 @@ fn main() {
     let met_walking = MetabolicRate::from_met(2.0);
     for v_ms in [0.1, 0.5, 1.5] {
         let dynamic = clo_dynamic_iso(
-            CloDynamicIsoInputs {
-                clo: clo_static,
-                met: met_walking,
-                v: Speed::from_meters_per_second(v_ms),
-            },
+            clo_static,
+            met_walking,
+            Speed::from_meters_per_second(v_ms),
             Default::default(),
         );
         println!(
@@ -106,11 +99,9 @@ fn main() {
         );
     }
     let dynamic_thin_layer = clo_dynamic_iso(
-        CloDynamicIsoInputs {
-            clo: clo_static,
-            met: met_walking,
-            v: Speed::from_meters_per_second(0.5),
-        },
+        clo_static,
+        met_walking,
+        Speed::from_meters_per_second(0.5),
         CloDynamicIsoOptions {
             i_a: ClothingInsulation::from_clo(0.6),
             ..Default::default()

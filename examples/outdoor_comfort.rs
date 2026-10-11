@@ -3,7 +3,7 @@
 //! Demonstrates UTCI (Universal Thermal Climate Index) and WBGT (Wet Bulb Globe Temperature)
 //! for assessing outdoor thermal conditions and heat stress.
 
-use thermalcomfort::environment::{ScaleWindSpeedLogInputs, scale_wind_speed_log};
+use thermalcomfort::environment::scale_wind_speed_log;
 use thermalcomfort::models::{UtciInputs, WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
 use thermalcomfort::{Humidity, Length, Speed, Temperature};
@@ -87,10 +87,8 @@ fn main() {
     // bring it down with the logarithmic wind profile over cropland (z0 = 0.1 m).
     let v_10m = Speed::from_meters_per_second(1.0);
     let v2 = scale_wind_speed_log(
-        ScaleWindSpeedLogInputs {
-            v_z1: v_10m,
-            z2: Length::from_meters(1.1),
-        },
+        v_10m,
+        Length::from_meters(1.1),
         thermalcomfort::environment::ScaleWindSpeedLogOptions {
             z0: Length::from_meters(0.1),
             ..Default::default()

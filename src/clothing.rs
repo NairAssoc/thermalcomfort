@@ -56,18 +56,6 @@ pub enum Iso9920Model {
     Iso99202007,
 }
 
-/// The inputs to [`clo_dynamic_ashrae`]: both parameters are required in
-/// pythermalcomfort's signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloDynamicAshraeInputs {
-    /// Static (intrinsic) clothing insulation
-    pub clo: ClothingInsulation,
-    /// Metabolic rate
-    pub met: MetabolicRate,
-}
-
 /// Optional parameters for [`clo_dynamic_ashrae`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CloDynamicAshraeOptions {
@@ -91,24 +79,22 @@ pub struct CloDynamicAshraeOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::{clo_dynamic_ashrae, CloDynamicAshraeInputs, CloDynamicAshraeOptions};
+/// use thermalcomfort::utilities::{clo_dynamic_ashrae, CloDynamicAshraeOptions};
 /// use thermalcomfort::{ClothingInsulation, MetabolicRate};
 ///
 /// let clo_dyn = clo_dynamic_ashrae(
-///     CloDynamicAshraeInputs {
-///         clo: ClothingInsulation::from_clo(0.5),
-///         met: MetabolicRate::from_met(1.4),
-///     },
+///     ClothingInsulation::from_clo(0.5),
+///     MetabolicRate::from_met(1.4),
 ///     CloDynamicAshraeOptions::default(),
 /// );
 /// assert!(clo_dyn.as_clo() < 0.5);
 /// ```
 #[inline]
 pub fn clo_dynamic_ashrae(
-    inputs: CloDynamicAshraeInputs,
+    clo: ClothingInsulation,
+    met: MetabolicRate,
     options: CloDynamicAshraeOptions,
 ) -> ClothingInsulation {
-    let CloDynamicAshraeInputs { clo, met } = inputs;
     // Exhaustive match: today there is only one edition, but this stops a future
     // variant from being silently ignored.
     match options.model {
@@ -317,21 +303,6 @@ pub fn clo_total_insulation(inputs: CloTotalInsulationInputs) -> ClothingInsulat
     ClothingInsulation::from_clo(i_t_r)
 }
 
-/// The inputs to [`clo_dynamic_iso`]: all three are required in pythermalcomfort's
-/// signature (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloDynamicIsoInputs {
-    /// Static (intrinsic) clothing insulation
-    pub clo: ClothingInsulation,
-    /// Metabolic rate
-    pub met: MetabolicRate,
-    /// Air speed (not yet the relative air speed; computed internally via
-    /// [`v_relative`])
-    pub v: Speed,
-}
-
 /// Optional parameters for [`clo_dynamic_iso`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CloDynamicIsoOptions {
@@ -364,24 +335,23 @@ impl Default for CloDynamicIsoOptions {
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::utilities::{clo_dynamic_iso, CloDynamicIsoInputs, CloDynamicIsoOptions};
+/// use thermalcomfort::utilities::{clo_dynamic_iso, CloDynamicIsoOptions};
 /// use thermalcomfort::{Speed, ClothingInsulation, MetabolicRate};
 ///
 /// let clo_dyn = clo_dynamic_iso(
-///     CloDynamicIsoInputs {
-///         clo: ClothingInsulation::from_clo(1.0),
-///         met: MetabolicRate::from_met(1.2),
-///         v: Speed::from_meters_per_second(0.1),
-///     },
+///     ClothingInsulation::from_clo(1.0),
+///     MetabolicRate::from_met(1.2),
+///     Speed::from_meters_per_second(0.1),
 ///     CloDynamicIsoOptions::default(),
 /// );
 /// assert!(clo_dyn.as_clo() > 0.0 && clo_dyn.as_clo() <= 1.0);
 /// ```
 pub fn clo_dynamic_iso(
-    inputs: CloDynamicIsoInputs,
+    clo: ClothingInsulation,
+    met: MetabolicRate,
+    v: Speed,
     options: CloDynamicIsoOptions,
 ) -> ClothingInsulation {
-    let CloDynamicIsoInputs { clo, met, v } = inputs;
     let CloDynamicIsoOptions { i_a, model } = options;
     // Exhaustive match: today there is only one edition, but this stops a future
     // variant from being silently ignored.
@@ -530,11 +500,9 @@ mod tests {
             (1.5, 3.0, 0.5, 1.000017),
         ] {
             let got = clo_dynamic_iso(
-                CloDynamicIsoInputs {
-                    clo: ClothingInsulation::from_clo(clo),
-                    met: MetabolicRate::from_met(met),
-                    v: Speed::from_meters_per_second(v),
-                },
+                ClothingInsulation::from_clo(clo),
+                MetabolicRate::from_met(met),
+                Speed::from_meters_per_second(v),
                 CloDynamicIsoOptions::default(),
             );
             let got = got.as_clo();

@@ -495,17 +495,6 @@ pub fn transpose_sharp_altitude(sharp: Angle, altitude: Angle) -> (Angle, Angle)
     )
 }
 
-/// The inputs to [`scale_wind_speed_log`]: pythermalcomfort requires both (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ScaleWindSpeedLogInputs {
-    /// Wind speed measured at the reference height `z1`
-    pub v_z1: Speed,
-    /// Height the wind speed is wanted at
-    pub z2: Length,
-}
-
 /// Optional parameters for [`scale_wind_speed_log`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScaleWindSpeedLogOptions {
@@ -599,15 +588,13 @@ impl core::error::Error for ScaleWindSpeedLogError {}
 /// # Examples
 ///
 /// ```
-/// use thermalcomfort::environment::{scale_wind_speed_log, ScaleWindSpeedLogInputs};
+/// use thermalcomfort::environment::{scale_wind_speed_log};
 /// use thermalcomfort::{Length, Speed};
 ///
 /// // A 10 m anemometer reading, brought down to 2 m over open terrain
 /// let v_2m = scale_wind_speed_log(
-///     ScaleWindSpeedLogInputs {
-///         v_z1: Speed::from_meters_per_second(5.0),
-///         z2: Length::from_meters(2.0),
-///     },
+///     Speed::from_meters_per_second(5.0),
+///     Length::from_meters(2.0),
 ///     Default::default(),
 /// )
 /// .expect("2 m is above the roughness length");
@@ -618,11 +605,12 @@ impl core::error::Error for ScaleWindSpeedLogError {}
 ///
 /// - Oke, T. R. (1987). Boundary Layer Climates.
 pub fn scale_wind_speed_log(
-    inputs: ScaleWindSpeedLogInputs,
+    v_z1: Speed,
+    z2: Length,
     options: ScaleWindSpeedLogOptions,
 ) -> Result<Speed, ScaleWindSpeedLogError> {
-    let v_z1 = inputs.v_z1.as_meters_per_second();
-    let z2 = inputs.z2.as_meters();
+    let v_z1 = v_z1.as_meters_per_second();
+    let z2 = z2.as_meters();
     let z1 = options.z1.as_meters();
     let z0 = options.z0.as_meters();
     let d = options.d.as_meters();
@@ -766,10 +754,8 @@ mod tests {
         // Upstream's own cases, v(z1) · ln((z2 - d)/z0) / ln((z1 - d)/z0), unrounded.
         let run = |v: f64, z2: f64, z1: f64, z0: f64, d: f64| {
             scale_wind_speed_log(
-                ScaleWindSpeedLogInputs {
-                    v_z1: Speed::from_meters_per_second(v),
-                    z2: Length::from_meters(z2),
-                },
+                Speed::from_meters_per_second(v),
+                Length::from_meters(z2),
                 ScaleWindSpeedLogOptions {
                     z1: Length::from_meters(z1),
                     z0: Length::from_meters(z0),
@@ -799,10 +785,8 @@ mod tests {
         use ScaleWindSpeedLogError::*;
         let run = |v: f64, z2: f64, z1: f64, z0: f64, d: f64| {
             scale_wind_speed_log(
-                ScaleWindSpeedLogInputs {
-                    v_z1: Speed::from_meters_per_second(v),
-                    z2: Length::from_meters(z2),
-                },
+                Speed::from_meters_per_second(v),
+                Length::from_meters(z2),
                 ScaleWindSpeedLogOptions {
                     z1: Length::from_meters(z1),
                     z0: Length::from_meters(z0),

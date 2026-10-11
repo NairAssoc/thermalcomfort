@@ -11,9 +11,9 @@
 use thermalcomfort::environment::{
     FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
     OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
-    ScaleWindSpeedLogError, ScaleWindSpeedLogInputs, ScaleWindSpeedLogOptions, f_svv,
-    mean_radiant_temperature, operative_temperature, running_mean_outdoor_temperature,
-    scale_wind_speed_log, transpose_sharp_altitude, v_relative,
+    ScaleWindSpeedLogError, ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature,
+    operative_temperature, running_mean_outdoor_temperature, scale_wind_speed_log,
+    transpose_sharp_altitude, v_relative,
 };
 use thermalcomfort::{Angle, Length, MetabolicRate, Speed, Temperature};
 
@@ -40,10 +40,8 @@ fn main() {
         ("town", 0.4),
     ] {
         let v = scale_wind_speed_log(
-            ScaleWindSpeedLogInputs {
-                v_z1: station,
-                z2: pedestrian,
-            },
+            station,
+            pedestrian,
             ScaleWindSpeedLogOptions {
                 z0: Length::from_meters(z0_m),
                 ..Default::default()
@@ -61,10 +59,8 @@ fn main() {
     // the target height, less the displacement, does not clear the roughness length,
     // and the function says which constraint failed rather than returning a number.
     let urban = scale_wind_speed_log(
-        ScaleWindSpeedLogInputs {
-            v_z1: station,
-            z2: pedestrian,
-        },
+        station,
+        pedestrian,
         ScaleWindSpeedLogOptions {
             z0: Length::from_meters(1.0),
             d: Length::from_meters(0.5),

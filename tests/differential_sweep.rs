@@ -21,18 +21,16 @@ use support::domain::{Domain, Sample};
 use support::rng::Rng;
 use support::sweep::{import_reference, report_skipped, run_sweep};
 use thermalcomfort::clothing::{
-    Ashrae55Model, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeInputs,
-    CloDynamicAshraeOptions, CloDynamicIsoInputs, CloDynamicIsoOptions,
-    CloInsulationAirLayerInputs, CloTotalInsulationInputs, Iso9920Model, clo_area_factor,
-    clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
+    Ashrae55Model, CloCorrectionFactorEnvironmentInputs, CloDynamicAshraeOptions,
+    CloDynamicIsoOptions, CloInsulationAirLayerInputs, CloTotalInsulationInputs, Iso9920Model,
+    clo_area_factor, clo_correction_factor_environment, clo_dynamic_ashrae, clo_dynamic_iso,
     clo_insulation_air_layer, clo_intrinsic_insulation_ensemble, clo_total_insulation,
 };
 use thermalcomfort::environment::{
     FSvvInputs, MeanRadiantTemperatureInputs, MeanRadiantTemperatureOptions,
     OperativeTemperatureInputs, OperativeTemperatureOptions, RunningMeanOutdoorTemperatureOptions,
-    ScaleWindSpeedLogInputs, ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature,
-    operative_temperature, running_mean_outdoor_temperature, scale_wind_speed_log,
-    transpose_sharp_altitude, v_relative,
+    ScaleWindSpeedLogOptions, f_svv, mean_radiant_temperature, operative_temperature,
+    running_mean_outdoor_temperature, scale_wind_speed_log, transpose_sharp_altitude, v_relative,
 };
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, Jos3Results, PerBodyPart};
 use thermalcomfort::models::pmv::{
@@ -46,17 +44,15 @@ use thermalcomfort::models::two_nodes_gagge::{
     GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesJiOptions, two_nodes_gagge_ji,
 };
 use thermalcomfort::models::{
-    AdaptiveInputs, AdaptiveOptions, AtInputs, AtOptions, CoolingEffectInputs,
-    CoolingEffectOptions, DiscomfortIndexInputs, DurationLimitedExposure, EsiInputs, EsiOptions,
-    GaggePosture, GaggeTwoNodesOptions, GaggeTwoNodesSleepOptions, HeatIndexLuInputs,
-    HeatIndexLuOptions, HeatIndexRothfuszInputs, HeatIndexRothfuszOptions, HeatIndexSchoenInputs,
-    HeatIndexSchoenOptions, HumidexInputs, HumidexModel, HumidexOptions, IreqInputs, IreqOptions,
-    Iso7933Model, NetInputs, NetOptions, PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions,
-    PhsPosture, RidgeRegressionInputs, RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs,
-    SolarGainInputs, SolarGainOptions, SolarGainPosture, Sports, SportsHeatStressRiskInputs,
-    SportsValues, ThiInputs, ThiOptions, UseFansHeatwavesInputs, UseFansHeatwavesOptions,
-    UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, WciInputs, WciOptions,
-    WindChillTemperatureInputs, WindChillTemperatureOptions, WorkCapacityIntensityOptions,
+    AdaptiveInputs, AdaptiveOptions, AtOptions, CoolingEffectInputs, CoolingEffectOptions,
+    DurationLimitedExposure, EsiOptions, GaggePosture, GaggeTwoNodesOptions,
+    GaggeTwoNodesSleepOptions, HeatIndexLuOptions, HeatIndexRothfuszOptions,
+    HeatIndexSchoenOptions, HumidexModel, HumidexOptions, IreqInputs, IreqOptions, Iso7933Model,
+    NetOptions, PetInputs, PetOptions, PetPosture, PhsInputs, PhsOptions, PhsPosture,
+    RidgeRegressionOptions, SetInputs, SetOptions, SleepInputs, SolarGainInputs, SolarGainOptions,
+    SolarGainPosture, Sports, SportsHeatStressRiskInputs, SportsValues, ThiOptions,
+    UseFansHeatwavesInputs, UseFansHeatwavesOptions, UtciInputs, UtciOptions, WbgtInputs,
+    WbgtOptions, WciOptions, WindChillTemperatureOptions, WorkCapacityIntensityOptions,
     WorkIntensity, adaptive_ashrae, adaptive_en, ankle_draft, at, cooling_effect, discomfort_index,
     esi, heat_index_lu, heat_index_rothfusz, heat_index_schoen, humidex, ireq, net, pet_steady,
     phs, pmv_a, pmv_athb, pmv_e, pmv_ppd_ashrae, pmv_ppd_iso, ridge_regression_predict_t_re_t_sk,
@@ -65,12 +61,12 @@ use thermalcomfort::models::{
     work_capacity_dunne, work_capacity_hothaps, work_capacity_iso, work_capacity_niosh,
 };
 use thermalcomfort::psychrometrics::{
-    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
-    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat, p_sat_torr,
+    psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, Units, body_surface_area,
-    clo_individual_garment, clo_tout, clo_typical_ensemble,
+    BodySurfaceAreaOptions, BsaFormula, Units, body_surface_area, clo_individual_garment, clo_tout,
+    clo_typical_ensemble,
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
@@ -2930,10 +2926,8 @@ fn sweep_heat_index_lu() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = heat_index_lu(
-                HeatIndexLuInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HeatIndexLuOptions { round_output },
             );
 
@@ -2981,10 +2975,8 @@ fn sweep_heat_index_rothfusz() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = heat_index_rothfusz(
-                HeatIndexRothfuszInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HeatIndexRothfuszOptions {
                     round_output,
                     limit_inputs,
@@ -3026,10 +3018,8 @@ fn sweep_heat_index_schoen() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = heat_index_schoen(
-                HeatIndexSchoenInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HeatIndexSchoenOptions { round_output },
             );
 
@@ -3081,10 +3071,8 @@ fn sweep_humidex() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = humidex(
-                HumidexInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 HumidexOptions {
                     model,
                     round_output,
@@ -3126,10 +3114,8 @@ fn sweep_thi() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = thi(
-                ThiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
                 ThiOptions { round_output },
             );
 
@@ -3159,10 +3145,7 @@ fn sweep_discomfort_index() {
                 .call1((tdb, rh))
                 .map_err(|e| format!("python raised: {e}"))?;
 
-            let rust = discomfort_index(DiscomfortIndexInputs {
-                tdb: Temperature::from_celsius(tdb),
-                rh: Humidity::from_percent(rh),
-            });
+            let rust = discomfort_index(Temperature::from_celsius(tdb), Humidity::from_percent(rh));
 
             compare_field(&field, rust.di, py_float(&py_result, "di")?)?;
             compare_category(
@@ -3204,10 +3187,8 @@ fn sweep_wci() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = wci(
-                WciInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_meters_per_second(v),
                 WciOptions { round_output },
             );
 
@@ -3251,10 +3232,8 @@ fn sweep_wind_chill_temperature() {
 
             // Python documents this input as km/h, unlike `wci` next door which is m/s.
             let rust = wind_chill_temperature(
-                WindChillTemperatureInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    v: Speed::from_kilometers_per_hour(v),
-                },
+                Temperature::from_celsius(tdb),
+                Speed::from_kilometers_per_hour(v),
                 WindChillTemperatureOptions { round_output },
             );
 
@@ -3294,11 +3273,9 @@ fn sweep_net() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = net(
-                NetInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 NetOptions { round_output },
             );
 
@@ -3350,11 +3327,9 @@ fn sweep_at() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = at(
-                AtInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    v: Speed::from_meters_per_second(v),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                Speed::from_meters_per_second(v),
                 AtOptions {
                     q: supply_q.then_some(HeatFluxDensity::from_watts_per_square_meter(q)),
                     round_output,
@@ -3397,11 +3372,9 @@ fn sweep_esi() {
                 .map_err(|e| format!("python raised: {e}"))?;
 
             let rust = esi(
-                EsiInputs {
-                    tdb: Temperature::from_celsius(tdb),
-                    rh: Humidity::from_percent(rh),
-                    sol_radiation_global: HeatFluxDensity::from_watts_per_square_meter(sol),
-                },
+                Temperature::from_celsius(tdb),
+                Humidity::from_percent(rh),
+                HeatFluxDensity::from_watts_per_square_meter(sol),
                 EsiOptions { round_output },
             );
 
@@ -4779,15 +4752,13 @@ fn sweep_ridge_regression_predict_t_re_t_sk() {
                     .map_err(|e| format!("python raised: {e}"))?;
 
                 let rust = ridge_regression_predict_t_re_t_sk(
-                    RidgeRegressionInputs {
-                        sex,
-                        age: Age::from_years(age),
-                        height: Length::from_meters(height),
-                        weight: Mass::from_kilograms(weight),
-                        tdb: Temperature::from_celsius(tdb),
-                        rh: Humidity::from_percent(rh),
-                        duration: Duration::from_secs(duration as u64 * 60),
-                    },
+                    sex,
+                    Age::from_years(age),
+                    Length::from_meters(height),
+                    Mass::from_kilograms(weight),
+                    Temperature::from_celsius(tdb),
+                    Humidity::from_percent(rh),
+                    Duration::from_secs(duration as u64 * 60),
                     RidgeRegressionOptions {
                         t_re: supply_initials.then(|| Temperature::from_celsius(t_re0)),
                         t_sk: supply_initials.then(|| Temperature::from_celsius(t_sk0)),
@@ -4912,10 +4883,8 @@ fn sweep_v_relative_and_clo_dynamic() {
             compare_field(
                 &FieldCmp::new("clo_dynamic_ashrae", 1e-9),
                 clo_dynamic_ashrae(
-                    CloDynamicAshraeInputs {
-                        clo: ClothingInsulation::from_clo(clo),
-                        met: MetabolicRate::from_met(met),
-                    },
+                    ClothingInsulation::from_clo(clo),
+                    MetabolicRate::from_met(met),
                     CloDynamicAshraeOptions {
                         model: ashrae_model,
                     },
@@ -4927,11 +4896,9 @@ fn sweep_v_relative_and_clo_dynamic() {
             compare_field(
                 &FieldCmp::new("clo_dynamic_iso", 1e-9),
                 clo_dynamic_iso(
-                    CloDynamicIsoInputs {
-                        clo: ClothingInsulation::from_clo(clo),
-                        met: MetabolicRate::from_met(met),
-                        v: Speed::from_meters_per_second(v),
-                    },
+                    ClothingInsulation::from_clo(clo),
+                    MetabolicRate::from_met(met),
+                    Speed::from_meters_per_second(v),
                     CloDynamicIsoOptions {
                         i_a: ClothingInsulation::from_clo(i_a),
                         model: iso9920_model,
@@ -5080,10 +5047,8 @@ fn sweep_body_surface_area_and_hr_to_rh() {
                 compare_field(
                     &FieldCmp::new("body_surface_area", 1e-9),
                     body_surface_area(
-                        BodySurfaceAreaInputs {
-                            weight: Mass::from_kilograms(weight),
-                            height: Length::from_meters(height),
-                        },
+                        Mass::from_kilograms(weight),
+                        Length::from_meters(height),
                         BodySurfaceAreaOptions { formula },
                     )
                     .as_square_meters(),
@@ -5408,10 +5373,8 @@ fn sweep_psychrometrics() {
                 .call1((tdb, rh, p_atm))
                 .map_err(|e| format!("psy_ta_rh raised: {e}"))?;
             let rust_psy = psy_ta_rh(
-                PsyTaRhInputs {
-                    tdb: t,
-                    rh: Humidity::from_percent(rh),
-                },
+                t,
+                Humidity::from_percent(rh),
                 PsyTaRhOptions {
                     p_atm: Pressure::from_pascals(p_atm),
                 },
@@ -5465,10 +5428,8 @@ fn sweep_scale_wind_speed_log() {
             let round_output = s.flag("round_output");
 
             let rust = scale_wind_speed_log(
-                ScaleWindSpeedLogInputs {
-                    v_z1: Speed::from_meters_per_second(v_z1),
-                    z2: Length::from_meters(z2),
-                },
+                Speed::from_meters_per_second(v_z1),
+                Length::from_meters(z2),
                 ScaleWindSpeedLogOptions {
                     z1: Length::from_meters(z1),
                     z0: Length::from_meters(z0),

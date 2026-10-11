@@ -4,17 +4,6 @@ use crate::constants::*;
 use libm::{atan, exp, log, pow};
 use measurements::{Humidity, Pressure, Temperature};
 
-/// The comfort inputs to [`psy_ta_rh`]: pythermalcomfort requires both (no default).
-///
-/// Deliberately has no `Default`: every field must be given explicitly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PsyTaRhInputs {
-    /// Dry bulb air temperature
-    pub tdb: Temperature,
-    /// Relative humidity
-    pub rh: Humidity,
-}
-
 /// Optional parameters for [`psy_ta_rh`], with pythermalcomfort's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PsyTaRhOptions {
@@ -56,14 +45,12 @@ pub struct PsychrometricValues {
 /// # Example
 ///
 /// ```
-/// use thermalcomfort::psychrometrics::{psy_ta_rh, PsyTaRhInputs, PsyTaRhOptions};
+/// use thermalcomfort::psychrometrics::{psy_ta_rh, PsyTaRhOptions};
 /// use thermalcomfort::{Temperature, Humidity, Pressure};
 ///
 /// let result = psy_ta_rh(
-///     PsyTaRhInputs {
-///         tdb: Temperature::from_celsius(25.0),
-///         rh: Humidity::from_percent(50.0),
-///     },
+///     Temperature::from_celsius(25.0),
+///     Humidity::from_percent(50.0),
 ///     PsyTaRhOptions {
 ///         p_atm: Pressure::from_pascals(101325.0),
 ///     },
@@ -71,8 +58,7 @@ pub struct PsychrometricValues {
 /// // result.t_wb ≈ 17.7°C
 /// // result.t_dp ≈ 13.9°C
 /// ```
-pub fn psy_ta_rh(inputs: PsyTaRhInputs, options: PsyTaRhOptions) -> PsychrometricValues {
-    let PsyTaRhInputs { tdb, rh } = inputs;
+pub fn psy_ta_rh(tdb: Temperature, rh: Humidity, options: PsyTaRhOptions) -> PsychrometricValues {
     let p_atm = options.p_atm;
     let p_saturation = p_sat(tdb);
     let p_sat_pa = p_saturation.as_pascals();
@@ -397,10 +383,8 @@ mod tests {
     #[test]
     fn test_psy_ta_rh() {
         let result = psy_ta_rh(
-            PsyTaRhInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
 
@@ -416,17 +400,13 @@ mod tests {
     fn test_psy_ta_rh_p_atm_default() {
         // Python defaults p_atm to 101325 Pa; confirm the Rust default matches.
         let default_p_atm = psy_ta_rh(
-            PsyTaRhInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             Default::default(),
         );
         let explicit_p_atm = psy_ta_rh(
-            PsyTaRhInputs {
-                tdb: Temperature::from_celsius(25.0),
-                rh: Humidity::from_percent(50.0),
-            },
+            Temperature::from_celsius(25.0),
+            Humidity::from_percent(50.0),
             PsyTaRhOptions {
                 p_atm: Pressure::from_pascals(101325.0),
             },

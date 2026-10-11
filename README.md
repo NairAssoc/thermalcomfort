@@ -76,12 +76,13 @@ The rule for what is typed, on inputs **and** outputs:
   limits) stay `f64` with the unit stated in the field's doc comment. There are no one-off
   newtypes for them.
 
-Every model takes a named `XInputs` struct for the parameters upstream requires, plus a
-defaulted `XOptions` for the ones it defaults — mirroring pythermalcomfort's own split, so a
-call transfers between the two libraries by reading. `XInputs` deliberately has no `Default`,
-so every required field must be named at the call site: the models take long runs of
-same-typed arguments (`solar_gain` has seven consecutive `f64`, five of them fractions) and
-no type system distinguishes those from one another.
+Every model takes the parameters upstream requires followed by a defaulted `XOptions`
+struct for the ones it defaults — mirroring pythermalcomfort's own split, so a call
+transfers between the two libraries by reading. Required parameters are positional where
+their types already tell them apart (`humidex(tdb, rh, options)`), and gathered into a
+named `XInputs` struct, deliberately without a `Default`, only where two or more share a
+type: `pmv_ppd_iso` takes two temperatures side by side, and `solar_gain` seven
+consecutive `f64`, five of them fractions, which no type system distinguishes.
 
 ### The `std` feature (deprecated no-op)
 

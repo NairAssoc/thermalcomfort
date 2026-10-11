@@ -6,12 +6,11 @@
 //! operative) are in the `environment` example.
 
 use thermalcomfort::psychrometrics::{
-    PsyTaRhInputs, PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat,
-    p_sat_torr, psy_ta_rh, wet_bulb_temperature,
+    PsyTaRhOptions, antoine, dew_point_temperature, enthalpy_air, hr_to_rh, p_sat, p_sat_torr,
+    psy_ta_rh, wet_bulb_temperature,
 };
 use thermalcomfort::utilities::{
-    BodySurfaceAreaInputs, BodySurfaceAreaOptions, BsaFormula, body_surface_area,
-    body_surface_area_dubois,
+    BodySurfaceAreaOptions, BsaFormula, body_surface_area, body_surface_area_dubois,
 };
 use thermalcomfort::{Humidity, Length, Mass, Pressure, Temperature};
 
@@ -45,7 +44,7 @@ fn main() {
 
     // --- Full psychrometric state ---
     println!("\n--- Psychrometric state (psy_ta_rh) ---");
-    let state = psy_ta_rh(PsyTaRhInputs { tdb, rh }, Default::default());
+    let state = psy_ta_rh(tdb, rh, Default::default());
     println!("  Vapour pressure:      {:.1} Pa", state.p_vap.as_pascals());
     println!("  Humidity ratio:       {:.4} kg/kg dry air", state.hr);
     println!("  Wet-bulb temperature: {:.1}°C", state.t_wb.as_celsius());
@@ -58,10 +57,7 @@ fn main() {
     // The same air at 1500 m altitude: a lower atmospheric pressure raises the
     // humidity ratio for the same relative humidity.
     let p_altitude = Pressure::from_pascals(84_556.0);
-    let state_altitude = psy_ta_rh(
-        PsyTaRhInputs { tdb, rh },
-        PsyTaRhOptions { p_atm: p_altitude },
-    );
+    let state_altitude = psy_ta_rh(tdb, rh, PsyTaRhOptions { p_atm: p_altitude });
     println!(
         "  At {:.1} kPa (1500 m): humidity ratio {:.4} kg/kg",
         p_altitude.as_pascals() / 1000.0,
@@ -108,10 +104,7 @@ fn main() {
         BsaFormula::Fujimoto,
         BsaFormula::Kurazumi,
     ] {
-        let bsa = body_surface_area(
-            BodySurfaceAreaInputs { weight, height },
-            BodySurfaceAreaOptions { formula },
-        );
+        let bsa = body_surface_area(weight, height, BodySurfaceAreaOptions { formula });
         println!(
             "  {:<9}         {:.3} m²",
             format!("{formula:?}"),
