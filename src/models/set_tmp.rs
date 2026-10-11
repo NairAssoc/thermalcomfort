@@ -143,7 +143,6 @@ pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
         }
     }
 
-    // Call two_nodes_gagge with calculate_ce = true for faster calculation
     let gagge_options = GaggeTwoNodesOptions {
         wme: options.wme,
         body_surface_area: options.body_surface_area,
@@ -220,6 +219,40 @@ mod tests {
         };
         let set = set_tmp(inputs(5.0, 25.0, 0.1, 50.0, 1.2, 0.5), options);
         assert!(!set.as_celsius().is_nan());
+    }
+
+    #[test]
+    fn test_set_tmp_reference_values() {
+        // pythermalcomfort with round_output=False:
+        // set_tmp(25, 25, 0.1, 50, 1.2, 0.5) = 24.3149 and set_tmp(28, 28, 0.3, 60, 1.5, 0.3) = 26.3632
+        let unrounded = SetOptions {
+            round_output: false,
+            ..Default::default()
+        };
+        let set = set_tmp(inputs(25.0, 25.0, 0.1, 50.0, 1.2, 0.5), unrounded).as_celsius();
+        assert!((set - 24.3149).abs() < 0.05, "set = {set}");
+
+        let set = set_tmp(inputs(28.0, 28.0, 0.3, 60.0, 1.5, 0.3), unrounded).as_celsius();
+        assert!((set - 26.3632).abs() < 0.05, "set = {set}");
+    }
+
+    #[test]
+    fn test_set_tmp_calculate_ce() {
+        // Above 0.85 met, calculate_ce skips the metabolic increase of the convective
+        // coefficient (used by the cooling effect), so the two results differ
+        let default = set_tmp(inputs(28.0, 28.0, 0.3, 60.0, 1.5, 0.3), Default::default());
+        let ce = set_tmp(
+            inputs(28.0, 28.0, 0.3, 60.0, 1.5, 0.3),
+            SetOptions {
+                calculate_ce: true,
+                ..Default::default()
+            },
+        );
+        let (default, ce) = (default.as_celsius(), ce.as_celsius());
+        assert!(
+            (default - ce).abs() > 0.5,
+            "default {default}, calculate_ce {ce}"
+        );
     }
 
     #[test]
