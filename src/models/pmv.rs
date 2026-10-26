@@ -334,11 +334,6 @@ pub fn pmv_ppd_iso(inputs: PmvPpdInputs, options: PmvPpdIsoOptions) -> PmvPpdRes
 /// ULP. That is normally harmless, but `limit_inputs` compares against inclusive bounds,
 /// so a value a single ULP outside a limit round-trips back onto it and silently passes a
 /// check upstream fails.
-///
-/// JOS3 is where this bit: its operative-temperature search deliberately walks `to` onto
-/// the 30 °C ISO limit and depends on crossing it to trigger a NaN-and-retry branch. Going
-/// through the newtype meant the crossing never registered, the retry never ran, and the
-/// subject's set-point temperatures were left about 2 °C wrong for the life of the model.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pmv_ppd_iso_celsius(
     dry_bulb_celsius: f64,

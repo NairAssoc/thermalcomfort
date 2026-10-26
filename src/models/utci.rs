@@ -167,9 +167,17 @@ impl Default for UtciOptions {
 ///
 /// # Applicability Limits (when limit_inputs = true)
 ///
-/// * -50 < tdb [°C] < 50
-/// * tdb - 30 < tr [°C] < tdb + 70
-/// * 0.5 < v [m/s] < 17.0
+/// * -50 <= tdb [°C] <= 50
+/// * -30 <= tr - tdb [°C] <= 70
+/// * 0.5 <= v [m/s] <= 17.0
+/// * 0 <= rh [%] <= 100
+/// * 0 <= water vapour pressure [kPa] <= 5
+///
+/// These are the input checks of the official UTCI program (`UTCI_a002.f90`), except
+/// that it accepts wind speeds up to 30 m/s; its documentation gives 17 m/s, the limit
+/// used here. High relative humidity can exceed the vapour-pressure limit even when air
+/// temperature is in range; with `limit_inputs = false` the polynomial extrapolates
+/// there and can produce unrealistic values (about -326 °C at 50 °C and 100 % RH).
 ///
 /// # Examples
 ///
@@ -232,6 +240,12 @@ pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
             utci_value = f64::NAN;
         }
         if !(0.5..=17.0).contains(&wind_speed_mps) {
+            utci_value = f64::NAN;
+        }
+        if !(0.0..=5.0).contains(&pa) {
+            utci_value = f64::NAN;
+        }
+        if !(0.0..=100.0).contains(&rh_percent) {
             utci_value = f64::NAN;
         }
     }

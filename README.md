@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.6.1) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.6.2) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,8 +12,8 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **Complete coverage**: every pythermalcomfort v4.6.1 model, `JOS3` included
-- **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Accuracy](#accuracy--validation) for the one `no_std` exception)
+- **Complete coverage**: every pythermalcomfort v4.6.2 model, `JOS3` included
+- **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Coverage](#coverage) for the five edge-case divergences)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: every public function with a pythermalcomfort counterpart has
   a cross-library parity test *and* is driven through the randomised differential sweep,
@@ -39,6 +39,7 @@ From the [`measurements`](https://crates.io/crates/measurements) crate:
 - `Power` - watts, kilowatts, horsepower, etc.
 - `Area` - m², ft², etc.
 - `Pressure` - Pa, kPa, mmHg, atm, etc.
+- `Angle` - degrees, radians; used for solar geometry
 
 Defined in this crate:
 - `TemperatureDelta` - A temperature *difference* (°C/K or °F). Distinct from `Temperature`,
@@ -55,7 +56,6 @@ Also defined here and used on **results**, not just inputs:
 - `HeatFluxDensity` - a density of heat flow rate (W/m²), distinct from `Power` over the
   whole body
 - `CardiacIndex`, `ActivityRatio`, `BodyFat`, `BmrEquation` - JOS3's body parameters
-- `Angle` - re-exported from `measurements` for solar geometry
 
 The rule for what is typed, on inputs **and** outputs:
 
@@ -102,7 +102,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "4.6.1"
+thermalcomfort = "4.6.2"
 ```
 
 ## Usage
@@ -162,8 +162,9 @@ function appears in none, so they cannot drift from the API. Run one with
 | `psychrometrics` | Saturation and partial pressures, wet bulb, dew point, enthalpy, body surface area |
 | `environment` | A station wind scaled to pedestrian height over four terrains (and one where the profile is undefined), the running mean outdoor temperature, mean radiant and operative temperature, relative air speed, sky-vault view and sun position |
 
-The modules mirror pythermalcomfort's: `models`, `environment`, `psychrometrics`, `clothing` and `utilities`. The names 4.6.0 moved out of `utilities` are still reachable there, deprecated, for two minor releases, as upstream's are.
 | `clothing` | Garment and ensemble lookups; intrinsic, total and dynamic insulation; air-layer and area factors; outdoor clothing estimate |
+
+The modules mirror pythermalcomfort's: `models`, `environment`, `psychrometrics`, `clothing` and `utilities`. The names 4.6.0 moved out of `utilities` are still reachable there, deprecated, for two minor releases, as upstream's are.
 
 ## WASM Support
 
@@ -175,7 +176,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce results identical to pythermalcomfort v4.6.1 across the swept input
+All models produce results identical to pythermalcomfort v4.6.2 across the swept input
 space, in the one build configuration the crate has. There is no accuracy trade-off to
 choose between. The five edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
@@ -209,7 +210,7 @@ about an input at the edge of what the model can answer; none affects ordinary r
 | `two_nodes_gagge_sleep` returns infinity where Python raises `OverflowError` | Hot, humid and heavily quilted, the model's own exponentials overflow. Confined to inputs upstream declines to answer at all. |
 | `JOS3` drift below one rounding step is invisible to the sweep | Upstream rounds its own outputs (2 dp for most fields), so there is no unrounded reference to compare against. |
 | `adaptive_en` acceptability flags can flip on an input sitting exactly on a comfort bound | `Temperature` stores kelvin, so a Celsius input that is not exactly representable comes back changed by up to 2.3e-14 °C (one ULP of the kelvin value; integers and half-integers are exact). EN compares the operative temperature directly against bounds computed from the running mean, so `tdb = tr = 24.1` at `t_running_mean = 10` is category I in Python and not here. Accepted as irrelevant at that magnitude. |
-| One `JOS3` sample in 3000 is skipped as ill-conditioned | The chest segment can sit exactly on the wettedness saturation clip, where the answer stops being a function of the inputs at any resolution the sweep can see. Skipped only after re-running Python against itself with the input moved one ULP confirms upstream's own answer has already moved. |
+| About one sweep sample in 3000 is skipped as ill-conditioned in `JOS3`, `two_nodes_gagge_ji` and `two_nodes_gagge_sleep` | Upstream's own answer is not a stable function of the inputs there: `JOS3`'s chest segment can sit exactly on the wettedness saturation clip, and the two minute-by-minute Gagge integrations can pass through a locally unstable step. A sample is skipped only after re-running Python against itself with the inputs moved one ULP shows upstream's answer moving by an amount comparable to the Rust–Python difference, and each sweep fails if more than 0.5 % of samples are skipped. |
 
 `two_nodes_gagge_sleep` is a faithful port of the Yan et al. (2022) model: it simulates the
 night minute by minute and takes a per-minute schedule for each driving variable, as upstream
@@ -313,7 +314,7 @@ When bumping to a new pythermalcomfort release, change the version in `Cargo.tom
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.6.1), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.6.2), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 
