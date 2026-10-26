@@ -171,7 +171,7 @@ impl Default for UtciOptions {
 /// * -30 <= tr - tdb [°C] <= 70
 /// * 0.5 <= v [m/s] <= 17.0
 /// * 0 <= rh [%] <= 100
-/// * 0 <= water vapour pressure [kPa] <= 5
+/// * 0 <= water vapour pressure (kPa) <= 5
 ///
 /// These are the input checks of the official UTCI program (`UTCI_a002.f90`), except
 /// that it accepts wind speeds up to 30 m/s; its documentation gives 17 m/s, the limit

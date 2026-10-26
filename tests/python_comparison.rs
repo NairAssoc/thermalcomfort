@@ -7190,10 +7190,11 @@ fn test_utci_humidity_limits() {
 }
 
 /// 4.6.2: JOS3's neutral-temperature search no longer applies ISO 7730's applicability
-/// limits, which excluded the low metabolic rates of light, elderly subjects. Before,
-/// the 80-year-old subjects below initialised with NaN or ~2 °C-discontinuous set
+/// limits, which exclude the low metabolic rates of light, elderly subjects: under them
+/// the 80-year-old subjects below would initialise with NaN or ~2 °C-discontinuous set
 /// points. Subjects and conditions are upstream's `test_jos3.py`; the whole trajectory is
-/// compared against the live reference.
+/// compared against the live reference, and the public `pmv_ppd_iso` must keep its
+/// limits.
 #[test]
 fn test_jos3_low_metabolic_rate_subjects() {
     Python::attach(|py| {
@@ -7265,12 +7266,37 @@ fn test_jos3_low_metabolic_rate_subjects() {
             assert_jos3_matches_python(&py_model, results, &label);
         }
 
-        // A 0.5 kg change used to straddle the ISO limit and jump the set point ~2 °C.
+        // Set points are continuous in body weight: 0.5 kg must not move them ~2 °C.
         assert!(
             (chest_core_set_points[1] - chest_core_set_points[0]).abs() < 0.1,
             "chest core set point jumps from {} to {}",
             chest_core_set_points[0],
             chest_core_set_points[1]
         );
+
+        // Only the internal search drops the limits: the public function still rejects
+        // the out-of-domain neutral condition.
+        let py_pmv: f64 = models
+            .getattr("pmv_ppd_iso")
+            .unwrap()
+            .call1((30.5, 30.5, 0.1, 50.0, 0.79, 0.0))
+            .unwrap()
+            .getattr("pmv")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let rust = pmv_ppd_iso(
+            PmvPpdInputs {
+                tdb: Temperature::from_celsius(30.5),
+                tr: Temperature::from_celsius(30.5),
+                vr: Speed::from_meters_per_second(0.1),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(0.79),
+                clo: ClothingInsulation::from_clo(0.0),
+            },
+            Default::default(),
+        );
+        assert!(py_pmv.is_nan(), "reference pmv {py_pmv}");
+        assert!(rust.pmv.is_nan() && rust.ppd.is_nan(), "pmv {}", rust.pmv);
     });
 }

@@ -1880,16 +1880,9 @@ mod tests {
         }
     }
 
-    /// Cross-checked against pythermalcomfort 4.4.0, `JOS3()` immediately after
-    /// construction (`model._history[0]`, i.e. before any `simulate` call):
-    /// `t_skin_mean == 34.46`, and `t_skin`/`t_core` rounded to 2 decimals as below
-    /// (`BODY_PART_NAMES` order: head, neck, chest, back, pelvis, left_shoulder,
-    /// left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh,
-    /// left_leg, left_foot, right_thigh, right_leg, right_foot).
     /// The neutral-temperature search runs past ISO 7730's 30 °C applicability limit
     /// rather than stopping on it: this subject's search converges at about 30.4 °C.
-    /// Under ISO limits it NaN'd one ULP past 30 °C, fell into the retry branch, and
-    /// left every set point about 2 °C off.
+    /// Stopping at the limit would leave every set point about 2 °C off.
     ///
     /// Cross-checked against pythermalcomfort 4.6.2:
     /// ```python
@@ -1932,6 +1925,12 @@ mod tests {
         );
     }
 
+    /// Cross-checked against pythermalcomfort 4.6.2, `JOS3()` immediately after
+    /// construction (`model._history[0]`, i.e. before any `simulate` call):
+    /// `t_skin_mean == 34.46`, and `t_skin`/`t_core` rounded to 2 decimals as below
+    /// (`BODY_PART_NAMES` order: head, neck, chest, back, pelvis, left_shoulder,
+    /// left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh,
+    /// left_leg, left_foot, right_thigh, right_leg, right_foot).
     #[test]
     fn initial_reset_setpoint_state_matches_python() {
         let model = Jos3Builder::new()

@@ -383,7 +383,7 @@ mod tests {
             Default::default(),
         );
         // pythermalcomfort gives 25.0 °C
-        assert!(result.hi > 24.0 && result.hi < 27.0);
+        assert!((result.hi - 25.0).abs() < 1e-9, "hi = {}", result.hi);
         assert!(result.stress_category.is_none());
     }
 
