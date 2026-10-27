@@ -328,17 +328,13 @@ pub fn pmv_ppd_iso(inputs: PmvPpdInputs, options: PmvPpdIsoOptions) -> PmvPpdRes
 /// ISO 7730 PMV/PPD from plain `f64` inputs, in Celsius and SI.
 ///
 /// The public [`pmv_ppd_iso`] is a thin newtype wrapper over this. Callers *inside* this
-/// crate that already hold plain `f64` values must use this entry point rather than
-/// wrapping them up again, because `Temperature` stores kelvin and
-/// `Temperature::from_celsius(x).as_celsius()` is not the identity — it loses the last
-/// ULP. That is normally harmless, but `limit_inputs` compares against inclusive bounds,
-/// so a value a single ULP outside a limit round-trips back onto it and silently passes a
-/// check upstream fails.
-///
-/// JOS3 is where this bit: its operative-temperature search deliberately walks `to` onto
-/// the 30 °C ISO limit and depends on crossing it to trigger a NaN-and-retry branch. Going
-/// through the newtype meant the crossing never registered, the retry never ran, and the
-/// subject's set-point temperatures were left about 2 °C wrong for the life of the model.
+/// crate that already hold plain `f64` values use this entry point rather than wrapping
+/// them up again, because `Temperature` stores kelvin and
+/// `Temperature::from_celsius(x).as_celsius()` is not the identity — it can change the
+/// last ULP. Upstream computes on the caller's exact value, so a round trip would make
+/// every evaluation differ from Python's in the last bit, and with `limit_inputs` a value
+/// one ULP outside an inclusive bound could land back on it and pass a check upstream
+/// fails.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pmv_ppd_iso_celsius(
     dry_bulb_celsius: f64,

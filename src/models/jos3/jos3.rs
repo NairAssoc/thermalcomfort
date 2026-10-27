@@ -535,6 +535,10 @@ impl Jos3Builder {
 /// Python: `JOS3._calculate_operative_temp_when_pmv_is_zero`. This is a free function
 /// here rather than a method: Python's version does not read or write `self` either.
 ///
+/// The search is not restricted to ISO 7730's applicability limits, which exclude low
+/// metabolic rates and would otherwise turn the reference state (and every set point
+/// derived from it) into NaN.
+///
 /// Ported faithfully, including the inner retry loop's behavior when the initial PMV
 /// calculation is NaN: Python resets `to` to `initial_to` at the top of every retry
 /// iteration before recomputing PMV from the *same* `v`/`rh`/`met`/`clo`, so every retry
@@ -575,16 +579,16 @@ fn operative_temp_for_pmv_zero(v: f64, rh: f64, met: f64, clo: f64) -> f64 {
     to
 }
 
-/// One `pmv_ppd_iso(to, to, v, rh, met, clo)` evaluation. Python: the `pmv_ppd_iso(...)`
-/// call inside `_calculate_operative_temp_when_pmv_is_zero`.
+/// One `pmv_ppd_iso(to, to, v, rh, met, clo, limit_inputs=False)` evaluation. Python:
+/// the `pmv_ppd_iso(...)` call inside `_calculate_operative_temp_when_pmv_is_zero`.
 fn pmv_value_at(to: f64, v: f64, rh: f64, met: f64, clo: f64) -> f64 {
-    // Deliberately the plain-f64 entry point, NOT the newtype one. `Temperature` stores
-    // kelvin, so `from_celsius(x).as_celsius()` loses the last ULP -- and this search walks
-    // `to` right onto the 30 degrees C ISO limit and relies on crossing it to trigger the
-    // NaN-and-retry branch below. Round-tripping through the newtype rounded the crossing
-    // away, so the retry never fired and the set points came out ~2 degrees C wrong.
-    crate::models::pmv::pmv_ppd_iso_celsius(to, to, v, rh, met, clo, PmvPpdIsoOptions::default())
-        .pmv
+    // The plain-f64 entry point, not the newtype one: `Temperature` stores kelvin, and
+    // `from_celsius(x).as_celsius()` would perturb the last ULP of every iterate.
+    let options = PmvPpdIsoOptions {
+        limit_inputs: false,
+        ..PmvPpdIsoOptions::default()
+    };
+    crate::models::pmv::pmv_ppd_iso_celsius(to, to, v, rh, met, clo, options).pmv
 }
 
 // ---------------------------------------------------------------------------
@@ -1839,32 +1843,56 @@ mod tests {
         ));
     }
 
-    /// Cross-checked against pythermalcomfort 4.4.0, `JOS3()` immediately after
-    /// construction (`model._history[0]`, i.e. before any `simulate` call):
-    /// `t_skin_mean == 34.46`, and `t_skin`/`t_core` rounded to 2 decimals as below
-    /// (`BODY_PART_NAMES` order: head, neck, chest, back, pelvis, left_shoulder,
-    /// left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh,
-    /// left_leg, left_foot, right_thigh, right_leg, right_foot).
-    /// Regression test for a boundary bug that cost ~2 °C on the set points.
+    /// Upstream's `test_neutral_temperature_for_low_metabolic_rates`: the neutral
+    /// operative temperature for a nude subject at 0.1 m/s and 50 % RH, against
+    /// TanabeLab/JOS-3's `comfmod.preferred_temp`. The rates below 0.85 met put it above
+    /// ISO 7730's 30 °C limit, which the search must not stop at.
+    #[test]
+    fn operative_temp_for_pmv_zero_at_low_metabolic_rates() {
+        for (met, expected_to) in [
+            (0.9, 29.599_326),
+            (0.85, 29.992_688),
+            (0.846, 30.024_176),
+            (0.8, 30.385_882),
+            (0.79, 30.464_226),
+            (0.6, 31.956_085),
+        ] {
+            let to = operative_temp_for_pmv_zero(0.1, 50.0, met, 0.0);
+            assert!(
+                approx_eq(to, expected_to, 0.05),
+                "to = {to} at {met} met, expected {expected_to}"
+            );
+            let residual = crate::models::pmv::pmv_ppd_iso_celsius(
+                to,
+                to,
+                0.1,
+                50.0,
+                met,
+                0.0,
+                PmvPpdIsoOptions {
+                    limit_inputs: false,
+                    round_output: false,
+                    ..PmvPpdIsoOptions::default()
+                },
+            )
+            .pmv;
+            assert!(residual.abs() <= 0.01, "PMV {residual} at {met} met");
+        }
+    }
+
+    /// The neutral-temperature search runs past ISO 7730's 30 °C applicability limit
+    /// rather than stopping on it: this subject's search converges at about 30.4 °C.
+    /// Stopping at the limit would leave every set point about 2 °C off.
     ///
-    /// `_calculate_operative_temp_when_pmv_is_zero` is a damped fixed-point search that
-    /// walks `to` upward and *relies on crossing* ISO 7730's 30 °C applicability limit to
-    /// get a NaN back and fall into its retry branch. This subject drives `to` to
-    /// 30.00000000000001, one ULP outside the limit. Python NaNs there and retries,
-    /// landing on to = 28.0023...; the Rust port used to construct a `Temperature` from
-    /// that value, and since `Temperature` stores kelvin the round trip snapped it back to
-    /// exactly 30.0, so the limit check passed, the retry never ran, and every set point
-    /// was wrong for the life of the model.
-    ///
-    /// Cross-checked against pythermalcomfort 4.4.0:
+    /// Cross-checked against pythermalcomfort 4.6.2:
     /// ```python
     /// m = JOS3(height=1.55, weight=74.43, age=20, fat=20, sex="female",
     ///          ci=2.59, bmr_equation="japanese", bsa_equation="dubois")
     /// m.simulate(times=60, dtime=60)
-    /// # t_skin_mean == 32.93, cardiac_output == 290.3
+    /// # t_skin_mean == 34.85, cardiac_output == 290.3
     /// ```
     #[test]
-    fn operative_temp_search_crosses_the_iso_limit_like_python() {
+    fn operative_temp_search_runs_past_the_iso_limit_like_python() {
         let mut model = Jos3Builder::new()
             .height(Length::from_meters(1.55))
             .weight(Mass::from_kilograms(74.43))
@@ -1885,9 +1913,9 @@ mod tests {
         let results = model.results();
         let last = results.t_skin_mean.len() - 1;
         assert!(
-            approx_eq(results.t_skin_mean[last].as_celsius(), 32.93, 1e-9),
-            "t_skin_mean = {}, pythermalcomfort gives 32.93 (35.22 means the retry \
-             branch never fired)",
+            approx_eq(results.t_skin_mean[last].as_celsius(), 34.85, 1e-9),
+            "t_skin_mean = {}, pythermalcomfort gives 34.85 (32.93 means the search \
+             stopped at the ISO limit)",
             results.t_skin_mean[last].as_celsius()
         );
         assert!(
@@ -1897,6 +1925,12 @@ mod tests {
         );
     }
 
+    /// Cross-checked against pythermalcomfort 4.6.2, `JOS3()` immediately after
+    /// construction (`model._history[0]`, i.e. before any `simulate` call):
+    /// `t_skin_mean == 34.46`, and `t_skin`/`t_core` rounded to 2 decimals as below
+    /// (`BODY_PART_NAMES` order: head, neck, chest, back, pelvis, left_shoulder,
+    /// left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh,
+    /// left_leg, left_foot, right_thigh, right_leg, right_foot).
     #[test]
     fn initial_reset_setpoint_state_matches_python() {
         let model = Jos3Builder::new()

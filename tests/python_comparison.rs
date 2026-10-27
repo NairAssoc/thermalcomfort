@@ -6464,7 +6464,7 @@ fn test_jos3_multiphase_run_comparison() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Fixtures introduced by pythermalcomfort 4.4.3 – 4.6.1. Each pins the behaviour that
+// Fixtures introduced by pythermalcomfort 4.4.3 – 4.6.2. Each pins the behaviour that
 // release changed, against upstream's own expected values as well as the live reference,
 // so a regression to the earlier behaviour fails without the sweep having to find it.
 // ---------------------------------------------------------------------------------------
@@ -6542,7 +6542,13 @@ fn test_utci_hardy_wexler_fixtures() {
             .unwrap()
             .call(
                 (40.0, 40.0, 1.0, 80.0),
-                Some(&[("round_output", false)].into_py_dict(py).unwrap()),
+                // 40 °C at 80 % RH is beyond the 5 kPa vapour-pressure limit, so the
+                // polynomial is only reachable with the limits off.
+                Some(
+                    &[("limit_inputs", false), ("round_output", false)]
+                        .into_py_dict(py)
+                        .unwrap(),
+                ),
             )
             .unwrap()
             .getattr("utci")
@@ -6557,6 +6563,7 @@ fn test_utci_hardy_wexler_fixtures() {
                 rh: Humidity::from_percent(80.0),
             },
             UtciOptions {
+                limit_inputs: false,
                 round_output: false,
                 ..Default::default()
             },
@@ -7050,5 +7057,246 @@ fn test_compare_scale_wind_speed_log() {
                 "({v_z1}, {z2}, {z1}, {z0}, {d})"
             );
         }
+    });
+}
+
+/// Python `utci(tdb, tdb, v, rh, **kwargs)` -> (utci, stress category).
+fn py_utci_at(
+    models: &Bound<'_, PyAny>,
+    tdb: f64,
+    v: f64,
+    rh: f64,
+    limit_inputs: bool,
+    units: &str,
+) -> (f64, Option<String>) {
+    let py = models.py();
+    let kwargs = [
+        (
+            "limit_inputs",
+            PyBool::new(py, limit_inputs).to_owned().into_any(),
+        ),
+        ("round_output", PyBool::new(py, false).to_owned().into_any()),
+        ("units", units.into_pyobject(py).unwrap().into_any()),
+    ]
+    .into_py_dict(py)
+    .unwrap();
+    let result = models
+        .getattr("utci")
+        .unwrap()
+        .call((tdb, tdb, v, rh), Some(&kwargs))
+        .unwrap();
+    (
+        result.getattr("utci").unwrap().extract().unwrap(),
+        extract_category(&result.getattr("stress_category").unwrap()),
+    )
+}
+
+/// 4.6.2: with `limit_inputs` on, UTCI also rejects relative humidity outside 0-100 % and
+/// water vapour pressure outside 0-5 kPa, both inclusive. Cases are upstream's
+/// `test_utci.py`; each asserts the live reference agrees, so the limits are pinned at
+/// their edges rather than left to the sweep, which cannot land on an edge.
+#[test]
+fn test_utci_humidity_limits() {
+    Python::attach(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+        let rust_at = |tdb: f64, rh: f64, limit_inputs: bool, units: Units| {
+            utci(
+                UtciInputs {
+                    tdb: Temperature::from_celsius(tdb),
+                    tr: Temperature::from_celsius(tdb),
+                    v: Speed::from_meters_per_second(1.0),
+                    rh: Humidity::from_percent(rh),
+                },
+                UtciOptions {
+                    units,
+                    limit_inputs,
+                    round_output: false,
+                },
+            )
+        };
+
+        // Humid heat beyond 5 kPa: NaN and no category, in either unit system, rather
+        // than the polynomial's extrapolation into "cold stress".
+        for (tdb, rh) in [(40.0, 80.0), (50.0, 100.0)] {
+            for (units, py_units, py_tdb, py_v) in [
+                (Units::SI, "SI", tdb, 1.0),
+                (Units::IP, "IP", tdb * 1.8 + 32.0, 3.281),
+            ] {
+                let (py_value, py_category) = py_utci_at(&models, py_tdb, py_v, rh, true, py_units);
+                let rust = rust_at(tdb, rh, true, units);
+                assert!(
+                    py_value.is_nan() && py_category.is_none(),
+                    "reference at {tdb}/{rh}"
+                );
+                assert!(rust.utci.is_nan(), "utci at {tdb} °C, {rh} % ({py_units})");
+                assert_eq!(rust.stress_category, None, "category at {tdb} °C, {rh} %");
+            }
+        }
+
+        // Relative humidity just outside, and exactly on, 0 and 100 %.
+        for rh in [-1.0, -1e-9, 100.0 + 1e-9, 101.0] {
+            let (py_value, _) = py_utci_at(&models, 25.0, 1.0, rh, true, "SI");
+            let rust = rust_at(25.0, rh, true, Units::SI);
+            assert!(py_value.is_nan(), "reference at rh={rh}");
+            assert!(rust.utci.is_nan(), "utci at rh={rh}");
+            assert_eq!(rust.stress_category, None, "category at rh={rh}");
+        }
+        for rh in [0.0, 100.0] {
+            let (py_value, py_category) = py_utci_at(&models, 25.0, 1.0, rh, true, "SI");
+            let limited = rust_at(25.0, rh, true, Units::SI);
+            let unlimited = rust_at(25.0, rh, false, Units::SI);
+            assert!(limited.utci.is_finite(), "utci at rh={rh}");
+            assert_eq!(
+                limited.utci, unlimited.utci,
+                "limit changed the value at rh={rh}"
+            );
+            assert_abs_diff_eq!(limited.utci, py_value, epsilon = 1e-9);
+            assert_eq!(
+                limited.stress_category.map(|c| c.as_str()),
+                py_category.as_deref(),
+                "category at rh={rh}"
+            );
+        }
+
+        // At 40 °C this RH gives exactly 5.0 kPa in float64, which the inclusive limit
+        // keeps; 1e-10 % more is rejected.
+        let rh_at_limit = 67.702_065_282_092_02;
+        for (rh, rejected) in [
+            (rh_at_limit - 1e-10, false),
+            (rh_at_limit, false),
+            (rh_at_limit + 1e-10, true),
+        ] {
+            let (py_value, _) = py_utci_at(&models, 40.0, 1.0, rh, true, "SI");
+            let rust = rust_at(40.0, rh, true, Units::SI);
+            assert_eq!(py_value.is_nan(), rejected, "reference at rh={rh}");
+            assert_eq!(rust.utci.is_nan(), rejected, "utci at rh={rh}");
+            if !rejected {
+                assert_abs_diff_eq!(rust.utci, py_value, epsilon = 1e-9);
+            }
+        }
+
+        // `limit_inputs: false` keeps the raw polynomial, however unphysical.
+        let (py_value, py_category) = py_utci_at(&models, 50.0, 1.0, 100.0, false, "SI");
+        let rust = rust_at(50.0, 100.0, false, Units::SI);
+        assert_abs_diff_eq!(py_value, -326.079_232_209_162_9, epsilon = 1e-9);
+        assert_abs_diff_eq!(rust.utci, py_value, epsilon = 1e-9);
+        assert_eq!(py_category.as_deref(), Some("extreme cold stress"));
+        assert_eq!(
+            rust.stress_category.map(|c| c.as_str()),
+            Some("extreme cold stress")
+        );
+    });
+}
+
+/// 4.6.2: JOS3's neutral-temperature search no longer applies ISO 7730's applicability
+/// limits, which exclude the low metabolic rates of light, elderly subjects: under them
+/// the 80-year-old subjects below would initialise with NaN or ~2 °C-discontinuous set
+/// points. Subjects and conditions are upstream's `test_jos3.py`; the whole trajectory is
+/// compared against the live reference, and the public `pmv_ppd_iso` must keep its
+/// limits.
+#[test]
+fn test_jos3_low_metabolic_rate_subjects() {
+    Python::attach(|py| {
+        let models = import_reference(py, "pythermalcomfort.models")
+            .expect("Failed to import pythermalcomfort.models");
+
+        let mut chest_core_set_points = Vec::new();
+        for weight_kg in [69.5f64, 70.0, 80.0] {
+            let label = format!("female/80/1.60/{weight_kg} kg/japanese");
+            let kwargs = [
+                ("height", 1.6f64.into_pyobject(py).unwrap().into_any()),
+                ("weight", weight_kg.into_pyobject(py).unwrap().into_any()),
+                ("age", 80i32.into_pyobject(py).unwrap().into_any()),
+                ("sex", "female".into_pyobject(py).unwrap().into_any()),
+                (
+                    "bmr_equation",
+                    "japanese".into_pyobject(py).unwrap().into_any(),
+                ),
+            ]
+            .into_py_dict(py)
+            .unwrap();
+            let py_model = models
+                .getattr("JOS3")
+                .unwrap()
+                .call((), Some(&kwargs))
+                .unwrap_or_else(|e| panic!("{label}: JOS3() raised: {e}"));
+            py_model.setattr("to", 28.0).unwrap();
+            py_model.setattr("rh", 50.0).unwrap();
+            py_model.setattr("v", 0.1).unwrap();
+            py_model.setattr("clo", 0.5).unwrap();
+            py_model.setattr("par", 1.25).unwrap();
+            py_model
+                .getattr("simulate")
+                .unwrap()
+                .call1((120, 60))
+                .unwrap_or_else(|e| panic!("{label}: simulate raised: {e}"));
+
+            let mut rust_model = Jos3Builder::new()
+                .height(Length::from_meters(1.6))
+                .weight(Mass::from_kilograms(weight_kg))
+                .age(Age::from_years(80.0))
+                .sex(Sex::Female)
+                .bmr_equation(BmrEquation::Japanese)
+                .build()
+                .unwrap_or_else(|e| panic!("{label}: build failed: {e}"));
+            // Straight after construction the core temperatures are the set points.
+            chest_core_set_points.push(rust_model.t_core()[2].as_celsius());
+
+            let mut conditions = rust_model.conditions();
+            conditions.tdb = PerBodyPart::Uniform(Temperature::from_celsius(28.0));
+            conditions.tr = PerBodyPart::Uniform(Temperature::from_celsius(28.0));
+            conditions.rh = PerBodyPart::Uniform(Humidity::from_percent(50.0));
+            conditions.v = PerBodyPart::Uniform(Speed::from_meters_per_second(0.1));
+            conditions.clo = PerBodyPart::Uniform(ClothingInsulation::from_clo(0.5));
+            conditions.par = ActivityRatio::from_ratio(1.25);
+            rust_model
+                .advance(&conditions, 120, Duration::from_secs(60))
+                .unwrap_or_else(|e| panic!("{label}: advance failed: {e}"));
+
+            let results = rust_model.results();
+            assert_eq!(results.t_skin_mean.len(), 121, "{label}");
+            assert!(
+                results
+                    .t_skin_mean
+                    .iter()
+                    .all(|t| t.as_celsius().is_finite()),
+                "{label}: non-finite t_skin_mean"
+            );
+            assert_jos3_matches_python(&py_model, results, &label);
+        }
+
+        // Set points are continuous in body weight: 0.5 kg must not move them ~2 °C.
+        assert!(
+            (chest_core_set_points[1] - chest_core_set_points[0]).abs() < 0.1,
+            "chest core set point jumps from {} to {}",
+            chest_core_set_points[0],
+            chest_core_set_points[1]
+        );
+
+        // Only the internal search drops the limits: the public function still rejects
+        // the out-of-domain neutral condition.
+        let py_pmv: f64 = models
+            .getattr("pmv_ppd_iso")
+            .unwrap()
+            .call1((30.5, 30.5, 0.1, 50.0, 0.79, 0.0))
+            .unwrap()
+            .getattr("pmv")
+            .unwrap()
+            .extract()
+            .unwrap();
+        let rust = pmv_ppd_iso(
+            PmvPpdInputs {
+                tdb: Temperature::from_celsius(30.5),
+                tr: Temperature::from_celsius(30.5),
+                vr: Speed::from_meters_per_second(0.1),
+                rh: Humidity::from_percent(50.0),
+                met: MetabolicRate::from_met(0.79),
+                clo: ClothingInsulation::from_clo(0.0),
+            },
+            Default::default(),
+        );
+        assert!(py_pmv.is_nan(), "reference pmv {py_pmv}");
+        assert!(rust.pmv.is_nan() && rust.ppd.is_nan(), "pmv {}", rust.pmv);
     });
 }

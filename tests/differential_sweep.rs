@@ -612,13 +612,14 @@ fn sweep_set_tmp() {
 
 #[test]
 fn sweep_utci() {
-    // Deliberately spans well beyond the UTCI applicability box so the limit_inputs
-    // masking is exercised in both states rather than only inside the valid region.
+    // Deliberately spans well beyond the UTCI applicability box, humidity included, so
+    // the limit_inputs masking is exercised in both states rather than only inside the
+    // valid region.
     let domain = Domain::new()
         .real("tdb", -60.0, 60.0)
         .real("tr", -60.0, 80.0)
         .real("v", 0.0, 20.0)
-        .real("rh", 0.0, 100.0)
+        .real("rh", -10.0, 110.0)
         .flag("limit_inputs")
         .flag("round_output")
         .enumerated("units", 2);

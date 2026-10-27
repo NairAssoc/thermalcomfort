@@ -1,6 +1,6 @@
 [package]
 name = "thermalcomfort"
-version = "4.6.1"
+version = "4.6.2"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Thermal Comfort Contributors"]
