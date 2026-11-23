@@ -209,9 +209,6 @@ const CONST_T_EQ: f64 = 0.9048374180359595; // exp(-1/10)
 const CONST_T_SK: f64 = 0.7165313105737893; // exp(-1/3)
 const CONST_SW: f64 = 0.9048374180359595; // exp(-1/10)
 
-// MET to W/m² conversion (same as in PET)
-const MET_TO_W_M2: f64 = 58.15;
-
 // Static boundary layer insulation
 const I_A_ST: f64 = 0.111; // m²·K/W
 
@@ -365,7 +362,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         && (!(15.0..=50.0).contains(&tdb)
             || !(0.0..=60.0).contains(&(tr - tdb))
             || !(0.0..=3.0).contains(&v)
-            || !met_range.contains(&(met * MET_TO_W_M2))
+            || !met_range.contains(&(met * MetabolicRate::MET_TO_W_M2))
             || !(0.1..=1.0).contains(&clo)
             || !(p_a_lower..=4.5).contains(&p_a))
     {
@@ -414,7 +411,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
     // Body properties
     let a_dubois = body_surface_area_dubois(options.weight, options.height).as_square_meters();
 
-    let sp_heat = MET_TO_W_M2 * opt_weight / a_dubois;
+    let sp_heat = MetabolicRate::MET_TO_W_M2 * opt_weight / a_dubois;
 
     // Radiating area ratio
     let a_r_du = match posture {
@@ -438,7 +435,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
             // bracket was always negative, so sw_max clamped to its 250 floor (312.5
             // when acclimatised) instead of tracking metabolic rate - which then bound
             // the required sweat rate and shifted t_re by ~1 degC.
-            let mut sw = (met * MET_TO_W_M2 - 32.0) * a_dubois;
+            let mut sw = (met * MetabolicRate::MET_TO_W_M2 - 32.0) * a_dubois;
             sw = sw.clamp(250.0, 400.0);
             if options.acclimatized { sw * 1.25 } else { sw }
         }
@@ -464,7 +461,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
     let walking = walk_sp > 0.0;
     if !walking {
         // ISO 7933 uses a literal 58 here, not the 58.15 met->W/m2 factor.
-        walk_sp = 0.0052 * (met * MET_TO_W_M2 - 58.0);
+        walk_sp = 0.0052 * (met * MetabolicRate::MET_TO_W_M2 - 58.0);
         // `phs.py:622` is the builtin `min(walk_sp, 0.7)`: NaN in the first argument
         // propagates, so `f64::min` (which would return 0.7) is the wrong helper.
         walk_sp = py_min(walk_sp, 0.7);
@@ -530,8 +527,8 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
 
     // Respiratory heat loss
     let t_exp = 28.56 + 0.115 * tdb + 0.641 * p_a;
-    let c_res = 0.001516 * met * MET_TO_W_M2 * (t_exp - tdb);
-    let e_res = 0.00127 * met * MET_TO_W_M2 * (59.34 + 0.53 * tdb - 11.63 * p_a);
+    let c_res = 0.001516 * met * MetabolicRate::MET_TO_W_M2 * (t_exp - tdb);
+    let e_res = 0.00127 * met * MetabolicRate::MET_TO_W_M2 * (59.34 + 0.53 * tdb - 11.63 * p_a);
 
     // Convective heat transfer
     let z = if v_r > 1.0 {
@@ -549,7 +546,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
 
     // Pre-calculate skin temperature equilibrium base values
     let t_sk_eq_cl_base = 12.165 + 0.02017 * tdb + 0.04361 * tr + 0.19354 * p_a - 0.25315 * v
-        + 0.005346 * met * MET_TO_W_M2;
+        + 0.005346 * met * MetabolicRate::MET_TO_W_M2;
     let t_sk_eq_nu_base = 7.191 + 0.064 * tdb + 0.061 * tr + 0.198 * p_a - 0.348 * v;
 
     // Maximum water loss limits
@@ -610,7 +607,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         let t_sk_t_cr_wg0 = t_sk_t_cr_wg;
 
         // Core temperature equilibrium
-        let t_cr_eq_m = 0.0036 * met * MET_TO_W_M2 + 36.6;
+        let t_cr_eq_m = 0.0036 * met * MetabolicRate::MET_TO_W_M2 + 36.6;
         t_cr_eq = t_cr_eq0 * CONST_T_EQ + t_cr_eq_m * (1.0 - CONST_T_EQ);
         let d_stored_eq = sp_heat * (t_cr_eq - t_cr_eq0) * (1.0 - t_sk_t_cr_wg0);
 
@@ -659,9 +656,9 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         let convection = fcl * hc_dyn * (t_cl - tdb);
         let radiation = fcl * h_r * (t_cl - tr);
         let e_max_raw = (p_sk - p_a) / r_t_dyn;
-        let e_req_raw = met * MET_TO_W_M2
+        let e_req_raw = met * MetabolicRate::MET_TO_W_M2
             - d_stored_eq
-            - options.wme.as_met() * MET_TO_W_M2
+            - options.wme.as_met() * MetabolicRate::MET_TO_W_M2
             - c_res
             - e_res
             - convection

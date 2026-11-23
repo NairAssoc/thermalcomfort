@@ -20,27 +20,46 @@
 //! lb, psi and Btu. It is not the British imperial system, though the two agree on these
 //! units.
 //!
-//! | Type | SI unit | IP (inch-pound) unit |
+//! The SI unit is the one pythermalcomfort uses for the quantity, so `as_si()` gives
+//! upstream's number. Where a quantity has several SI scales, `as_si` uses the one named
+//! here and the type's named accessors give the others.
+//!
+//! | Type | SI unit (`as_si`) | IP (inch-pound) unit (`as_ip`) |
 //! |---|---|---|
-//! | [`Temperature`] | °C | °F |
+//! | [`Temperature`] | °C (`as_celsius`) | °F (`as_fahrenheit`) |
 //! | [`TemperatureDelta`] | °C (= K) | °F (× 1.8, no offset) |
-//! | [`Speed`] | m/s | ft/s (× 3.281, pythermalcomfort's factor) |
-//! | [`Length`] | m | ft |
-//! | [`Area`] | m² | ft² |
-//! | [`Mass`] | kg | lb |
-//! | [`Pressure`] | Pa | psi |
-//! | [`Power`] | W | Btu/h |
+//! | [`Speed`] | m/s (`as_meters_per_second`) | ft/s (× 3.281, pythermalcomfort's factor) |
+//! | [`Length`] | m (`as_meters`) | ft (`as_feet`) |
+//! | [`Area`] | m² (`as_square_meters`) | ft² (`as_square_feet`) |
+//! | [`Mass`] | kg (`as_kilograms`) | lb (`as_pounds`) |
+//! | [`Pressure`] | Pa (`as_pascals`) | psi (`as_psi`) |
+//! | [`Power`] | W (`as_watts`) | Btu/h (`as_btu_per_minute` × 60) |
 //! | [`HeatFluxDensity`] | W/m² | Btu/(h·ft²) |
-//! | [`MetabolicRate`] | W/m² | Btu/(h·ft²) (ASHRAE's 1 met = 58.15 W/m² = 18.4 Btu/(h·ft²)) |
-//! | [`ClothingInsulation`] | m²·K/W | ft²·h·°F/Btu |
+//! | [`MetabolicRate`] | W/m² (met via `as_met`) | Btu/(h·ft²) (ASHRAE's 1 met = 58.15 W/m² = 18.4 Btu/(h·ft²)) |
+//! | [`ClothingInsulation`] | m²·K/W (clo, tog via `as_clo`, `as_tog`) | ft²·h·°F/Btu |
 //! | [`AirPermeability`] | L/(m²·s) | ft³/(min·ft²) |
+//! | [`MassFluxDensity`] | g/(h·m²) | lb/(h·ft²) |
+//! | [`VolumeFluxDensity`] | L/(h·m²) | gal/(h·ft²) (US gallon, 3.785 411 784 L) |
+//! | [`VolumeFlow`] | L/h | gal/h (US gallon) |
+//! | [`MassFlow`] | g/s | lb/h |
+//! | [`SpecificEnthalpy`] | J/kg | Btu/lb |
+//! | [`HumidityRatio`] | kg/kg (g/kg via `as_grams_per_kilogram`) | lb/lb (the same number; gr/lb via `as_grains_per_pound`) |
+//! | [`HeatPerArea`] | J/m² (W·min/m² via `as_watt_minutes_per_square_meter`) | Btu/ft² |
+//! | [`ThermalResistance`] | m²·K/W | ft²·h·°F/Btu |
+//! | [`EvaporativeResistance`] | m²·kPa/W | ft²·h·psi/Btu |
+//! | [`PowerRate`] | W/s | Btu/(h·s) |
+//! | [`SweatingCoefficient`] | g/(m²·h·K) | lb/(ft²·h·°F) |
+//! | [`VasodilationCoefficient`] | L/(m²·h·K) | gal/(ft²·h·°F) (US gallon) |
+//! | [`VasoconstrictionCoefficient`] | 1/K | 1/°F |
 //!
 //! # Repeatability: conversion factors and round-off
 //!
 //! A result converted between the systems is reproducible only if the conversion factor
-//! is known. These are the factors this crate uses. Most are exact; four are not, and
-//! the table states how far each is from the exact value, so a result can be reproduced
-//! or cross-checked elsewhere to the last digit.
+//! is known. These are the factors this crate uses. Most are exact; four base factors are
+//! not, every conversion built on one of them inherits its error, and the table states how
+//! far each is from the exact value, so a result can be reproduced or cross-checked
+//! elsewhere to the last digit. "Exact" means the factor is the exact one, rounded once to
+//! `f64` (within 4e-16 relative).
 //!
 //! | Conversion | Factor used | Exact? | Difference from exact |
 //! |---|---|---|---|
@@ -56,6 +75,22 @@
 //! | **met → Btu/(h·ft²)** | **`× 18.4`** (and `× 58.15` to W/m²) | **no** | **−0.18 % (58.15 W/m² is 18.433 Btu/(h·ft²))** |
 //! | m²·K/W → ft²·h·°F/Btu | the ft², °F and Btu factors above | as W → Btu/h | +1.4e-7 relative |
 //! | L/(m²·s) → ft³/(min·ft²) | `× 0.001 × 60 / 0.3048` | yes | — |
+//! | kg/(h·m²) → lb/(h·ft²) | `/ 0.45359237 × 0.3048²` | yes | — |
+//! | L/(h·m²) → gal/(h·ft²) | `/ 3.785411784 × 0.3048²` | yes (US gallon, definition) | — |
+//! | L/h → gal/h | `/ 3.785411784` | yes | — |
+//! | g/s → lb/h | `× 0.001 / 0.45359237 × 3600` | yes | — |
+//! | J/kg → Btu/lb | the Btu factor above, `/ 3600 × 0.45359237` | as W → Btu/h | −1.4e-7 relative (exact: 1 Btu/lb = 2326 J/kg) |
+//! | kg/kg → lb/lb | `× 1` | yes | — |
+//! | kg/kg → g/kg | `× 1000` | yes | — |
+//! | kg/kg → gr/lb | `× 7000` | yes (definition) | — |
+//! | J/m² → Btu/ft² | the Btu factor above, `/ 3600 × 0.3048²` | as W → Btu/h | −1.4e-7 relative |
+//! | J/m² → W·min/m² | `/ 60` | yes | — |
+//! | m²·K/W → ft²·h·°F/Btu ([`ThermalResistance`]) | as [`ClothingInsulation`] | as W → Btu/h | +1.4e-7 relative |
+//! | **m²·kPa/W → ft²·h·psi/Btu** | the ft², psi and Btu factors above | **no** | **−2.5e-7 relative (psi −3.9e-7 and Btu +1.4e-7 combined)** |
+//! | W/s → Btu/(h·s) | the Btu factor above | as W → Btu/h | −1.4e-7 relative |
+//! | g/(m²·h·K) → lb/(ft²·h·°F) | `× 0.001 / 0.45359237 × 0.3048² / 1.8` | yes | — |
+//! | L/(m²·h·K) → gal/(ft²·h·°F) | `/ 3.785411784 × 0.3048² / 1.8` | yes | — |
+//! | 1/K → 1/°F | `/ 1.8` | yes | — |
 //!
 //! Why the four inexact factors are used anyway:
 //!
@@ -97,14 +132,32 @@
 
 use crate::utilities::Units;
 use crate::{
-    AirPermeability, Area, ClothingInsulation, HeatFluxDensity, Length, Mass, MetabolicRate, Power,
-    Pressure, Speed, Temperature, TemperatureDelta,
+    AirPermeability, Area, ClothingInsulation, EvaporativeResistance, HeatFluxDensity, HeatPerArea,
+    HumidityRatio, Length, Mass, MassFlow, MassFluxDensity, MetabolicRate, Power, PowerRate,
+    Pressure, SpecificEnthalpy, Speed, SweatingCoefficient, Temperature, TemperatureDelta,
+    ThermalResistance, VasoconstrictionCoefficient, VasodilationCoefficient, VolumeFlow,
+    VolumeFluxDensity,
 };
+use measurements::pressure::PASCAL_PSI_FACTOR;
 
 /// Feet per metre, exact (1 ft = 0.3048 m).
 const FT_PER_M: f64 = 1.0 / 0.3048;
+/// Square feet per square metre, exact.
+const FT2_PER_M2: f64 = FT_PER_M * FT_PER_M;
+/// Pounds per kilogram, exact (1 lb = 0.453 592 37 kg).
+const LB_PER_KG: f64 = 1.0 / 0.453_592_37;
+/// US gallons per litre, exact (1 gal = 3.785 411 784 L).
+const GAL_PER_L: f64 = 1.0 / 3.785_411_784;
 /// Btu/h per watt, from the same Btu as [`Power`]'s `as_btu_per_minute`.
 const BTU_H_PER_W: f64 = 60.0 / 17.584_266_666_666_67;
+/// Btu per joule, the Btu of [`BTU_H_PER_W`] (1 W·h = 3600 J).
+const BTU_PER_J: f64 = BTU_H_PER_W / 3600.0;
+/// psi per kPa, from the same Pa-per-psi constant as [`Pressure`]'s `as_psi`.
+const PSI_PER_KPA: f64 = 1000.0 / PASCAL_PSI_FACTOR;
+/// °F of difference per K of difference, exact.
+const F_PER_K: f64 = 1.8;
+/// ft²·h·°F/Btu per m²·K/W: ft² per m², °F per K, and the inverse of Btu/h per W.
+const THERMAL_RESISTANCE_IP_PER_SI: f64 = FT2_PER_M2 * F_PER_K / BTU_H_PER_W;
 /// pythermalcomfort's ft/s per m/s (`units_converter`'s `v * 3.281`).
 const FT_S_PER_M_S: f64 = 3.281;
 
@@ -258,16 +311,9 @@ linear_unit_system!(
     "ft²",
     from_square_meters,
     as_square_meters,
-    FT_PER_M * FT_PER_M
+    FT2_PER_M2
 );
-linear_unit_system!(
-    Mass,
-    "kg",
-    "lb",
-    from_kilograms,
-    as_kilograms,
-    1.0 / 0.453_592_37
-);
+linear_unit_system!(Mass, "kg", "lb", from_kilograms, as_kilograms, LB_PER_KG);
 linear_unit_system!(Power, "W", "Btu/h", from_watts, as_watts, BTU_H_PER_W);
 linear_unit_system!(
     HeatFluxDensity,
@@ -275,7 +321,7 @@ linear_unit_system!(
     "Btu/(h·ft²)",
     from_watts_per_square_meter,
     as_watts_per_square_meter,
-    BTU_H_PER_W / (FT_PER_M * FT_PER_M)
+    BTU_H_PER_W / FT2_PER_M2
 );
 linear_unit_system!(
     ClothingInsulation,
@@ -283,8 +329,7 @@ linear_unit_system!(
     "ft²·h·°F/Btu",
     from_m2_k_per_w,
     as_m2_k_per_w,
-    // a resistance: ft² per m², °F per K, and the inverse of Btu/h per W
-    FT_PER_M * FT_PER_M * 1.8 / BTU_H_PER_W
+    THERMAL_RESISTANCE_IP_PER_SI
 );
 linear_unit_system!(
     AirPermeability,
@@ -294,6 +339,114 @@ linear_unit_system!(
     as_l_per_m2_s,
     // L/(m²·s) is mm/s; ft³/(min·ft²) is ft/min
     0.001 * FT_PER_M * 60.0
+);
+linear_unit_system!(
+    MassFluxDensity,
+    "g/(h·m²)",
+    "lb/(h·ft²)",
+    from_grams_per_hour_per_square_meter,
+    as_grams_per_hour_per_square_meter,
+    LB_PER_KG / 1000.0 / FT2_PER_M2
+);
+linear_unit_system!(
+    VolumeFluxDensity,
+    "L/(h·m²)",
+    "gal/(h·ft²)",
+    from_liters_per_hour_per_square_meter,
+    as_liters_per_hour_per_square_meter,
+    GAL_PER_L / FT2_PER_M2
+);
+linear_unit_system!(
+    VolumeFlow,
+    "L/h",
+    "gal/h",
+    from_liters_per_hour,
+    as_liters_per_hour,
+    GAL_PER_L
+);
+linear_unit_system!(
+    MassFlow,
+    "g/s",
+    "lb/h",
+    from_grams_per_second,
+    as_grams_per_second,
+    // kg per g, lb per kg, s per h
+    0.001 * LB_PER_KG * 3600.0
+);
+linear_unit_system!(
+    SpecificEnthalpy,
+    "J/kg",
+    "Btu/lb",
+    from_joules_per_kilogram,
+    as_joules_per_kilogram,
+    BTU_PER_J / LB_PER_KG
+);
+linear_unit_system!(
+    HumidityRatio,
+    "kg/kg",
+    "lb/lb",
+    from_kilograms_per_kilogram,
+    as_kilograms_per_kilogram,
+    // a mass ratio is the same number in any mass unit
+    1.0
+);
+linear_unit_system!(
+    HeatPerArea,
+    "J/m²",
+    "Btu/ft²",
+    from_joules_per_square_meter,
+    as_joules_per_square_meter,
+    BTU_PER_J / FT2_PER_M2
+);
+linear_unit_system!(
+    ThermalResistance,
+    "m²·K/W",
+    "ft²·h·°F/Btu",
+    from_square_meter_kelvins_per_watt,
+    as_square_meter_kelvins_per_watt,
+    THERMAL_RESISTANCE_IP_PER_SI
+);
+linear_unit_system!(
+    EvaporativeResistance,
+    "m²·kPa/W",
+    "ft²·h·psi/Btu",
+    from_square_meter_kilopascals_per_watt,
+    as_square_meter_kilopascals_per_watt,
+    // ft² per m², psi per kPa, and the inverse of Btu/h per W
+    FT2_PER_M2 * PSI_PER_KPA / BTU_H_PER_W
+);
+linear_unit_system!(
+    PowerRate,
+    "W/s",
+    "Btu/(h·s)",
+    from_watts_per_second,
+    as_watts_per_second,
+    BTU_H_PER_W
+);
+linear_unit_system!(
+    SweatingCoefficient,
+    "g/(m²·h·K)",
+    "lb/(ft²·h·°F)",
+    from_grams_per_square_meter_per_hour_per_kelvin,
+    as_grams_per_square_meter_per_hour_per_kelvin,
+    // per kelvin becomes per °F by dividing by 1.8
+    0.001 * LB_PER_KG / FT2_PER_M2 / F_PER_K
+);
+linear_unit_system!(
+    VasodilationCoefficient,
+    "L/(m²·h·K)",
+    "gal/(ft²·h·°F)",
+    from_liters_per_square_meter_per_hour_per_kelvin,
+    as_liters_per_square_meter_per_hour_per_kelvin,
+    GAL_PER_L / FT2_PER_M2 / F_PER_K
+);
+linear_unit_system!(
+    VasoconstrictionCoefficient,
+    "1/K",
+    "1/°F",
+    from_per_kelvin,
+    as_per_kelvin,
+    1.0 / F_PER_K
 );
 
 /// A Celsius value in the unit of `units`, by pythermalcomfort's `units_converter`
@@ -333,6 +486,19 @@ mod tests {
             round_trip::<MetabolicRate>(x);
             round_trip::<ClothingInsulation>(x);
             round_trip::<AirPermeability>(x);
+            round_trip::<MassFluxDensity>(x);
+            round_trip::<VolumeFluxDensity>(x);
+            round_trip::<VolumeFlow>(x);
+            round_trip::<MassFlow>(x);
+            round_trip::<SpecificEnthalpy>(x);
+            round_trip::<HumidityRatio>(x);
+            round_trip::<HeatPerArea>(x);
+            round_trip::<ThermalResistance>(x);
+            round_trip::<EvaporativeResistance>(x);
+            round_trip::<PowerRate>(x);
+            round_trip::<SweatingCoefficient>(x);
+            round_trip::<VasodilationCoefficient>(x);
+            round_trip::<VasoconstrictionCoefficient>(x);
         }
     }
 
@@ -351,6 +517,36 @@ mod tests {
         close(MetabolicRate::from_met(1.0).as_ip(), 18.4, 1e-12);
         close(ClothingInsulation::from_clo(1.0).as_ip(), 0.880_1, 1e-4);
         close(AirPermeability::from_ip(1.0).as_si(), 5.08, 1e-12);
+        close(MassFluxDensity::from_ip(1.0).as_si(), 4_882.427_6, 1e-4);
+        close(VolumeFluxDensity::from_ip(1.0).as_si(), 40.745_833, 1e-6);
+        close(VolumeFlow::from_ip(1.0).as_si(), 3.785_411_784, 1e-12);
+        close(MassFlow::from_ip(1.0).as_si(), 0.125_997_88, 1e-8);
+        close(SpecificEnthalpy::from_ip(1.0).as_si(), 2326.0, 1e-3);
+        close(HumidityRatio::from_ip(0.01).as_si(), 0.01, 1e-15);
+        close(HeatPerArea::from_ip(1.0).as_si(), 11_356.53, 1e-2);
+        close(ThermalResistance::from_si(1.0).as_ip(), 5.678_263, 1e-5);
+        close(EvaporativeResistance::from_ip(1.0).as_si(), 2.185_627, 1e-5);
+        close(PowerRate::from_si(1.0).as_ip(), 3.412_14, 1e-5);
+        close(SweatingCoefficient::from_ip(1.0).as_si(), 8_788.37, 1e-2);
+        close(VasodilationCoefficient::from_ip(1.0).as_si(), 73.3425, 1e-9);
+        close(
+            VasoconstrictionCoefficient::from_si(1.8).as_ip(),
+            1.0,
+            1e-15,
+        );
+        // the named accessors agree with as_si where a type has several SI scales
+        let w = HumidityRatio::from_grams_per_kilogram(12.0);
+        close(w.as_si(), 0.012, 1e-15);
+        close(w.as_grams_per_kilogram(), 12.0, 1e-12);
+        let q = HeatPerArea::from_watt_minutes_per_square_meter(3.0);
+        close(q.as_si(), 180.0, 1e-12);
+        // ThermalResistance and ClothingInsulation share the IP unit and factor
+        let clo = ClothingInsulation::from_clo(1.0);
+        close(
+            ThermalResistance::from_si(clo.as_si()).as_ip(),
+            clo.as_ip(),
+            1e-15,
+        );
         // the measurements crate's own accessors agree where they exist
         let p = Pressure::from_psi(14.7);
         close(p.as_ip(), p.as_psi(), 1e-9);
@@ -399,10 +595,66 @@ mod tests {
         // met: 18.4 Btu/(h·ft²) as a metabolic rate, 18.433 as the same heat flux
         close(MetabolicRate::from_met(1.0).as_ip(), 18.4, 1e-12);
         close(HeatFluxDensity::from_si(58.15).as_ip(), 18.433, 1e-3);
+        // factors built on the Btu: -1.4e-7 relative, like W -> Btu/h
+        let btu_j = 1_055.055_852_62;
+        let ft2 = 0.3048 * 0.3048;
+        close(
+            rel(SpecificEnthalpy::from_si(1.0).as_ip(), 1.0 / 2326.0),
+            -1.4e-7,
+            1e-8,
+        );
+        close(
+            rel(HeatPerArea::from_si(1.0).as_ip(), ft2 / btu_j),
+            -1.4e-7,
+            1e-8,
+        );
+        close(
+            rel(PowerRate::from_si(1.0).as_ip(), 3600.0 / btu_j),
+            -1.4e-7,
+            1e-8,
+        );
+        close(
+            rel(
+                ThermalResistance::from_si(1.0).as_ip(),
+                1.8 * btu_j / 3600.0 / ft2,
+            ),
+            1.4e-7,
+            1e-8,
+        );
+        // m²·kPa/W -> ft²·h·psi/Btu: psi and Btu combined, -2.5e-7 relative
+        close(
+            rel(
+                EvaporativeResistance::from_si(1.0).as_ip(),
+                1000.0 / 6_894.757_293_168 * btu_j / 3600.0 / ft2,
+            ),
+            -2.5e-7,
+            1e-8,
+        );
         // exact factors
         close(Length::from_ip(1.0).as_si(), 0.3048, 1e-16);
         close(Mass::from_ip(1.0).as_si(), 0.453_592_37, 1e-16);
         close(TemperatureDelta::from_si(1.0).as_ip(), 1.8, 1e-16);
+        let exact = |got: f64, want: f64| close(rel(got, want), 0.0, 4e-16);
+        exact(MassFluxDensity::from_ip(1.0).as_si(), 453.592_37 / ft2);
+        exact(VolumeFluxDensity::from_ip(1.0).as_si(), 3.785_411_784 / ft2);
+        exact(VolumeFlow::from_ip(1.0).as_si(), 3.785_411_784);
+        exact(MassFlow::from_ip(1.0).as_si(), 453.592_37 / 3600.0);
+        exact(HumidityRatio::from_si(0.01).as_ip(), 0.01);
+        exact(HumidityRatio::from_si(0.01).as_grams_per_kilogram(), 10.0);
+        exact(HumidityRatio::from_si(0.01).as_grains_per_pound(), 70.0);
+        exact(
+            HeatPerArea::from_si(120.0).as_watt_minutes_per_square_meter(),
+            2.0,
+        );
+        exact(
+            SweatingCoefficient::from_ip(1.0).as_si(),
+            453.592_37 / ft2 * 1.8,
+        );
+        exact(
+            VasodilationCoefficient::from_ip(1.0).as_si(),
+            3.785_411_784 / ft2 * 1.8,
+        );
+        exact(VasoconstrictionCoefficient::from_ip(1.0).as_si(), 1.8);
     }
 
     #[test]

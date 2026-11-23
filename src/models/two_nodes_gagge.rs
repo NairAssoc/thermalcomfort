@@ -597,9 +597,8 @@ fn gagge_two_nodes_optimized(
         et_old = et;
     }
 
-    let met_to_w_m2 = 58.15;
-    let tbm_l = (0.194 / met_to_w_m2) * rm + 36.301; // lower limit for evaporative regulation
-    let tbm_h = (0.347 / met_to_w_m2) * rm + 36.669; // upper limit for evaporative regulation
+    let tbm_l = (0.194 / MetabolicRate::MET_TO_W_M2) * rm + 36.301; // lower limit for evaporative regulation
+    let tbm_h = (0.347 / MetabolicRate::MET_TO_W_M2) * rm + 36.669; // upper limit for evaporative regulation
 
     let mut t_sens = 0.4685 * (t_body - tbm_l); // predicted thermal sensation
     if t_body >= tbm_l && t_body < tbm_h {

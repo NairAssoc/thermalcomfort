@@ -13,7 +13,6 @@
 //!
 //! - ISO 11079:2007 - Ergonomics of the thermal environment
 
-use crate::constants::MET_TO_W_M2;
 use crate::utilities::{np_minimum, round_to};
 use crate::{AirPermeability, ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
 use core::time::Duration;
@@ -194,8 +193,8 @@ pub fn ireq(inputs: IreqInputs, options: IreqOptions) -> IreqResult {
     let rh_pct = rh.as_percent();
     let walk_sp_ms = walk_sp.as_meters_per_second();
     // ISO 11079 works in W/m², not met
-    let met_w = met.as_met() * MET_TO_W_M2;
-    let wme_w = options.wme.as_met() * MET_TO_W_M2;
+    let met_w = met.as_met() * MetabolicRate::MET_TO_W_M2;
+    let wme_w = options.wme.as_met() * MetabolicRate::MET_TO_W_M2;
     let clo_m2c_w = clo.as_clo() * CLO_TO_M2K_W;
     let p = p.as_l_per_m2_s();
 

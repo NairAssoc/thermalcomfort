@@ -60,7 +60,7 @@
 pub struct ReadmeExamples;
 
 pub mod clothing;
-pub mod constants;
+pub(crate) mod constants;
 pub mod environment;
 pub mod models;
 pub mod numerical;
@@ -88,6 +88,9 @@ pub use measurements::{Angle, Area, Humidity, Length, Mass, Power, Pressure, Spe
 /// the two apart stops a gradient being handed to something expecting an absolute
 /// reading, and makes the unit explicit at the API boundary instead of leaving it
 /// implied by a bare `f64`.
+///
+/// Units: SI °C, equal to K (`as_si`, [`as_celsius`](Self::as_celsius)); IP (inch-pound) °F
+/// (`as_ip`, [`as_fahrenheit`](Self::as_fahrenheit)), × 1.8 with no offset.
 ///
 /// # Examples
 ///
@@ -127,6 +130,9 @@ impl TemperatureDelta {
 /// ISO 11079 expresses this in litres per square metre per second: the rate at which
 /// air passes through the fabric. It is a distinct dimension from air speed, so it gets
 /// its own type rather than reusing [`Speed`].
+///
+/// Units: SI L/(m²·s) (`as_si`, [`as_l_per_m2_s`](Self::as_l_per_m2_s)); IP (inch-pound)
+/// ft³/(min·ft²) (`as_ip`).
 ///
 /// # Examples
 ///
@@ -244,6 +250,10 @@ impl MaxSkinWettedness {
 /// Represents thermal resistance of clothing per unit body surface area.
 /// 1 clo = 0.155 m²·K/W ≈ the insulation of a typical business suit.
 ///
+/// Units: SI m²·K/W (`as_si`, [`as_m2_k_per_w`](Self::as_m2_k_per_w)); IP (inch-pound)
+/// ft²·h·°F/Btu (`as_ip`). [`as_clo`](Self::as_clo) and [`as_tog`](Self::as_tog) give the
+/// clo and tog scales.
+///
 /// # Constructors
 ///
 /// - [`from_clo(0.5)`](ClothingInsulation::from_clo) — primary; clo values found in ASHRAE 55 / ISO 7730 clothing tables
@@ -319,6 +329,10 @@ impl Default for ClothingInsulation {
 ///
 /// Represents metabolic heat production per unit body surface area.
 /// 1 met = 58.15 W/m², the resting metabolic rate of a seated person.
+///
+/// Units: SI W/m² (`as_si`, [`as_w_per_m2`](Self::as_w_per_m2)); IP (inch-pound)
+/// Btu/(h·ft²) (`as_ip`, [`as_btu_per_h_ft2`](Self::as_btu_per_h_ft2)), by ASHRAE's
+/// 1 met = 18.4 Btu/(h·ft²). [`as_met`](Self::as_met) gives the met scale.
 ///
 /// # Constructors
 ///
@@ -402,6 +416,9 @@ impl Default for MetabolicRate {
 /// [`Power`] alone would be watts over the whole body. Keeping the two apart stops a
 /// per-area flux being summed with a whole-body power. Signed: heat flows both ways.
 ///
+/// Units: SI W/m² (`as_si`, [`as_watts_per_square_meter`](Self::as_watts_per_square_meter));
+/// IP (inch-pound) Btu/(h·ft²) (`as_ip`).
+///
 /// # Examples
 ///
 /// ```
@@ -454,6 +471,471 @@ impl CardiacIndex {
 
     /// Value in litres per minute per square metre [L/(min·m²)]
     pub const fn as_liters_per_minute_per_square_meter(self) -> f64 {
+        self.0
+    }
+}
+
+/// Mass flow per unit area, in grams per hour per square metre.
+///
+/// The two-node models report regulatory sweating as a rate per unit of body surface area.
+/// pythermalcomfort quotes it in mL/(h·m²), which is the same number at sweat's 1 g/mL.
+/// Distinct from [`MassFlow`], which is a whole-body rate; skin blood flow is a
+/// [`VolumeFluxDensity`].
+///
+/// Units: SI g/(h·m²) (`as_si`, [`as_grams_per_hour_per_square_meter`](Self::as_grams_per_hour_per_square_meter));
+/// IP (inch-pound) lb/(h·ft²) (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{MassFluxDensity, UnitSystem};
+///
+/// let m_rsw = MassFluxDensity::from_grams_per_hour_per_square_meter(500.0);
+/// assert!((m_rsw.as_grams_per_hour_per_square_meter() - 500.0).abs() < 1e-12);
+/// // 1 lb/(h·ft²) = 4 882.427 6 g/(h·m²)
+/// assert!((MassFluxDensity::from_ip(1.0).as_si() - 4_882.427_6).abs() < 1e-4);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct MassFluxDensity(f64);
+
+impl MassFluxDensity {
+    /// Construct from grams per hour per square metre [g/(h·m²)]
+    pub const fn from_grams_per_hour_per_square_meter(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in grams per hour per square metre [g/(h·m²)]
+    pub const fn as_grams_per_hour_per_square_meter(self) -> f64 {
+        self.0
+    }
+}
+
+/// Volume flow per unit area, in litres per hour per square metre.
+///
+/// Skin blood flow normalised by body surface area. pythermalcomfort quotes it in
+/// kg/(h·m²), the same number at the 1 kg/L its heat balance assumes for blood. Distinct from [`VolumeFlow`],
+/// which is a whole-body or per-segment rate.
+///
+/// Units: SI L/(h·m²) (`as_si`, [`as_liters_per_hour_per_square_meter`](Self::as_liters_per_hour_per_square_meter));
+/// IP (inch-pound) gal/(h·ft²) (`as_ip`), in US gallons of 3.785 411 784 L.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{UnitSystem, VolumeFluxDensity};
+///
+/// let skbf = VolumeFluxDensity::from_liters_per_hour_per_square_meter(6.3);
+/// assert!((skbf.as_liters_per_hour_per_square_meter() - 6.3).abs() < 1e-12);
+/// // 1 gal/(h·ft²) = 40.745 833 L/(h·m²)
+/// assert!((VolumeFluxDensity::from_ip(1.0).as_si() - 40.745_833).abs() < 1e-6);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct VolumeFluxDensity(f64);
+
+impl VolumeFluxDensity {
+    /// Construct from litres per hour per square metre [L/(h·m²)]
+    pub const fn from_liters_per_hour_per_square_meter(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in litres per hour per square metre [L/(h·m²)]
+    pub const fn as_liters_per_hour_per_square_meter(self) -> f64 {
+        self.0
+    }
+}
+
+/// Volume flow rate, in litres per hour.
+///
+/// JOS3 reports cardiac output and every segment's blood flow in L/h.
+///
+/// Units: SI L/h (`as_si`, [`as_liters_per_hour`](Self::as_liters_per_hour)); IP
+/// (inch-pound) gal/h (`as_ip`), in US gallons of 3.785 411 784 L.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{UnitSystem, VolumeFlow};
+///
+/// let cardiac_output = VolumeFlow::from_liters_per_hour(290.0);
+/// assert!((cardiac_output.as_liters_per_hour() - 290.0).abs() < 1e-12);
+/// // 1 gal/h = 3.785 411 784 L/h
+/// assert!((VolumeFlow::from_ip(1.0).as_si() - 3.785_411_784).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct VolumeFlow(f64);
+
+impl VolumeFlow {
+    /// Construct from litres per hour [L/h]
+    pub const fn from_liters_per_hour(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in litres per hour [L/h]
+    pub const fn as_liters_per_hour(self) -> f64 {
+        self.0
+    }
+}
+
+/// Mass flow rate, in grams per second.
+///
+/// JOS3 reports the body's weight loss by evaporation and respiration in g/s.
+///
+/// Units: SI g/s (`as_si`, [`as_grams_per_second`](Self::as_grams_per_second)); IP
+/// (inch-pound) lb/h (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{MassFlow, UnitSystem};
+///
+/// let weight_loss = MassFlow::from_grams_per_second(0.02);
+/// assert!((weight_loss.as_grams_per_second() - 0.02).abs() < 1e-12);
+/// // 1 lb/h = 0.125 997 88 g/s
+/// assert!((MassFlow::from_ip(1.0).as_si() - 0.125_997_88).abs() < 1e-8);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct MassFlow(f64);
+
+impl MassFlow {
+    /// Construct from grams per second [g/s]
+    pub const fn from_grams_per_second(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in grams per second [g/s]
+    pub const fn as_grams_per_second(self) -> f64 {
+        self.0
+    }
+}
+
+/// Specific enthalpy: energy per unit mass, in joules per kilogram.
+///
+/// The psychrometric functions give moist-air enthalpy per kilogram of dry air.
+///
+/// Units: SI J/kg (`as_si`, [`as_joules_per_kilogram`](Self::as_joules_per_kilogram)); IP
+/// (inch-pound) Btu/lb (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{SpecificEnthalpy, UnitSystem};
+///
+/// let h = SpecificEnthalpy::from_joules_per_kilogram(50_000.0);
+/// assert!((h.as_joules_per_kilogram() - 50_000.0).abs() < 1e-9);
+/// // 1 Btu/lb = 2326 J/kg
+/// assert!((SpecificEnthalpy::from_ip(1.0).as_si() - 2326.0).abs() < 1e-3);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct SpecificEnthalpy(f64);
+
+impl SpecificEnthalpy {
+    /// Construct from joules per kilogram [J/kg]
+    pub const fn from_joules_per_kilogram(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in joules per kilogram [J/kg]
+    pub const fn as_joules_per_kilogram(self) -> f64 {
+        self.0
+    }
+}
+
+/// Humidity ratio: mass of water vapour per unit mass of dry air.
+///
+/// A mass ratio, so the same number in any consistent mass unit, but it is quoted in
+/// several scales: kg/kg in the psychrometric equations, g/kg on charts, and grains per
+/// pound in US practice.
+///
+/// Units: SI kg/kg (`as_si`, [`as_kilograms_per_kilogram`](Self::as_kilograms_per_kilogram));
+/// IP (inch-pound) lb/lb (`as_ip`), the same number. [`as_grams_per_kilogram`](Self::as_grams_per_kilogram)
+/// gives the other SI scale, g/kg, and [`as_grains_per_pound`](Self::as_grains_per_pound)
+/// the US one, gr/lb (7000 gr = 1 lb).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{HumidityRatio, UnitSystem};
+///
+/// let w = HumidityRatio::from_grams_per_kilogram(10.0);
+/// assert!((w.as_kilograms_per_kilogram() - 0.01).abs() < 1e-15);
+/// assert!((w.as_si() - 0.01).abs() < 1e-15);
+/// assert!((w.as_ip() - 0.01).abs() < 1e-15);
+/// assert!((w.as_grains_per_pound() - 70.0).abs() < 1e-12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct HumidityRatio(f64);
+
+impl HumidityRatio {
+    /// Grains per pound, exact (1 lb = 7000 gr)
+    const GRAINS_PER_POUND: f64 = 7000.0;
+
+    /// Construct from kilograms of water vapour per kilogram of dry air [kg/kg]
+    pub const fn from_kilograms_per_kilogram(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Construct from grams of water vapour per kilogram of dry air [g/kg]
+    pub const fn from_grams_per_kilogram(value: f64) -> Self {
+        Self(value / 1000.0)
+    }
+
+    /// Value in kilograms of water vapour per kilogram of dry air [kg/kg]
+    pub const fn as_kilograms_per_kilogram(self) -> f64 {
+        self.0
+    }
+
+    /// Value in grams of water vapour per kilogram of dry air [g/kg]
+    pub const fn as_grams_per_kilogram(self) -> f64 {
+        self.0 * 1000.0
+    }
+
+    /// Value in grains of water vapour per pound of dry air [gr/lb]
+    pub const fn as_grains_per_pound(self) -> f64 {
+        self.0 * Self::GRAINS_PER_POUND
+    }
+}
+
+/// Heat per unit area: an energy density over a surface, in joules per square metre.
+///
+/// PHS accumulates its evaporative load per unit of body surface area in W·min/m², which
+/// [`from_watt_minutes_per_square_meter`](Self::from_watt_minutes_per_square_meter) and
+/// [`as_watt_minutes_per_square_meter`](Self::as_watt_minutes_per_square_meter) read and
+/// build (1 W·min/m² = 60 J/m²).
+///
+/// Units: SI J/m² (`as_si`, [`as_joules_per_square_meter`](Self::as_joules_per_square_meter));
+/// IP (inch-pound) Btu/ft² (`as_ip`). W·min/m² is the other SI scale, through the named
+/// accessors above.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{HeatPerArea, UnitSystem};
+///
+/// let load = HeatPerArea::from_watt_minutes_per_square_meter(2.0);
+/// assert!((load.as_joules_per_square_meter() - 120.0).abs() < 1e-12);
+/// assert!((load.as_si() - 120.0).abs() < 1e-12);
+/// // 1 Btu/ft² = 11 356.53 J/m²
+/// assert!((HeatPerArea::from_ip(1.0).as_si() - 11_356.53).abs() < 0.01);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct HeatPerArea(f64);
+
+impl HeatPerArea {
+    /// Construct from joules per square metre [J/m²]
+    pub const fn from_joules_per_square_meter(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Construct from watt-minutes per square metre [W·min/m²] (1 W·min/m² = 60 J/m²)
+    pub const fn from_watt_minutes_per_square_meter(value: f64) -> Self {
+        Self(value * 60.0)
+    }
+
+    /// Value in joules per square metre [J/m²]
+    pub const fn as_joules_per_square_meter(self) -> f64 {
+        self.0
+    }
+
+    /// Value in watt-minutes per square metre [W·min/m²] (1 W·min/m² = 60 J/m²)
+    pub const fn as_watt_minutes_per_square_meter(self) -> f64 {
+        self.0 / 60.0
+    }
+}
+
+/// Dry (sensible) thermal resistance per unit area, in square metre kelvins per watt.
+///
+/// A general resistance, such as a boundary air layer's. [`ClothingInsulation`] is the same
+/// dimension built around the clo scale, for clothing ensembles.
+///
+/// Units: SI m²·K/W (`as_si`, [`as_square_meter_kelvins_per_watt`](Self::as_square_meter_kelvins_per_watt));
+/// IP (inch-pound) ft²·h·°F/Btu (`as_ip`), the same IP unit and factor as
+/// [`ClothingInsulation`].
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{ThermalResistance, UnitSystem};
+///
+/// let r_a = ThermalResistance::from_square_meter_kelvins_per_watt(0.11);
+/// assert!((r_a.as_square_meter_kelvins_per_watt() - 0.11).abs() < 1e-12);
+/// // 1 m²·K/W = 5.678 263 ft²·h·°F/Btu
+/// assert!((ThermalResistance::from_si(1.0).as_ip() - 5.678_263).abs() < 1e-5);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct ThermalResistance(f64);
+
+impl ThermalResistance {
+    /// Construct from square metre kelvins per watt [m²·K/W]
+    pub const fn from_square_meter_kelvins_per_watt(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in square metre kelvins per watt [m²·K/W]
+    pub const fn as_square_meter_kelvins_per_watt(self) -> f64 {
+        self.0
+    }
+}
+
+/// Evaporative resistance per unit area, in square metre kilopascals per watt.
+///
+/// The resistance to latent heat transfer of clothing or a boundary layer: the
+/// water-vapour pressure difference, per unit of evaporative heat flux, across it.
+///
+/// Units: SI m²·kPa/W (`as_si`, [`as_square_meter_kilopascals_per_watt`](Self::as_square_meter_kilopascals_per_watt));
+/// IP (inch-pound) ft²·h·psi/Btu (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{EvaporativeResistance, UnitSystem};
+///
+/// let r_e = EvaporativeResistance::from_square_meter_kilopascals_per_watt(0.015);
+/// assert!((r_e.as_square_meter_kilopascals_per_watt() - 0.015).abs() < 1e-12);
+/// // 1 ft²·h·psi/Btu = 2.185 627 m²·kPa/W
+/// assert!((EvaporativeResistance::from_ip(1.0).as_si() - 2.185_627).abs() < 1e-5);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct EvaporativeResistance(f64);
+
+impl EvaporativeResistance {
+    /// Construct from square metre kilopascals per watt [m²·kPa/W]
+    pub const fn from_square_meter_kilopascals_per_watt(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in square metre kilopascals per watt [m²·kPa/W]
+    pub const fn as_square_meter_kilopascals_per_watt(self) -> f64 {
+        self.0
+    }
+}
+
+/// Rate of change of a power, in watts per second.
+///
+/// JOS3 can cap how fast shivering thermogenesis rises or falls (Asaka, 2016: 0.0077 W/s).
+///
+/// Units: SI W/s (`as_si`, [`as_watts_per_second`](Self::as_watts_per_second)); IP
+/// (inch-pound) Btu/(h·s) (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{PowerRate, UnitSystem};
+///
+/// let limit = PowerRate::from_watts_per_second(0.0077);
+/// assert!((limit.as_watts_per_second() - 0.0077).abs() < 1e-15);
+/// // 1 W/s = 3.412 14 Btu/(h·s)
+/// assert!((PowerRate::from_si(1.0).as_ip() - 3.412_14).abs() < 1e-5);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct PowerRate(f64);
+
+impl PowerRate {
+    /// Construct from watts per second [W/s]
+    pub const fn from_watts_per_second(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in watts per second [W/s]
+    pub const fn as_watts_per_second(self) -> f64 {
+        self.0
+    }
+}
+
+/// Driving coefficient of regulatory sweating, in grams per square metre per hour per kelvin.
+///
+/// The two-node models' `c_sw`: the sweat rate, in g/(m²·h), that each kelvin of mean body
+/// temperature above its set point drives (`reg_sw = c_sw · warm_b · exp(warm_sk / 10.7)`).
+///
+/// Units: SI g/(m²·h·K) (`as_si`, [`as_grams_per_square_meter_per_hour_per_kelvin`](Self::as_grams_per_square_meter_per_hour_per_kelvin));
+/// IP (inch-pound) lb/(ft²·h·°F) (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{SweatingCoefficient, UnitSystem};
+///
+/// let c_sw = SweatingCoefficient::from_grams_per_square_meter_per_hour_per_kelvin(170.0);
+/// assert!((c_sw.as_grams_per_square_meter_per_hour_per_kelvin() - 170.0).abs() < 1e-12);
+/// // 1 lb/(ft²·h·°F) = 8788.37 g/(m²·h·K)
+/// assert!((SweatingCoefficient::from_ip(1.0).as_si() - 8788.37).abs() < 0.01);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct SweatingCoefficient(f64);
+
+impl SweatingCoefficient {
+    /// Construct from grams per square metre per hour per kelvin [g/(m²·h·K)]
+    pub const fn from_grams_per_square_meter_per_hour_per_kelvin(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in grams per square metre per hour per kelvin [g/(m²·h·K)]
+    pub const fn as_grams_per_square_meter_per_hour_per_kelvin(self) -> f64 {
+        self.0
+    }
+}
+
+/// Driving coefficient of vasodilation, in litres per square metre per hour per kelvin.
+///
+/// The two-node models' `c_dil`: the skin blood flow, in L/(m²·h), that each kelvin of core
+/// temperature above its set point adds (`skbf = (skbf_n + c_dil · warm_c) / (1 + c_str · cold_s)`).
+///
+/// Units: SI L/(m²·h·K) (`as_si`, [`as_liters_per_square_meter_per_hour_per_kelvin`](Self::as_liters_per_square_meter_per_hour_per_kelvin));
+/// IP (inch-pound) gal/(ft²·h·°F) (`as_ip`), in US gallons of 3.785 411 784 L.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{UnitSystem, VasodilationCoefficient};
+///
+/// let c_dil = VasodilationCoefficient::from_liters_per_square_meter_per_hour_per_kelvin(120.0);
+/// assert!((c_dil.as_liters_per_square_meter_per_hour_per_kelvin() - 120.0).abs() < 1e-12);
+/// // 1 gal/(ft²·h·°F) = 73.3425 L/(m²·h·K)
+/// assert!((VasodilationCoefficient::from_ip(1.0).as_si() - 73.3425).abs() < 1e-9);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct VasodilationCoefficient(f64);
+
+impl VasodilationCoefficient {
+    /// Construct from litres per square metre per hour per kelvin [L/(m²·h·K)]
+    pub const fn from_liters_per_square_meter_per_hour_per_kelvin(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value in litres per square metre per hour per kelvin [L/(m²·h·K)]
+    pub const fn as_liters_per_square_meter_per_hour_per_kelvin(self) -> f64 {
+        self.0
+    }
+}
+
+/// Driving coefficient of vasoconstriction, per kelvin.
+///
+/// The two-node models' `c_str`: how much each kelvin of skin temperature below its set
+/// point adds to the divisor of skin blood flow (the `1 + c_str · cold_s` denominator).
+///
+/// Units: SI 1/K (`as_si`, [`as_per_kelvin`](Self::as_per_kelvin)); IP (inch-pound) 1/°F
+/// (`as_ip`).
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::{UnitSystem, VasoconstrictionCoefficient};
+///
+/// let c_str = VasoconstrictionCoefficient::from_per_kelvin(0.5);
+/// assert!((c_str.as_per_kelvin() - 0.5).abs() < 1e-15);
+/// // 0.5 per kelvin is 0.5 / 1.8 per °F
+/// assert!((c_str.as_ip() - 0.5 / 1.8).abs() < 1e-15);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct VasoconstrictionCoefficient(f64);
+
+impl VasoconstrictionCoefficient {
+    /// Construct from a coefficient per kelvin [1/K]
+    pub const fn from_per_kelvin(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// Value per kelvin [1/K]
+    pub const fn as_per_kelvin(self) -> f64 {
         self.0
     }
 }
