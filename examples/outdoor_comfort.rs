@@ -4,9 +4,9 @@
 //! for assessing outdoor thermal conditions and heat stress.
 
 use thermalcomfort::environment::scale_wind_speed_log;
-use thermalcomfort::models::{UtciInputs, WbgtInputs, WbgtOptions, utci, wbgt};
+use thermalcomfort::models::{UtciInputs, UtciOptions, WbgtInputs, WbgtOptions, utci, wbgt};
 use thermalcomfort::psychrometrics::wet_bulb_temperature;
-use thermalcomfort::{Humidity, Length, Speed, Temperature};
+use thermalcomfort::{Humidity, Length, Speed, Temperature, Units};
 
 fn main() {
     println!("=== Outdoor Thermal Comfort Assessment ===\n");
@@ -43,6 +43,21 @@ fn main() {
 
     println!("UTCI Assessment:");
     println!("  UTCI: {:.1}°C", utci_result1.utci);
+    // UTCI is an index, so it is returned in the unit `units` selects (°C or °F),
+    // rounded there as upstream does
+    let utci_ip = utci(
+        UtciInputs {
+            tdb: tdb1,
+            tr: tr1,
+            v: v1,
+            rh: rh1,
+        },
+        UtciOptions {
+            units: Units::IP,
+            ..Default::default()
+        },
+    );
+    println!("  UTCI (IP, inch-pound): {:.1}°F", utci_ip.utci);
     println!(
         "  Thermal stress: {}",
         utci_result1.stress_category.map_or("n/a", |c| c.as_str())

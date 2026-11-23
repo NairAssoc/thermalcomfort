@@ -7,7 +7,7 @@ use thermalcomfort::environment::{
     RunningMeanOutdoorTemperatureOptions, running_mean_outdoor_temperature,
 };
 use thermalcomfort::models::{AdaptiveInputs, adaptive_ashrae, adaptive_en};
-use thermalcomfort::{Speed, Temperature};
+use thermalcomfort::{Speed, Temperature, UnitSystem};
 
 fn main() {
     println!("=== Adaptive Thermal Comfort Models ===\n");
@@ -55,7 +55,12 @@ fn main() {
         Default::default(),
     );
 
-    println!("  Comfort temperature:    {:.1}°C", ashrae_result.tmp_cmf);
+    // Every result reads in SI (°C) or IP (inch-pound, °F)
+    println!(
+        "  Comfort temperature:    {:.1} °C ({:.1} °F)",
+        ashrae_result.tmp_cmf.as_si(),
+        ashrae_result.tmp_cmf.as_ip()
+    );
     println!(
         "  80% acceptability:      {:.1}°C to {:.1}°C",
         ashrae_result.tmp_cmf_80_low, ashrae_result.tmp_cmf_80_up

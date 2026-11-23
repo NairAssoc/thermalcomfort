@@ -29,13 +29,20 @@ pub fn ms_to_speed(speed_ms: f64) -> Speed {
     Speed::from_meters_per_second(speed_ms)
 }
 
-/// Units for thermal comfort calculations
+/// Unit system: SI or IP (inch-pound).
+///
+/// Every input and result is a typed quantity, so this never changes what a value means.
+/// Where a model takes it, it selects the unit a result is rounded in, as pythermalcomfort's
+/// `units` option does. Read any quantity in either system with
+/// [`UnitSystem::as_si`](crate::UnitSystem::as_si) and
+/// [`UnitSystem::as_ip`](crate::UnitSystem::as_ip); the
+/// [`unit_system`](crate::unit_system) module lists the unit of each type.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Units {
-    /// SI (International System of Units)
+    /// SI (International System of Units): °C, m, m/s, Pa, W
     #[default]
     SI,
-    /// IP (Imperial Units)
+    /// IP (inch-pound, the US customary units ASHRAE publishes in): °F, ft, ft/s, psi, Btu
     IP,
 }
 

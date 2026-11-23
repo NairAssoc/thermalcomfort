@@ -54,6 +54,29 @@ Defined in this crate:
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
 
+Every type with a distinct inch-pound unit also implements `UnitSystem`, so a caller working
+in one system reads and builds everything with one pair of methods: `as_si()`/`from_si()`
+(°C, m, m/s, m², kg, Pa, W, W/m²) and `as_ip()`/`from_ip()`. **IP is inch-pound**, the US
+customary units ASHRAE publishes in: °F, ft, ft/s, ft², lb, psi, Btu/h, Btu/(h·ft²). The
+`unit_system` module documents the unit of every type. A model's `units` option never
+changes what a value means; it selects the unit pythermalcomfort rounds the result in.
+
+Four IP conversions are not exact, and anyone reproducing a result elsewhere needs them:
+air speed uses pythermalcomfort's **3.281 ft/s per m/s** (exact: 3.280840), so an IP air
+speed means what it means upstream; metabolic rate uses ASHRAE's **1 met = 18.4
+Btu/(h·ft²)** (exact: 18.433); psi and Btu use the `measurements` crate's constants
+(within 4e-7). The `unit_system` module documentation lists every factor and the
+round-off rules: temperatures stored in kelvin, results rounded in the unit `units`
+selects, and the two rounding rules upstream uses.
+
+```rust
+use thermalcomfort::{Speed, Temperature, UnitSystem};
+
+let t = Temperature::from_ip(86.0); // °F
+let v = Speed::from_ip(2.6);        // ft/s
+println!("{:.1} °C, {:.2} m/s", t.as_si(), v.as_si());
+```
+
 Also defined here and used on **results**, not just inputs:
 - `HeatFluxDensity` - a density of heat flow rate (W/m²), distinct from `Power` over the
   whole body
@@ -154,6 +177,7 @@ function appears in none, so they cannot drift from the API. Run one with
 |---|---|
 | `basic_pmv` | PMV/PPD under ISO 7730 and the relative air speed correction |
 | `typed_api` | The typed-quantity API: inputs in any unit, results read back in any unit, ISO against ASHRAE PMV |
+| `unit_systems` | `as_si`/`as_ip` and `from_si`/`from_ip` on every quantity type: the same conditions entered and read entirely in SI, then entirely in IP (inch-pound) |
 | `pmv_variants` | ASHRAE PMV with its options, the adaptive (`pmv_a`), expectancy (`pmv_e`) and ATHB variants, and the cooling effect of elevated air speed |
 | `adaptive_comfort` | Adaptive comfort under ASHRAE 55 and EN 16798, from a running mean outdoor temperature |
 | `two_node_models` | The Gagge two-node model, SET, the Ji variant, the sleep model's minute-by-minute night, and fan use in heatwaves |

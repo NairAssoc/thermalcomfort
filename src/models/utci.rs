@@ -105,17 +105,9 @@ pub struct UtciInputs {
 /// Options for UTCI calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UtciOptions {
-    /// Unit system the result is expressed in.
-    ///
-    /// Unlike [`cooling_effect`](fn@crate::models::cooling_effect)'s `Units::IP`, which
-    /// rescales a delta by a non-physical literal factor, `utci.py:89-90,126-130` does a
-    /// genuine SI/IP temperature conversion: it converts typed inputs from °F before
-    /// computing (moot here -- typed [`Temperature`]/[`Speed`] inputs already carry
-    /// their true SI value regardless of `units`) and converts the SI result to °F
-    /// afterwards, **rounding in that output unit**. That output-side rounding is the
-    /// real, reproducible half of the gap: `round(utci_f, 1)` is not the same number as
-    /// converting an already-Celsius-rounded value, so it is replicated here rather than
-    /// derived from the SI result after the fact.
+    /// Unit system, SI or IP (inch-pound), of the result: the UTCI is an `f64` index, so
+    /// it is returned in °C for `SI` and °F for `IP`, rounded in that unit as upstream does.
+    /// The stress category always comes from the Celsius value.
     pub units: Units,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
@@ -257,10 +249,7 @@ pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
     // utci.py:126-130: a genuine SI->IP temperature conversion of the *result*, applied
     // after the polynomial and the limit check, not a rescale of typed input units (the
     // typed `Temperature`/`Speed` inputs above are already exact regardless of `units`).
-    let mut utci_out = match options.units {
-        Units::SI => utci_value,
-        Units::IP => utci_value * 9.0 / 5.0 + 32.0,
-    };
+    let mut utci_out = crate::unit_system::celsius_in_units(utci_value, options.units);
 
     // utci.py:145-147: both values are rounded to 1 decimal in their own unit -- Python
     // rounds `utci_si` in Celsius and `utci_approx` (this function's `utci_out`) in
