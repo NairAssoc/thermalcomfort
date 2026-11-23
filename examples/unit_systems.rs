@@ -10,8 +10,11 @@ use thermalcomfort::models::{
     GaggeTwoNodesInputs, adaptive_ashrae, cooling_effect, two_nodes_gagge,
 };
 use thermalcomfort::{
-    AirPermeability, Area, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass,
-    MetabolicRate, Power, Pressure, Speed, Temperature, TemperatureDelta, UnitSystem, Units,
+    AirPermeability, Area, ClothingInsulation, EvaporativeResistance, HeatFluxDensity, HeatPerArea,
+    Humidity, HumidityRatio, Length, Mass, MassFlow, MassFluxDensity, MetabolicRate, Power,
+    PowerRate, Pressure, SpecificEnthalpy, Speed, SweatingCoefficient, Temperature,
+    TemperatureDelta, ThermalResistance, UnitSystem, Units, VasoconstrictionCoefficient,
+    VasodilationCoefficient, VolumeFlow, VolumeFluxDensity,
 };
 
 /// Print a quantity in both systems, with the symbol of each unit.
@@ -42,6 +45,28 @@ fn main() {
     both("Metabolic rate", MetabolicRate::from_met(1.2));
     both("Clothing insulation", ClothingInsulation::from_clo(0.5));
     both("Air permeability", AirPermeability::from_si(50.0));
+    both("Sweat rate", MassFluxDensity::from_si(150.0));
+    both("Skin blood flow", VolumeFluxDensity::from_si(6.3));
+    both("Cardiac output", VolumeFlow::from_si(290.0));
+    both("Weight loss", MassFlow::from_si(0.02));
+    both("Enthalpy", SpecificEnthalpy::from_si(50_000.0));
+    both("Humidity ratio", HumidityRatio::from_si(0.01));
+    both("Evaporative load", HeatPerArea::from_si(60_000.0));
+    both("Dry resistance", ThermalResistance::from_si(0.11));
+    both(
+        "Evaporative resistance",
+        EvaporativeResistance::from_si(0.015),
+    );
+    both("Shivering rate limit", PowerRate::from_si(0.0077));
+    both("Sweating coefficient", SweatingCoefficient::from_si(170.0));
+    both(
+        "Vasodilation coeff.",
+        VasodilationCoefficient::from_si(120.0),
+    );
+    both(
+        "Vasoconstriction coeff.",
+        VasoconstrictionCoefficient::from_si(0.5),
+    );
 
     // --- The same office, described by an SI user and by an IP user ---
     println!("\n--- The same conditions, entered and read in each system ---");
@@ -121,6 +146,13 @@ fn main() {
             gagge.set.in_units(units),
             gagge.e_skin.in_units(units),
             HeatFluxDensity::unit(units)
+        );
+        println!(
+            "    Sweat rate:          {:.3} {}, skin blood flow {:.3} {}",
+            gagge.m_rsw.in_units(units),
+            MassFluxDensity::unit(units),
+            gagge.m_bl.in_units(units),
+            VolumeFluxDensity::unit(units)
         );
     }
 

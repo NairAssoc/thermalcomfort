@@ -84,8 +84,9 @@ use crate::models::pmv::PmvPpdIsoOptions;
 use crate::psychrometrics::antoine;
 use crate::utilities::{BsaFormula, round_to, round_to_exact_decimal};
 use crate::{
-    ActivityRatio, Age, Area, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation, Humidity,
-    Length, Mass, MetabolicRate, Power, Sex, Speed, Temperature,
+    ActivityRatio, Age, Area, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
+    EvaporativeResistance, Humidity, Length, Mass, MassFlow, MetabolicRate, Power, PowerRate, Sex,
+    Speed, Temperature, ThermalResistance, VolumeFlow,
 };
 
 /// Number of body segments that carry a superficial-vein node: the 12 limb segments
@@ -242,10 +243,10 @@ pub struct Jos3Options {
     /// Whether to apply the Asaka (2016) shivering-onset threshold. Python:
     /// `options["shivering_threshold"]`.
     pub shivering_threshold: bool,
-    /// Rate limit on shivering signal change, \[W/s\]. `None` disables the limit
-    /// (Python: `False`); `Some(0.0077)` is Python's default-rate sentinel (`True`);
-    /// `Some(rate)` is a custom rate. Python: `options["limit_dshiv/dt"]`.
-    pub limit_dshiv_dt: Option<f64>,
+    /// Rate limit on shivering signal change. `None` disables the limit (Python:
+    /// `False`); `Some(PowerRate::from_watts_per_second(0.0077))` is Python's default-rate
+    /// sentinel (`True`); `Some(rate)` is a custom rate. Python: `options["limit_dshiv/dt"]`.
+    pub limit_dshiv_dt: Option<PowerRate>,
     /// Whether brown adipose tissue is BAT-positive (affects non-shivering
     /// thermogenesis). Python: `options["bat_positive"]`.
     pub bat_positive: bool,
@@ -1134,7 +1135,10 @@ impl Jos3Model {
         // port of that "always truthy" call site.
         let shiv_options = Some(ShiveringOptions {
             shivering_threshold: self.options.shivering_threshold,
-            limit_dshiv_dt: self.options.limit_dshiv_dt,
+            limit_dshiv_dt: self
+                .options
+                .limit_dshiv_dt
+                .map(PowerRate::as_watts_per_second),
         });
         let (q_shiv, new_pre_shiv) = threg::shivering(
             err_cr,
@@ -1551,8 +1555,8 @@ struct Jos3Row {
 /// trajectories rather than a `Vec` of per-step structs, the same shape used for
 /// [`crate::models::two_nodes_gagge_sleep::GaggeTwoNodesSleepResult`]. Field names
 /// match `JOS3Output` exactly; each value is wrapped in the crate's type for its
-/// quantity where one exists, and stays `f64` with the unit in its doc comment where
-/// none does (blood flows in L/h, resistances, wettedness). Two structural differences:
+/// quantity, and dimensionless values (wettedness) are `f64`. Two structural
+/// differences:
 ///
 /// - `simulation_time` and `dt` are [`Duration`]s rather than Python's
 ///   `datetime.timedelta` and float seconds.
@@ -1582,10 +1586,10 @@ pub struct Jos3Results {
     pub w_mean: Vec<f64>,
     /// Skin wettedness of each body segment, dimensionless.
     pub w: Vec<[f64; NUM_BODY_PARTS]>,
-    /// Weight loss by evaporation and respiration, in g/s.
-    pub weight_loss_by_evap_and_res: Vec<f64>,
-    /// Cardiac output, in L/h.
-    pub cardiac_output: Vec<f64>,
+    /// Weight loss by evaporation and respiration.
+    pub weight_loss_by_evap_and_res: Vec<MassFlow>,
+    /// Cardiac output.
+    pub cardiac_output: Vec<VolumeFlow>,
     /// Total thermogenesis of the whole body.
     pub q_thermogenesis_total: Vec<Power>,
     /// Heat loss by respiration.
@@ -1622,10 +1626,10 @@ pub struct Jos3Results {
     pub t_fat: Vec<[Temperature; NUM_MUSCLE_FAT_PARTS]>,
     /// Operative temperature at each body segment.
     pub to: Vec<[Temperature; NUM_BODY_PARTS]>,
-    /// Dry (sensible) heat resistance of each body segment, in m²·K/W.
-    pub r_t: Vec<[f64; NUM_BODY_PARTS]>,
-    /// Evaporative heat resistance of each body segment, in m²·kPa/W.
-    pub r_et: Vec<[f64; NUM_BODY_PARTS]>,
+    /// Dry (sensible) heat resistance of each body segment.
+    pub r_t: Vec<[ThermalResistance; NUM_BODY_PARTS]>,
+    /// Evaporative heat resistance of each body segment.
+    pub r_et: Vec<[EvaporativeResistance; NUM_BODY_PARTS]>,
     /// Dry bulb air temperature at each body segment.
     pub tdb: Vec<[Temperature; NUM_BODY_PARTS]>,
     /// Mean radiant temperature at each body segment.
@@ -1644,18 +1648,18 @@ pub struct Jos3Results {
     pub e_max: Vec<[Power; NUM_BODY_PARTS]>,
     /// Evaporative heat loss from the skin by sweating alone, per body segment.
     pub e_sweat: Vec<[Power; NUM_BODY_PARTS]>,
-    /// Core blood flow of each body segment, in L/h.
-    pub bf_core: Vec<[f64; NUM_BODY_PARTS]>,
-    /// Muscle blood flow of head and pelvis, in L/h.
-    pub bf_muscle: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    /// Fat blood flow of head and pelvis, in L/h.
-    pub bf_fat: Vec<[f64; NUM_MUSCLE_FAT_PARTS]>,
-    /// Skin blood flow of each body segment, in L/h.
-    pub bf_skin: Vec<[f64; NUM_BODY_PARTS]>,
-    /// Arteriovenous-anastomosis blood flow of one hand, in L/h.
-    pub bf_ava_hand: Vec<f64>,
-    /// Arteriovenous-anastomosis blood flow of one foot, in L/h.
-    pub bf_ava_foot: Vec<f64>,
+    /// Core blood flow of each body segment.
+    pub bf_core: Vec<[VolumeFlow; NUM_BODY_PARTS]>,
+    /// Muscle blood flow of head and pelvis.
+    pub bf_muscle: Vec<[VolumeFlow; NUM_MUSCLE_FAT_PARTS]>,
+    /// Fat blood flow of head and pelvis.
+    pub bf_fat: Vec<[VolumeFlow; NUM_MUSCLE_FAT_PARTS]>,
+    /// Skin blood flow of each body segment.
+    pub bf_skin: Vec<[VolumeFlow; NUM_BODY_PARTS]>,
+    /// Arteriovenous-anastomosis blood flow of one hand.
+    pub bf_ava_hand: Vec<VolumeFlow>,
+    /// Arteriovenous-anastomosis blood flow of one foot.
+    pub bf_ava_foot: Vec<VolumeFlow>,
     /// Core thermogenesis by basal metabolism, per body segment.
     pub q_bmr_core: Vec<[Power; NUM_BODY_PARTS]>,
     /// Muscle thermogenesis by basal metabolism, head and pelvis.
@@ -1764,8 +1768,11 @@ impl Jos3Results {
         self.w_mean.push(row.w_mean);
         self.w.push(row.w);
         self.weight_loss_by_evap_and_res
-            .push(row.weight_loss_by_evap_and_res);
-        self.cardiac_output.push(row.cardiac_output);
+            .push(MassFlow::from_grams_per_second(
+                row.weight_loss_by_evap_and_res,
+            ));
+        self.cardiac_output
+            .push(VolumeFlow::from_liters_per_hour(row.cardiac_output));
         self.q_thermogenesis_total
             .push(Power::from_watts(row.q_thermogenesis_total));
         self.q_res.push(Power::from_watts(row.q_res));
@@ -1786,8 +1793,14 @@ impl Jos3Results {
         self.t_muscle.push(celsius(row.t_muscle));
         self.t_fat.push(celsius(row.t_fat));
         self.to.push(celsius(row.to));
-        self.r_t.push(row.r_t);
-        self.r_et.push(row.r_et);
+        self.r_t.push(
+            row.r_t
+                .map(ThermalResistance::from_square_meter_kelvins_per_watt),
+        );
+        self.r_et.push(
+            row.r_et
+                .map(EvaporativeResistance::from_square_meter_kilopascals_per_watt),
+        );
         self.tdb.push(celsius(row.tdb));
         self.tr.push(celsius(row.tr));
         self.rh.push(row.rh.map(Humidity::from_percent));
@@ -1797,12 +1810,18 @@ impl Jos3Results {
         self.e_skin.push(watts(row.e_skin));
         self.e_max.push(watts(row.e_max));
         self.e_sweat.push(watts(row.e_sweat));
-        self.bf_core.push(row.bf_core);
-        self.bf_muscle.push(row.bf_muscle);
-        self.bf_fat.push(row.bf_fat);
-        self.bf_skin.push(row.bf_skin);
-        self.bf_ava_hand.push(row.bf_ava_hand);
-        self.bf_ava_foot.push(row.bf_ava_foot);
+        self.bf_core
+            .push(row.bf_core.map(VolumeFlow::from_liters_per_hour));
+        self.bf_muscle
+            .push(row.bf_muscle.map(VolumeFlow::from_liters_per_hour));
+        self.bf_fat
+            .push(row.bf_fat.map(VolumeFlow::from_liters_per_hour));
+        self.bf_skin
+            .push(row.bf_skin.map(VolumeFlow::from_liters_per_hour));
+        self.bf_ava_hand
+            .push(VolumeFlow::from_liters_per_hour(row.bf_ava_hand));
+        self.bf_ava_foot
+            .push(VolumeFlow::from_liters_per_hour(row.bf_ava_foot));
         self.q_bmr_core.push(watts(row.q_bmr_core));
         self.q_bmr_muscle.push(watts(row.q_bmr_muscle));
         self.q_bmr_fat.push(watts(row.q_bmr_fat));
@@ -1956,9 +1975,13 @@ mod tests {
             results.t_skin_mean[last].as_celsius()
         );
         assert!(
-            approx_eq(results.cardiac_output[last], 290.3, 1e-9),
+            approx_eq(
+                results.cardiac_output[last].as_liters_per_hour(),
+                290.3,
+                1e-9
+            ),
             "cardiac_output = {}, pythermalcomfort gives 290.3",
-            results.cardiac_output[last]
+            results.cardiac_output[last].as_liters_per_hour()
         );
     }
 
@@ -2033,7 +2056,11 @@ mod tests {
             1e-9
         ));
         assert!(approx_eq(results.t_cb[last].as_celsius(), 36.73, 1e-9));
-        assert!(approx_eq(results.cardiac_output[last], 316.2, 1e-6));
+        assert!(approx_eq(
+            results.cardiac_output[last].as_liters_per_hour(),
+            316.2,
+            1e-6
+        ));
         assert!(approx_eq(
             results.q_thermogenesis_total[last].as_watts(),
             110.42,

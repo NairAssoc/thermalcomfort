@@ -619,7 +619,7 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 
 #[deprecated(since = "4.6.1", note = "moved to `thermalcomfort::psychrometrics`")]
 #[inline]
-pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
+pub fn hr_to_rh(hr: crate::HumidityRatio, tdb: Temperature, p_atm: Pressure) -> Humidity {
     crate::psychrometrics::hr_to_rh(hr, tdb, p_atm)
 }
 

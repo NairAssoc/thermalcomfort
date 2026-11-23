@@ -40,8 +40,8 @@
 use crate::psychrometrics::p_sat;
 use crate::utilities::{body_surface_area_dubois, minutes, py_max, py_min, whole_minutes};
 use crate::{
-    Angle, ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Speed,
-    Temperature,
+    Angle, ClothingInsulation, HeatFluxDensity, HeatPerArea, Humidity, Length, Mass, MetabolicRate,
+    Speed, Temperature,
 };
 use core::time::Duration;
 use libm::{cos, exp, pow, sqrt};
@@ -99,11 +99,9 @@ pub struct PhsResult {
     pub sweat_loss_g: Mass,
     /// Instantaneous evaporative heat flux at skin
     pub sweat_rate_watt: HeatFluxDensity,
-    /// Accumulated evaporative load [W·min/m²]. NOT a [`HeatFluxDensity`]: this is a
-    /// time-integrated accumulator (watt-minutes per square metre), not an instantaneous
-    /// flux, so wrapping it in the same newtype as `sweat_rate_watt` would misstate its
-    /// unit.
-    pub evap_load_wm2_min: f64,
+    /// Accumulated evaporative load per unit of body surface area: a time-integrated heat
+    /// per area, not an instantaneous flux like `sweat_rate_watt`.
+    pub evap_load_wm2_min: HeatPerArea,
 }
 
 /// Posture for PHS calculation
@@ -172,8 +170,8 @@ pub struct PhsOptions {
     pub t_sk_t_cr_wg: f64,
     /// Initial evaporative heat flux at the skin. Default: 0 W/m²
     pub sweat_rate_watt: HeatFluxDensity,
-    /// Initial evaporative load [W·min/m²]. Default: 0.0
-    pub evap_load_wm2_min: f64,
+    /// Initial evaporative load per unit of body surface area. Default: 0 W·min/m²
+    pub evap_load_wm2_min: HeatPerArea,
 }
 
 impl Default for PhsOptions {
@@ -199,7 +197,7 @@ impl Default for PhsOptions {
             t_cr_eq: None,
             t_sk_t_cr_wg: 0.3,
             sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(0.0),
-            evap_load_wm2_min: 0.0,
+            evap_load_wm2_min: HeatPerArea::from_watt_minutes_per_square_meter(0.0),
         }
     }
 }
@@ -377,7 +375,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
             d_lim_t_re: None,
             sweat_loss_g: Mass::from_grams(f64::NAN),
             sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
-            evap_load_wm2_min: f64::NAN,
+            evap_load_wm2_min: HeatPerArea::from_watt_minutes_per_square_meter(f64::NAN),
         };
     }
 
@@ -586,7 +584,7 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
     let mut t_cr_eq = t_cr_eq_init;
     let mut t_sk_t_cr_wg = options.t_sk_t_cr_wg;
     let mut sweat_rate_watt = options.sweat_rate_watt.as_watts_per_square_meter();
-    let mut evap_load_wm2_min = options.evap_load_wm2_min;
+    let mut evap_load_wm2_min = options.evap_load_wm2_min.as_watt_minutes_per_square_meter();
 
     let mut d_lim_loss_50 = 0.0;
     let mut d_lim_loss_95 = 0.0;
@@ -793,7 +791,9 @@ pub fn phs(inputs: PhsInputs, options: PhsOptions) -> PhsResult {
         d_lim_t_re: Some(minutes(round_1(d_lim_t_re))),
         sweat_loss_g: Mass::from_grams(round_1(sweat_loss_g)),
         sweat_rate_watt: HeatFluxDensity::from_watts_per_square_meter(round_1(sweat_rate_watt)),
-        evap_load_wm2_min: round_1(evap_load_wm2_min),
+        evap_load_wm2_min: HeatPerArea::from_watt_minutes_per_square_meter(round_1(
+            evap_load_wm2_min,
+        )),
     }
 }
 

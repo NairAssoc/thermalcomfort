@@ -89,24 +89,22 @@ Also defined here and used on **results**, not just inputs:
 
 The rule for what is typed, on inputs **and** outputs:
 
-- A result or input is a newtype when a type for its quantity already exists in this crate
-  or in `measurements`. A result is `Temperature` when it is a temperature — measured,
-  equivalent or weighted: SET, PET, WBGT, apparent temperature, net effective temperature,
-  wind-chill temperature, operative and mean radiant temperature. A result stays `f64` when
-  it is a classification index whose value is read against bands — UTCI, humidex, heat
-  index (both), discomfort index, THI, ESI — or is dimensionless (PMV, PPD, fractions,
-  percentages, coefficients). UTCI additionally keeps its `Units` option because upstream
-  rounds it in the output unit.
+- Every value with a physical unit is a newtype, from this crate or `measurements`, and
+  each type's documentation names the exact SI and IP (inch-pound) unit it reads in.
+  Dimensionless numbers are `f64`: PMV, PPD, fractions, percentages and dimensionless
+  coefficients.
+- A result is `Temperature` when it is a temperature — measured, equivalent or weighted:
+  SET, PET, WBGT, apparent temperature, net effective temperature, wind-chill temperature,
+  operative and mean radiant temperature.
+- A classification index read against bands is `f64`: UTCI, humidex, heat index (both),
+  discomfort index, THI, ESI. UTCI keeps its `Units` option because upstream rounds it in
+  the output unit.
 - Yes/no outputs (acceptability, compliance, heat strain) are `Option<bool>`: `None` is
   upstream's NaN, for inputs outside the model's applicability limits or a NaN input.
 - Durations are `core::time::Duration`, inputs and outputs alike. Models that step in
   one-minute increments round the duration to whole minutes (at least one) and say so in
   the field's doc comment.
 - Ages are `Age`.
-- Quantities with no existing type (mass and volume flows such as kg/h/m² and L/h, thermal
-  and evaporative resistances, specific enthalpy J/kg, W·min/m² accumulators, W/s rate
-  limits) stay `f64` with the unit stated in the field's doc comment. There are no one-off
-  newtypes for them.
 
 Every model takes the parameters upstream requires followed by a defaulted `XOptions`
 struct for the ones it defaults — mirroring pythermalcomfort's own split, so a call

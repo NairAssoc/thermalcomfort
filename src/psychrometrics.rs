@@ -1,6 +1,7 @@
 //! Psychrometric functions for calculating properties of moist air
 
 use crate::constants::*;
+use crate::{HumidityRatio, SpecificEnthalpy};
 use libm::{atan, exp, log, pow};
 use measurements::{Humidity, Pressure, Temperature};
 
@@ -26,14 +27,14 @@ pub struct PsychrometricValues {
     pub p_sat: Pressure,
     /// Partial pressure of water vapor
     pub p_vap: Pressure,
-    /// Humidity ratio [kg water/kg dry air]
-    pub hr: f64,
+    /// Humidity ratio, water vapour per unit mass of dry air
+    pub hr: HumidityRatio,
     /// Wet bulb temperature
     pub t_wb: Temperature,
     /// Dew point temperature
     pub t_dp: Temperature,
-    /// Enthalpy [J/kg dry air]
-    pub h: f64,
+    /// Enthalpy of the moist air per unit mass of dry air
+    pub h: SpecificEnthalpy,
 }
 
 /// Calculate psychrometric values from dry bulb temperature and relative humidity
@@ -73,6 +74,7 @@ pub fn psy_ta_rh(tdb: Temperature, rh: Humidity, options: PsyTaRhOptions) -> Psy
     let hr = 0.62198 * p_vap_pa / (p_atm_pa - p_vap_pa);
     let t_dp = dew_point_temperature(tdb, rh);
     let t_wb = wet_bulb_temperature(tdb, rh);
+    let hr = HumidityRatio::from_kilograms_per_kilogram(hr);
     let h = enthalpy_air(tdb, hr);
 
     PsychrometricValues {
@@ -90,17 +92,19 @@ pub fn psy_ta_rh(tdb: Temperature, rh: Humidity, options: PsyTaRhOptions) -> Psy
 /// # Arguments
 ///
 /// * `tdb` - Dry bulb air temperature (use `Temperature::from_celsius()` or similar)
-/// * `hr` - Humidity ratio [kg water/kg dry air]
+/// * `hr` - Humidity ratio
 ///
 /// # Returns
 ///
-/// Enthalpy [J/kg dry air]
+/// Enthalpy of the moist air per unit mass of dry air
 #[inline]
-pub fn enthalpy_air(tdb: Temperature, hr: f64) -> f64 {
+pub fn enthalpy_air(tdb: Temperature, hr: HumidityRatio) -> SpecificEnthalpy {
     let tdb_celsius = tdb.as_celsius();
     let h_dry_air = CP_AIR * tdb_celsius;
     let h_sat_vap = H_FG + CP_VAPOUR * tdb_celsius;
-    h_dry_air + hr * h_sat_vap
+    SpecificEnthalpy::from_joules_per_kilogram(
+        h_dry_air + hr.as_kilograms_per_kilogram() * h_sat_vap,
+    )
 }
 
 /// Calculate wet bulb temperature using Stull equation
@@ -285,7 +289,7 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 ///
 /// # Arguments
 ///
-/// * `hr` - Humidity ratio [kg water / kg dry air]
+/// * `hr` - Humidity ratio
 /// * `tdb` - Dry bulb air temperature
 /// * `p_atm` - Atmospheric pressure
 ///
@@ -297,12 +301,14 @@ pub fn p_sat(tdb: Temperature) -> Pressure {
 ///
 /// ```
 /// use thermalcomfort::psychrometrics::hr_to_rh;
-/// use thermalcomfort::{Temperature, Pressure};
+/// use thermalcomfort::{HumidityRatio, Pressure, Temperature};
 ///
-/// let rh = hr_to_rh(0.01, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
+/// let hr = HumidityRatio::from_grams_per_kilogram(10.0);
+/// let rh = hr_to_rh(hr, Temperature::from_celsius(25.0), Pressure::from_pascals(101325.0));
 /// assert!((rh.as_percent() - 50.5).abs() < 0.5);
 /// ```
-pub fn hr_to_rh(hr: f64, tdb: Temperature, p_atm: Pressure) -> Humidity {
+pub fn hr_to_rh(hr: HumidityRatio, tdb: Temperature, p_atm: Pressure) -> Humidity {
+    let hr = hr.as_kilograms_per_kilogram();
     // 0.62198 = ratio of molecular weights (M_water / M_air = 18.015 / 28.965)
     let p_vap = hr * p_atm.as_pascals() / (0.62198 + hr);
     Humidity::from_percent(p_vap / p_sat(tdb).as_pascals() * 100.0)
@@ -390,10 +396,10 @@ mod tests {
 
         assert!(result.p_sat.as_pascals() > 0.0);
         assert!(result.p_vap.as_pascals() > 0.0);
-        assert!(result.hr > 0.0);
+        assert!(result.hr.as_kilograms_per_kilogram() > 0.0);
         assert!((result.t_wb.as_celsius() - 17.7).abs() < 0.5);
         assert!((result.t_dp.as_celsius() - 13.9).abs() < 0.5);
-        assert!(result.h > 0.0);
+        assert!(result.h.as_joules_per_kilogram() > 0.0);
     }
 
     #[test]
@@ -423,7 +429,7 @@ mod tests {
             (0.02, 30.0, 74.343333),
         ] {
             let got = hr_to_rh(
-                hr,
+                HumidityRatio::from_kilograms_per_kilogram(hr),
                 Temperature::from_celsius(tdb),
                 Pressure::from_pascals(101325.0),
             )

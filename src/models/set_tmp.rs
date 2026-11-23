@@ -5,7 +5,7 @@
 
 use crate::models::two_nodes_gagge::GaggePosture;
 use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
-use crate::{ClothingInsulation, MetabolicRate};
+use crate::{ClothingInsulation, MassFluxDensity, MetabolicRate, VolumeFluxDensity};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// The comfort inputs to [`set_tmp`]: pythermalcomfort requires all six (no default).
@@ -148,9 +148,9 @@ pub fn set_tmp(inputs: SetInputs, options: SetOptions) -> Temperature {
         body_surface_area: options.body_surface_area,
         p_atm: options.p_atm,
         position: options.position,
-        max_skin_blood_flow: 90.0,
+        max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(90.0),
         round_output: false, // Don't round in Gagge, we'll round here if needed
-        max_sweating: 500.0,
+        max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(500.0),
         w_max: None,
         calculate_ce: options.calculate_ce,
     };

@@ -12,7 +12,7 @@ use thermalcomfort::models::{
 use thermalcomfort::psychrometrics::p_sat_torr;
 use thermalcomfort::{
     ClothingInsulation, Humidity, Length, MaxSkinWettedness, MetabolicRate, Pressure, Speed,
-    Temperature,
+    Temperature, UnitSystem,
 };
 
 fn main() {
@@ -67,6 +67,17 @@ fn main() {
     println!(
         "  Sensible heat loss:     {:.1} W/m²",
         gagge.q_sensible.as_watts_per_square_meter()
+    );
+    // Sweat and blood flow per unit of skin area, read in SI and in IP (inch-pound)
+    println!(
+        "  Regulatory sweating:    {:.1} g/(h·m²) = {:.4} lb/(h·ft²)",
+        gagge.m_rsw.as_grams_per_hour_per_square_meter(),
+        gagge.m_rsw.as_ip()
+    );
+    println!(
+        "  Skin blood flow:        {:.1} L/(h·m²) = {:.3} gal/(h·ft²)",
+        gagge.m_bl.as_liters_per_hour_per_square_meter(),
+        gagge.m_bl.as_ip()
     );
     println!("  SET:                    {:.1}°C", gagge.set.as_celsius());
     println!("  ET*:                    {:.1}°C", gagge.et.as_celsius());
@@ -272,10 +283,11 @@ fn main() {
                 Default::default(),
             );
             println!(
-                "  {v_ms:.1} m/s: core {:.2}°C, skin {:.2}°C, sweat {:.0} g/h/m², wettedness {:.2}",
+                "  {v_ms:.1} m/s: core {:.2}°C, skin {:.2}°C, sweat {:.0} g/(h·m²) ({:.3} lb/(h·ft²)), wettedness {:.2}",
                 fans.t_core.as_celsius(),
                 fans.t_skin.as_celsius(),
-                fans.m_rsw,
+                fans.m_rsw.as_grams_per_hour_per_square_meter(),
+                fans.m_rsw.as_ip(),
                 fans.w
             );
             println!(

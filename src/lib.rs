@@ -699,8 +699,9 @@ impl HumidityRatio {
 ///
 /// PHS accumulates its evaporative load per unit of body surface area in W·min/m², which
 /// [`from_watt_minutes_per_square_meter`](Self::from_watt_minutes_per_square_meter) and
-/// [`as_watt_minutes_per_square_meter`](Self::as_watt_minutes_per_square_meter) read and
-/// build (1 W·min/m² = 60 J/m²).
+/// [`as_watt_minutes_per_square_meter`](Self::as_watt_minutes_per_square_meter) build and
+/// read (1 W·min/m² = 60 J/m²). The value is held in W·min/m², so that pair is exact; a
+/// `× 60` then `÷ 60` round trip is not the identity in floating point.
 ///
 /// Units: SI J/m² (`as_si`, [`as_joules_per_square_meter`](Self::as_joules_per_square_meter));
 /// IP (inch-pound) Btu/ft² (`as_ip`). W·min/m² is the other SI scale, through the named
@@ -721,24 +722,27 @@ impl HumidityRatio {
 pub struct HeatPerArea(f64);
 
 impl HeatPerArea {
+    /// Seconds per minute: joules per watt-minute
+    const JOULES_PER_WATT_MINUTE: f64 = 60.0;
+
     /// Construct from joules per square metre [J/m²]
     pub const fn from_joules_per_square_meter(value: f64) -> Self {
-        Self(value)
+        Self(value / Self::JOULES_PER_WATT_MINUTE)
     }
 
     /// Construct from watt-minutes per square metre [W·min/m²] (1 W·min/m² = 60 J/m²)
     pub const fn from_watt_minutes_per_square_meter(value: f64) -> Self {
-        Self(value * 60.0)
+        Self(value)
     }
 
     /// Value in joules per square metre [J/m²]
     pub const fn as_joules_per_square_meter(self) -> f64 {
-        self.0
+        self.0 * Self::JOULES_PER_WATT_MINUTE
     }
 
     /// Value in watt-minutes per square metre [W·min/m²] (1 W·min/m² = 60 J/m²)
     pub const fn as_watt_minutes_per_square_meter(self) -> f64 {
-        self.0 / 60.0
+        self.0
     }
 }
 
