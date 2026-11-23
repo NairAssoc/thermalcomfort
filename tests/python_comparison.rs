@@ -58,7 +58,8 @@ use thermalcomfort::utilities::{
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, BmrEquation, BodyFat, CardiacIndex, ClothingInsulation,
-    HeatFluxDensity, Mass, MaxSkinWettedness, MetabolicRate, Sex, TemperatureDelta,
+    HeatFluxDensity, HumidityRatio, Mass, MassFluxDensity, MaxSkinWettedness, MetabolicRate, Sex,
+    TemperatureDelta, VolumeFluxDensity,
 };
 
 /// Guard against validating the port against the wrong pythermalcomfort.
@@ -586,7 +587,11 @@ fn test_compare_enthalpy_air() {
                 .extract()
                 .unwrap();
 
-            let rust_h = enthalpy_air(Temperature::from_celsius(tdb), hr);
+            let rust_h = enthalpy_air(
+                Temperature::from_celsius(tdb),
+                HumidityRatio::from_kilograms_per_kilogram(hr),
+            )
+            .as_joules_per_kilogram();
             assert_abs_diff_eq!(rust_h, py_h, epsilon = 1.0);
         }
     });
@@ -970,8 +975,14 @@ fn test_compare_use_fans_heatwaves() {
                 ("q_res", rust_result.q_res.as_watts_per_square_meter()),
                 ("t_core", rust_result.t_core.as_celsius()),
                 ("t_skin", rust_result.t_skin.as_celsius()),
-                ("m_bl", rust_result.m_bl),
-                ("m_rsw", rust_result.m_rsw),
+                (
+                    "m_bl",
+                    rust_result.m_bl.as_liters_per_hour_per_square_meter(),
+                ),
+                (
+                    "m_rsw",
+                    rust_result.m_rsw.as_grams_per_hour_per_square_meter(),
+                ),
                 ("w", rust_result.w),
                 ("w_max", rust_result.w_max),
             ];
@@ -1037,7 +1048,7 @@ fn test_compare_hr_to_rh() {
                 .unwrap();
 
             let rust_rh = hr_to_rh(
-                hr,
+                HumidityRatio::from_kilograms_per_kilogram(hr),
                 Temperature::from_celsius(tdb),
                 Pressure::from_pascals(101325.0),
             );
@@ -1263,7 +1274,11 @@ fn test_psychrometrics() {
                 py_p_vap,
                 rust_result.p_vap.as_pascals()
             );
-            println!("  hr: Python={:.5}, Rust={:.5}", py_hr, rust_result.hr);
+            println!(
+                "  hr: Python={:.5}, Rust={:.5}",
+                py_hr,
+                rust_result.hr.as_kilograms_per_kilogram()
+            );
             println!(
                 "  t_wb: Python={:.2}, Rust={:.2}",
                 py_twb,
@@ -1274,14 +1289,22 @@ fn test_psychrometrics() {
                 py_tdp,
                 rust_result.t_dp.as_celsius()
             );
-            println!("  h: Python={:.1}, Rust={:.1}", py_h, rust_result.h);
+            println!(
+                "  h: Python={:.1}, Rust={:.1}",
+                py_h,
+                rust_result.h.as_joules_per_kilogram()
+            );
 
             assert_abs_diff_eq!(rust_result.p_sat.as_pascals(), py_p_sat, epsilon = 1.0);
             assert_abs_diff_eq!(rust_result.p_vap.as_pascals(), py_p_vap, epsilon = 1.0);
-            assert_abs_diff_eq!(rust_result.hr, py_hr, epsilon = 0.0001);
+            assert_abs_diff_eq!(
+                rust_result.hr.as_kilograms_per_kilogram(),
+                py_hr,
+                epsilon = 0.0001
+            );
             assert_abs_diff_eq!(rust_result.t_wb.as_celsius(), py_twb, epsilon = 0.1);
             assert_abs_diff_eq!(rust_result.t_dp.as_celsius(), py_tdp, epsilon = 0.1);
-            assert_abs_diff_eq!(rust_result.h, py_h, epsilon = 10.0);
+            assert_abs_diff_eq!(rust_result.h.as_joules_per_kilogram(), py_h, epsilon = 10.0);
         }
     });
 }
@@ -1706,8 +1729,16 @@ fn test_compare_two_nodes_gagge() {
             );
             assert_abs_diff_eq!(rust_result.t_core.as_celsius(), py_t_core, epsilon = 0.1);
             assert_abs_diff_eq!(rust_result.t_skin.as_celsius(), py_t_skin, epsilon = 0.3);
-            assert_abs_diff_eq!(rust_result.m_bl, py_m_bl, epsilon = 2.0);
-            assert_abs_diff_eq!(rust_result.m_rsw, py_m_rsw, epsilon = 5.0);
+            assert_abs_diff_eq!(
+                rust_result.m_bl.as_liters_per_hour_per_square_meter(),
+                py_m_bl,
+                epsilon = 2.0
+            );
+            assert_abs_diff_eq!(
+                rust_result.m_rsw.as_grams_per_hour_per_square_meter(),
+                py_m_rsw,
+                epsilon = 5.0
+            );
             assert_abs_diff_eq!(rust_result.w, py_w, epsilon = 0.03);
             assert_abs_diff_eq!(rust_result.w_max, py_w_max, epsilon = 0.02);
             assert_abs_diff_eq!(rust_result.et.as_celsius(), py_et, epsilon = 0.3);
@@ -2076,8 +2107,10 @@ fn test_two_nodes_gagge_calculate_ce_drops_caps_and_skips_rounding() {
                     body_surface_area: Area::from_square_meters(1.512569),
                     p_atm: Pressure::from_pascals(80765.553751),
                     position: GaggePosture::Sitting,
-                    max_skin_blood_flow: msbf,
-                    max_sweating: msw,
+                    max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(
+                        msbf,
+                    ),
+                    max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(msw),
                     round_output,
                     w_max: MaxSkinWettedness::new(0.4),
                     calculate_ce: true,
@@ -4628,7 +4661,11 @@ fn test_two_nodes_gagge_sleep_comparison() {
                 ("alfa", rust_result.alfa.clone(), py_field("alfa")),
                 (
                     "skin_blood_flow",
-                    rust_result.skin_blood_flow.clone(),
+                    rust_result
+                        .skin_blood_flow
+                        .iter()
+                        .map(|q| q.as_liters_per_hour_per_square_meter())
+                        .collect(),
                     py_field("skin_blood_flow"),
                 ),
             ];
@@ -5713,9 +5750,14 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
         ("w_mean", rust.w_mean.clone()),
         (
             "weight_loss_by_evap_and_res",
-            rust.weight_loss_by_evap_and_res.clone(),
+            f64s(&rust.weight_loss_by_evap_and_res, |m| {
+                m.as_grams_per_second()
+            }),
         ),
-        ("cardiac_output", rust.cardiac_output.clone()),
+        (
+            "cardiac_output",
+            f64s(&rust.cardiac_output, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_thermogenesis_total",
             f64s(&rust.q_thermogenesis_total, |p| p.as_watts()),
@@ -5726,8 +5768,14 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
         ("fat", f64s(&rust.fat, |f| f.as_percent())),
         ("t_cb", f64s(&rust.t_cb, |t| t.as_celsius())),
         ("par", f64s(&rust.par, |p| p.as_ratio())),
-        ("bf_ava_hand", rust.bf_ava_hand.clone()),
-        ("bf_ava_foot", rust.bf_ava_foot.clone()),
+        (
+            "bf_ava_hand",
+            f64s(&rust.bf_ava_hand, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_ava_foot",
+            f64s(&rust.bf_ava_foot, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_res_sensible",
             f64s(&rust.q_res_sensible, |p| p.as_watts()),
@@ -5761,8 +5809,14 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
         ("t_artery", f64_arrays(&rust.t_artery, |t| t.as_celsius())),
         ("t_vein", f64_arrays(&rust.t_vein, |t| t.as_celsius())),
         ("to", f64_arrays(&rust.to, |t| t.as_celsius())),
-        ("r_t", rust.r_t.clone()),
-        ("r_et", rust.r_et.clone()),
+        (
+            "r_t",
+            f64_arrays(&rust.r_t, |r| r.as_square_meter_kelvins_per_watt()),
+        ),
+        (
+            "r_et",
+            f64_arrays(&rust.r_et, |r| r.as_square_meter_kilopascals_per_watt()),
+        ),
         ("tdb", f64_arrays(&rust.tdb, |t| t.as_celsius())),
         ("tr", f64_arrays(&rust.tr, |t| t.as_celsius())),
         ("rh", f64_arrays(&rust.rh, |h| h.as_percent())),
@@ -5771,8 +5825,14 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
         ("e_skin", f64_arrays(&rust.e_skin, |p| p.as_watts())),
         ("e_max", f64_arrays(&rust.e_max, |p| p.as_watts())),
         ("e_sweat", f64_arrays(&rust.e_sweat, |p| p.as_watts())),
-        ("bf_core", rust.bf_core.clone()),
-        ("bf_skin", rust.bf_skin.clone()),
+        (
+            "bf_core",
+            f64_arrays(&rust.bf_core, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_skin",
+            f64_arrays(&rust.bf_skin, |q| q.as_liters_per_hour()),
+        ),
         ("q_bmr_core", f64_arrays(&rust.q_bmr_core, |p| p.as_watts())),
         ("q_bmr_skin", f64_arrays(&rust.q_bmr_skin, |p| p.as_watts())),
         ("q_work", f64_arrays(&rust.q_work, |p| p.as_watts())),
@@ -5817,8 +5877,14 @@ fn assert_jos3_matches_python(py_model: &Bound<'_, PyAny>, rust: &Jos3Results, l
     let body2_fields: [(&str, Vec<[f64; 2]>); 8] = [
         ("t_muscle", f64_arrays(&rust.t_muscle, |t| t.as_celsius())),
         ("t_fat", f64_arrays(&rust.t_fat, |t| t.as_celsius())),
-        ("bf_muscle", rust.bf_muscle.clone()),
-        ("bf_fat", rust.bf_fat.clone()),
+        (
+            "bf_muscle",
+            f64_arrays(&rust.bf_muscle, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_fat",
+            f64_arrays(&rust.bf_fat, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_bmr_muscle",
             f64_arrays(&rust.q_bmr_muscle, |p| p.as_watts()),
@@ -6623,7 +6689,11 @@ fn test_two_nodes_gagge_sleep_upstream_fixture() {
         ),
         (
             "skin_blood_flow",
-            result.skin_blood_flow.clone(),
+            result
+                .skin_blood_flow
+                .iter()
+                .map(|q| q.as_liters_per_hour_per_square_meter())
+                .collect(),
             [7.1093443630662945, 6.624666007608543, 6.5398921420592],
         ),
     ];

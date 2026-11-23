@@ -71,8 +71,10 @@ use thermalcomfort::utilities::{
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
-    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MaxSkinWettedness, MetabolicRate,
-    Power, Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
+    ClothingInsulation, HeatFluxDensity, Humidity, HumidityRatio, Length, Mass, MassFluxDensity,
+    MaxSkinWettedness, MetabolicRate, Power, Pressure, Sex, Speed, SweatingCoefficient,
+    Temperature, TemperatureDelta, VasoconstrictionCoefficient, VasodilationCoefficient,
+    VolumeFluxDensity, WorkEfficiency,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -455,8 +457,10 @@ fn sweep_two_nodes_gagge() {
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
                     position: posture,
-                    max_skin_blood_flow: msbf,
-                    max_sweating: msw,
+                    max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(
+                        msbf,
+                    ),
+                    max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(msw),
                     round_output,
                     w_max: w_max
                         .map(|x| MaxSkinWettedness::new(x).expect("sampled inside (0.06, 1]")),
@@ -473,8 +477,8 @@ fn sweep_two_nodes_gagge() {
                 rust.q_res.as_watts_per_square_meter(),
                 rust.t_core.as_celsius(),
                 rust.t_skin.as_celsius(),
-                rust.m_bl,
-                rust.m_rsw,
+                rust.m_bl.as_liters_per_hour_per_square_meter(),
+                rust.m_rsw.as_grams_per_hour_per_square_meter(),
                 rust.w,
                 rust.w_max,
                 rust.set.as_celsius(),
@@ -902,8 +906,10 @@ fn sweep_use_fans_heatwaves() {
                     body_surface_area: Area::from_square_meters(bsa),
                     p_atm: Pressure::from_pascals(p_atm),
                     position: posture,
-                    max_skin_blood_flow: msbf,
-                    max_sweating: msw,
+                    max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(
+                        msbf,
+                    ),
+                    max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(msw),
                     limit_inputs: s.flag("limit_inputs"),
                     round_output: s.flag("round_output"),
                 },
@@ -918,8 +924,8 @@ fn sweep_use_fans_heatwaves() {
                 rust.q_res.as_watts_per_square_meter(),
                 rust.t_core.as_celsius(),
                 rust.t_skin.as_celsius(),
-                rust.m_bl,
-                rust.m_rsw,
+                rust.m_bl.as_liters_per_hour_per_square_meter(),
+                rust.m_rsw.as_grams_per_hour_per_square_meter(),
                 rust.w,
                 rust.w_max,
             ];
@@ -1103,7 +1109,7 @@ fn sweep_phs() {
                 limit_minutes(rust.d_lim_t_re),
                 rust.sweat_loss_g.as_grams(),
                 rust.sweat_rate_watt.as_watts_per_square_meter(),
-                rust.evap_load_wm2_min,
+                rust.evap_load_wm2_min.as_watt_minutes_per_square_meter(),
             ];
             for (field, rust_value) in fields.iter().zip(values) {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
@@ -1743,13 +1749,20 @@ fn sweep_two_nodes_gagge_sleep() {
                     ltime: NonZeroU32::new(ltime).expect("ltime is drawn from 1..=3"),
                     height: Length::from_centimeters(height),
                     weight: Mass::from_kilograms(weight),
-                    c_sw,
-                    c_dil,
-                    c_str,
+                    c_sw: SweatingCoefficient::from_grams_per_square_meter_per_hour_per_kelvin(
+                        c_sw,
+                    ),
+                    c_dil:
+                        VasodilationCoefficient::from_liters_per_square_meter_per_hour_per_kelvin(
+                            c_dil,
+                        ),
+                    c_str: VasoconstrictionCoefficient::from_per_kelvin(c_str),
                     temp_skin_neutral: Temperature::from_celsius(temp_skin_neutral),
                     e_skin: HeatFluxDensity::from_watts_per_square_meter(e_skin),
                     alfa,
-                    skin_blood_flow,
+                    skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(
+                        skin_blood_flow,
+                    ),
                     met_shivering: HeatFluxDensity::from_watts_per_square_meter(met_shivering),
                 },
             )
@@ -1801,7 +1814,13 @@ fn sweep_two_nodes_gagge_sleep() {
                         .collect(),
                 ),
                 ("alfa", rust.alfa.clone()),
-                ("skin_blood_flow", rust.skin_blood_flow.clone()),
+                (
+                    "skin_blood_flow",
+                    rust.skin_blood_flow
+                        .iter()
+                        .map(|q| q.as_liters_per_hour_per_square_meter())
+                        .collect(),
+                ),
             ];
 
             for (name, rust_series) in series {
@@ -2159,9 +2178,14 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         ("w_mean", rust.w_mean.clone()),
         (
             "weight_loss_by_evap_and_res",
-            rust.weight_loss_by_evap_and_res.clone(),
+            f64s(&rust.weight_loss_by_evap_and_res, |m| {
+                m.as_grams_per_second()
+            }),
         ),
-        ("cardiac_output", rust.cardiac_output.clone()),
+        (
+            "cardiac_output",
+            f64s(&rust.cardiac_output, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_thermogenesis_total",
             f64s(&rust.q_thermogenesis_total, |p| p.as_watts()),
@@ -2172,8 +2196,14 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         ("fat", f64s(&rust.fat, |f| f.as_percent())),
         ("t_cb", f64s(&rust.t_cb, |t| t.as_celsius())),
         ("par", f64s(&rust.par, |p| p.as_ratio())),
-        ("bf_ava_hand", rust.bf_ava_hand.clone()),
-        ("bf_ava_foot", rust.bf_ava_foot.clone()),
+        (
+            "bf_ava_hand",
+            f64s(&rust.bf_ava_hand, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_ava_foot",
+            f64s(&rust.bf_ava_foot, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_res_sensible",
             f64s(&rust.q_res_sensible, |p| p.as_watts()),
@@ -2216,8 +2246,14 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         ("t_artery", f64_arrays(&rust.t_artery, |t| t.as_celsius())),
         ("t_vein", f64_arrays(&rust.t_vein, |t| t.as_celsius())),
         ("to", f64_arrays(&rust.to, |t| t.as_celsius())),
-        ("r_t", rust.r_t.clone()),
-        ("r_et", rust.r_et.clone()),
+        (
+            "r_t",
+            f64_arrays(&rust.r_t, |r| r.as_square_meter_kelvins_per_watt()),
+        ),
+        (
+            "r_et",
+            f64_arrays(&rust.r_et, |r| r.as_square_meter_kilopascals_per_watt()),
+        ),
         ("tdb", f64_arrays(&rust.tdb, |t| t.as_celsius())),
         ("tr", f64_arrays(&rust.tr, |t| t.as_celsius())),
         ("rh", f64_arrays(&rust.rh, |h| h.as_percent())),
@@ -2226,8 +2262,14 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
         ("e_skin", f64_arrays(&rust.e_skin, |p| p.as_watts())),
         ("e_max", f64_arrays(&rust.e_max, |p| p.as_watts())),
         ("e_sweat", f64_arrays(&rust.e_sweat, |p| p.as_watts())),
-        ("bf_core", rust.bf_core.clone()),
-        ("bf_skin", rust.bf_skin.clone()),
+        (
+            "bf_core",
+            f64_arrays(&rust.bf_core, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_skin",
+            f64_arrays(&rust.bf_skin, |q| q.as_liters_per_hour()),
+        ),
         ("q_bmr_core", f64_arrays(&rust.q_bmr_core, |p| p.as_watts())),
         ("q_bmr_skin", f64_arrays(&rust.q_bmr_skin, |p| p.as_watts())),
         ("q_work", f64_arrays(&rust.q_work, |p| p.as_watts())),
@@ -2280,8 +2322,14 @@ fn jos3_results_match(py: &Bound<'_, PyAny>, rust: &Jos3Results) -> Result<(), J
     let body2_fields: [(&str, Vec<[f64; 2]>); 8] = [
         ("t_muscle", f64_arrays(&rust.t_muscle, |t| t.as_celsius())),
         ("t_fat", f64_arrays(&rust.t_fat, |t| t.as_celsius())),
-        ("bf_muscle", rust.bf_muscle.clone()),
-        ("bf_fat", rust.bf_fat.clone()),
+        (
+            "bf_muscle",
+            f64_arrays(&rust.bf_muscle, |q| q.as_liters_per_hour()),
+        ),
+        (
+            "bf_fat",
+            f64_arrays(&rust.bf_fat, |q| q.as_liters_per_hour()),
+        ),
         (
             "q_bmr_muscle",
             f64_arrays(&rust.q_bmr_muscle, |p| p.as_watts()),
@@ -5035,7 +5083,7 @@ fn sweep_body_surface_area_and_hr_to_rh() {
                 compare_field(
                     &FieldCmp::new("hr_to_rh", 1e-9),
                     hr_to_rh(
-                        hr,
+                        HumidityRatio::from_kilograms_per_kilogram(hr),
                         Temperature::from_celsius(tdb),
                         Pressure::from_pascals(p_atm),
                     )
@@ -5284,7 +5332,8 @@ fn sweep_psychrometrics() {
 
             compare_field(
                 &FieldCmp::new("enthalpy_air", 1e-6),
-                enthalpy_air(t, hr),
+                enthalpy_air(t, HumidityRatio::from_kilograms_per_kilogram(hr))
+                    .as_joules_per_kilogram(),
                 py_util(&utils, "enthalpy_air", (tdb, hr))?,
             )?;
 
@@ -5360,10 +5409,10 @@ fn sweep_psychrometrics() {
             for (py_name, rust_value, tol) in [
                 ("p_sat", rust_psy.p_sat.as_pascals(), 1e-6),
                 ("p_vap", rust_psy.p_vap.as_pascals(), 1e-6),
-                ("hr", rust_psy.hr, 1e-9),
+                ("hr", rust_psy.hr.as_kilograms_per_kilogram(), 1e-9),
                 ("wet_bulb_tmp", rust_psy.t_wb.as_celsius(), 1e-9),
                 ("dew_point_tmp", rust_psy.t_dp.as_celsius(), 1e-9),
-                ("h", rust_psy.h, 1e-6),
+                ("h", rust_psy.h.as_joules_per_kilogram(), 1e-6),
             ] {
                 compare_field(
                     &FieldCmp::new(py_name, tol),

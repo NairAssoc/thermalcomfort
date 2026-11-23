@@ -75,7 +75,7 @@
 //! | **met → Btu/(h·ft²)** | **`× 18.4`** (and `× 58.15` to W/m²) | **no** | **−0.18 % (58.15 W/m² is 18.433 Btu/(h·ft²))** |
 //! | m²·K/W → ft²·h·°F/Btu | the ft², °F and Btu factors above | as W → Btu/h | +1.4e-7 relative |
 //! | L/(m²·s) → ft³/(min·ft²) | `× 0.001 × 60 / 0.3048` | yes | — |
-//! | kg/(h·m²) → lb/(h·ft²) | `/ 0.45359237 × 0.3048²` | yes | — |
+//! | g/(h·m²) → lb/(h·ft²) | `× 0.001 / 0.45359237 × 0.3048²` | yes | — |
 //! | L/(h·m²) → gal/(h·ft²) | `/ 3.785411784 × 0.3048²` | yes (US gallon, definition) | — |
 //! | L/h → gal/h | `/ 3.785411784` | yes | — |
 //! | g/s → lb/h | `× 0.001 / 0.45359237 × 3600` | yes | — |
@@ -540,6 +540,15 @@ mod tests {
         close(w.as_grams_per_kilogram(), 12.0, 1e-12);
         let q = HeatPerArea::from_watt_minutes_per_square_meter(3.0);
         close(q.as_si(), 180.0, 1e-12);
+        // W·min/m² is held directly, so PHS's accumulator passes through unchanged; at
+        // this value `× 60 / 60` is not the identity
+        let load = 1348.473;
+        assert_ne!(load * 60.0 / 60.0, load);
+        assert_eq!(
+            HeatPerArea::from_watt_minutes_per_square_meter(load)
+                .as_watt_minutes_per_square_meter(),
+            load
+        );
         // ThermalResistance and ClothingInsulation share the IP unit and factor
         let clo = ClothingInsulation::from_clo(1.0);
         close(

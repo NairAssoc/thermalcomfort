@@ -12,7 +12,7 @@ use thermalcomfort::psychrometrics::{
 use thermalcomfort::utilities::{
     BodySurfaceAreaOptions, BsaFormula, body_surface_area, body_surface_area_dubois,
 };
-use thermalcomfort::{Humidity, Length, Mass, Pressure, Temperature};
+use thermalcomfort::{Humidity, Length, Mass, Pressure, Temperature, UnitSystem};
 
 fn main() {
     println!("=== Psychrometrics ===\n");
@@ -46,12 +46,17 @@ fn main() {
     println!("\n--- Psychrometric state (psy_ta_rh) ---");
     let state = psy_ta_rh(tdb, rh, Default::default());
     println!("  Vapour pressure:      {:.1} Pa", state.p_vap.as_pascals());
-    println!("  Humidity ratio:       {:.4} kg/kg dry air", state.hr);
+    println!(
+        "  Humidity ratio:       {:.2} g/kg dry air = {:.1} gr/lb",
+        state.hr.as_grams_per_kilogram(),
+        state.hr.as_grains_per_pound()
+    );
     println!("  Wet-bulb temperature: {:.1}°C", state.t_wb.as_celsius());
     println!("  Dew point:            {:.1}°C", state.t_dp.as_celsius());
     println!(
-        "  Enthalpy:             {:.1} kJ/kg dry air",
-        state.h / 1000.0
+        "  Enthalpy:             {:.1} kJ/kg dry air = {:.2} Btu/lb",
+        state.h.as_joules_per_kilogram() / 1000.0,
+        state.h.as_ip()
     );
 
     // The same air at 1500 m altitude: a lower atmospheric pressure raises the
@@ -59,9 +64,9 @@ fn main() {
     let p_altitude = Pressure::from_pascals(84_556.0);
     let state_altitude = psy_ta_rh(tdb, rh, PsyTaRhOptions { p_atm: p_altitude });
     println!(
-        "  At {:.1} kPa (1500 m): humidity ratio {:.4} kg/kg",
+        "  At {:.1} kPa (1500 m): humidity ratio {:.2} g/kg",
         p_altitude.as_pascals() / 1000.0,
-        state_altitude.hr
+        state_altitude.hr.as_grams_per_kilogram()
     );
 
     // --- Individual properties ---
@@ -75,9 +80,9 @@ fn main() {
     let h = enthalpy_air(tdb, state.hr);
     let rh_back = hr_to_rh(state.hr, tdb, Pressure::from_pascals(101_325.0));
     println!(
-        "  enthalpy_air at hr {:.4}: {:.1} kJ/kg",
-        state.hr,
-        h / 1000.0
+        "  enthalpy_air at hr {:.2} g/kg: {:.1} kJ/kg",
+        state.hr.as_grams_per_kilogram(),
+        h.as_joules_per_kilogram() / 1000.0
     );
     println!(
         "  hr_to_rh round trip:   {:.1}% (started from {:.0}%)",

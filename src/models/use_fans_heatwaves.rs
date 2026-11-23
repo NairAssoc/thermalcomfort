@@ -5,7 +5,9 @@
 
 use crate::models::two_nodes_gagge::GaggePosture;
 use crate::models::two_nodes_gagge::{GaggeTwoNodesInputs, GaggeTwoNodesOptions, two_nodes_gagge};
-use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
+use crate::{
+    ClothingInsulation, HeatFluxDensity, MassFluxDensity, MetabolicRate, VolumeFluxDensity,
+};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 /// The comfort inputs to [`use_fans_heatwaves`]: pythermalcomfort requires all six (no
@@ -39,14 +41,14 @@ pub struct UseFansHeatwavesOptions {
     pub p_atm: Pressure,
     /// Body position
     pub position: GaggePosture,
-    /// Maximum blood flow from the core to the skin [kg/h/m²].
+    /// Maximum blood flow from the core to the skin.
     ///
     /// Defaults to **80** here, unlike [`two_nodes_gagge`]'s default of 90 -- this
     /// model's own upstream default is different and must not be copied from the other
     /// one.
-    pub max_skin_blood_flow: f64,
-    /// Maximum rate at which regulatory sweat is generated [kg/h/m²]
-    pub max_sweating: f64,
+    pub max_skin_blood_flow: VolumeFluxDensity,
+    /// Maximum rate at which regulatory sweat is generated
+    pub max_sweating: MassFluxDensity,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
     /// Round output values
@@ -60,8 +62,8 @@ impl Default for UseFansHeatwavesOptions {
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             position: GaggePosture::Standing,
-            max_skin_blood_flow: 80.0,
-            max_sweating: 500.0,
+            max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(80.0),
+            max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(500.0),
             limit_inputs: true,
             round_output: true,
         }
@@ -87,10 +89,10 @@ pub struct UseFansHeatwavesResult {
     pub t_core: Temperature,
     /// Skin temperature
     pub t_skin: Temperature,
-    /// Skin blood flow [kg/h/m²]
-    pub m_bl: f64,
-    /// Regulatory sweat generation [kg/h/m²]
-    pub m_rsw: f64,
+    /// Skin blood flow
+    pub m_bl: VolumeFluxDensity,
+    /// Regulatory sweat generation
+    pub m_rsw: MassFluxDensity,
     /// Skin wettedness [0-1]
     pub w: f64,
     /// Maximum skin wettedness [0-1]
@@ -212,14 +214,20 @@ pub fn use_fans_heatwaves(
     // A flag is undefined (`None`) where the value it tests is NaN, and `heat_strain` is
     // undefined if any of the three is, as upstream's `np.max` over them carries NaN.
     #[allow(clippy::float_cmp)]
-    let heat_strain_blood_flow =
-        (!gagge_result.m_bl.is_nan()).then_some(gagge_result.m_bl == max_skin_blood_flow);
+    let heat_strain_blood_flow = (!gagge_result
+        .m_bl
+        .as_liters_per_hour_per_square_meter()
+        .is_nan())
+    .then_some(gagge_result.m_bl == max_skin_blood_flow);
     #[allow(clippy::float_cmp)]
     let heat_strain_w = (!(gagge_result.w.is_nan() || gagge_result.w_max.is_nan()))
         .then_some(gagge_result.w == gagge_result.w_max);
     #[allow(clippy::float_cmp)]
-    let heat_strain_sweating =
-        (!gagge_result.m_rsw.is_nan()).then_some(gagge_result.m_rsw == max_sweating);
+    let heat_strain_sweating = (!gagge_result
+        .m_rsw
+        .as_grams_per_hour_per_square_meter()
+        .is_nan())
+    .then_some(gagge_result.m_rsw == max_sweating);
     let heat_strain = [heat_strain_blood_flow, heat_strain_w, heat_strain_sweating]
         .into_iter()
         .try_fold(false, |any, flag| flag.map(|f| any || f));
@@ -244,8 +252,8 @@ pub fn use_fans_heatwaves(
             q_res: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
             t_core: Temperature::from_celsius(f64::NAN),
             t_skin: Temperature::from_celsius(f64::NAN),
-            m_bl: f64::NAN,
-            m_rsw: f64::NAN,
+            m_bl: VolumeFluxDensity::from_liters_per_hour_per_square_meter(f64::NAN),
+            m_rsw: MassFluxDensity::from_grams_per_hour_per_square_meter(f64::NAN),
             w: f64::NAN,
             w_max: f64::NAN,
             heat_strain_blood_flow: None,
@@ -284,8 +292,12 @@ pub fn use_fans_heatwaves(
         )),
         t_core: Temperature::from_celsius(round1(gagge_result.t_core.as_celsius())),
         t_skin: Temperature::from_celsius(round1(gagge_result.t_skin.as_celsius())),
-        m_bl: round1(gagge_result.m_bl),
-        m_rsw: round1(gagge_result.m_rsw),
+        m_bl: VolumeFluxDensity::from_liters_per_hour_per_square_meter(round1(
+            gagge_result.m_bl.as_liters_per_hour_per_square_meter(),
+        )),
+        m_rsw: MassFluxDensity::from_grams_per_hour_per_square_meter(round1(
+            gagge_result.m_rsw.as_grams_per_hour_per_square_meter(),
+        )),
         w: round1(gagge_result.w),
         w_max: round1(gagge_result.w_max),
         heat_strain_blood_flow,
@@ -332,6 +344,11 @@ mod tests {
     /// defaults to -- copying the wrong default would silently change every result.
     #[test]
     fn default_max_skin_blood_flow_is_80_not_90() {
-        assert_eq!(UseFansHeatwavesOptions::default().max_skin_blood_flow, 80.0);
+        assert_eq!(
+            UseFansHeatwavesOptions::default()
+                .max_skin_blood_flow
+                .as_liters_per_hour_per_square_meter(),
+            80.0
+        );
     }
 }

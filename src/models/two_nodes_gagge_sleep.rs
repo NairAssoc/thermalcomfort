@@ -15,7 +15,10 @@ use alloc::vec::Vec;
 use core::num::NonZeroU32;
 
 use crate::utilities::{py_max, py_min};
-use crate::{ClothingInsulation, HeatFluxDensity, MetabolicRate};
+use crate::{
+    ClothingInsulation, HeatFluxDensity, MetabolicRate, SweatingCoefficient,
+    VasoconstrictionCoefficient, VasodilationCoefficient, VolumeFluxDensity,
+};
 use libm::{exp, fabs as abs, pow, sqrt};
 use measurements::{Humidity, Length, Mass, Pressure, Speed, Temperature};
 
@@ -92,19 +95,19 @@ pub struct GaggeTwoNodesSleepOptions {
     /// Body weight
     pub weight: Mass,
     /// Driving coefficient for regulatory sweating
-    pub c_sw: f64,
+    pub c_sw: SweatingCoefficient,
     /// Driving coefficient for vasodilation
-    pub c_dil: f64,
+    pub c_dil: VasodilationCoefficient,
     /// Driving coefficient for vasoconstriction
-    pub c_str: f64,
+    pub c_str: VasoconstrictionCoefficient,
     /// Skin temperature at neutral conditions
     pub temp_skin_neutral: Temperature,
     /// Initial evaporative heat loss from skin
     pub e_skin: HeatFluxDensity,
     /// Initial fraction of body mass at skin temperature
     pub alfa: f64,
-    /// Initial skin blood flow [L/(h·m²)]
-    pub skin_blood_flow: f64,
+    /// Initial skin blood flow
+    pub skin_blood_flow: VolumeFluxDensity,
     /// Initial shivering thermogenesis.
     ///
     /// Setting this has no effect in either implementation: it seeds `SleepState::met_shivering`, but every minute
@@ -125,13 +128,13 @@ impl Default for GaggeTwoNodesSleepOptions {
             ltime: NonZeroU32::MIN,
             height: Length::from_centimeters(171.0),
             weight: Mass::from_kilograms(70.0),
-            c_sw: 170.0,
-            c_dil: 120.0,
-            c_str: 0.5,
+            c_sw: SweatingCoefficient::from_grams_per_square_meter_per_hour_per_kelvin(170.0),
+            c_dil: VasodilationCoefficient::from_liters_per_square_meter_per_hour_per_kelvin(120.0),
+            c_str: VasoconstrictionCoefficient::from_per_kelvin(0.5),
             temp_skin_neutral: Temperature::from_celsius(33.7),
             e_skin: HeatFluxDensity::from_watts_per_square_meter(0.094),
             alfa: 0.1,
-            skin_blood_flow: 6.3,
+            skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(6.3),
             met_shivering: HeatFluxDensity::from_watts_per_square_meter(0.0),
         }
     }
@@ -161,8 +164,8 @@ pub struct GaggeTwoNodesSleepResult {
     pub met_shivering: Vec<HeatFluxDensity>,
     /// Fraction of body mass at skin temperature
     pub alfa: Vec<f64>,
-    /// Skin blood flow [L/(h·m²)]
-    pub skin_blood_flow: Vec<f64>,
+    /// Skin blood flow
+    pub skin_blood_flow: Vec<VolumeFluxDensity>,
 }
 
 /// Saturation vapour pressure in torr, mirroring upstream's `_fnsvp`.
@@ -213,6 +216,11 @@ fn sleep_set(
     let height_cm = options.height.as_centimeters();
     let weight_kg = options.weight.as_kilograms();
     let wme = options.wme.as_met();
+    let c_sw = options.c_sw.as_grams_per_square_meter_per_hour_per_kelvin();
+    let c_dil = options
+        .c_dil
+        .as_liters_per_square_meter_per_hour_per_kelvin();
+    let c_str = options.c_str.as_per_kelvin();
 
     let mut m = met * 58.2;
     let w = wme * 58.2;
@@ -323,12 +331,11 @@ fn sleep_set(
         let cold_c = py_max(t_core_prescribed - t_core, 0.0);
         let warm_b = py_max(t_body - temp_body_neutral, 0.0);
 
-        skin_blood_flow =
-            (skin_blood_flow_neutral + options.c_dil * warm_c) / (1.0 + options.c_str * cold_s);
+        skin_blood_flow = (skin_blood_flow_neutral + c_dil * warm_c) / (1.0 + c_str * cold_s);
         // Upstream writes `min(max(sbf, 0.5), 90)`; `clamp` is the same function, and
         // agrees with Python on NaN too (both propagate it).
         skin_blood_flow = skin_blood_flow.clamp(0.5, 90.0);
-        let mut reg_sw = options.c_sw * warm_b * exp(warm_sk / 10.7);
+        let mut reg_sw = c_sw * warm_b * exp(warm_sk / 10.7);
         // `two_nodes_gagge_sleep.py:308`: builtin `min(reg_sw, 500)`.
         reg_sw = py_min(reg_sw, 500.0);
         e_rsw = 0.68 * reg_sw;
@@ -556,7 +563,9 @@ pub fn two_nodes_gagge_sleep(
         t_skin: options.temp_skin_neutral.as_celsius(),
         e_skin: options.e_skin.as_watts_per_square_meter(),
         alfa: options.alfa,
-        skin_blood_flow: options.skin_blood_flow,
+        skin_blood_flow: options
+            .skin_blood_flow
+            .as_liters_per_hour_per_square_meter(),
         met_shivering: options.met_shivering.as_watts_per_square_meter(),
     };
 
@@ -616,7 +625,11 @@ pub fn two_nodes_gagge_sleep(
                 minute.met_shivering,
             ));
         result.alfa.push(minute.alfa);
-        result.skin_blood_flow.push(minute.skin_blood_flow);
+        result
+            .skin_blood_flow
+            .push(VolumeFluxDensity::from_liters_per_hour_per_square_meter(
+                minute.skin_blood_flow,
+            ));
     }
 
     Ok(result)

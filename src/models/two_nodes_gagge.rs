@@ -9,7 +9,10 @@ use alloc::vec::Vec;
 
 use crate::psychrometrics::p_sat_torr;
 use crate::utilities::{py_max, py_min, round_to, whole_minutes};
-use crate::{ClothingInsulation, HeatFluxDensity, Mass, MaxSkinWettedness, MetabolicRate};
+use crate::{
+    ClothingInsulation, HeatFluxDensity, Mass, MassFluxDensity, MaxSkinWettedness, MetabolicRate,
+    VolumeFluxDensity,
+};
 use core::time::Duration;
 use libm::{exp, fabs as abs, pow, sqrt};
 
@@ -74,10 +77,10 @@ pub struct GaggeTwoNodesResult {
     pub t_core: Temperature,
     /// Skin temperature
     pub t_skin: Temperature,
-    /// Skin blood flow [kg/h/m²]
-    pub m_bl: f64,
-    /// Regulatory sweating rate [kg/h/m²]
-    pub m_rsw: f64,
+    /// Skin blood flow
+    pub m_bl: VolumeFluxDensity,
+    /// Regulatory sweating rate
+    pub m_rsw: MassFluxDensity,
     /// Skin wettedness (0-1)
     pub w: f64,
     /// Maximum skin wettedness (0-1)
@@ -105,12 +108,12 @@ pub struct GaggeTwoNodesOptions {
     pub p_atm: Pressure,
     /// Body position
     pub position: GaggePosture,
-    /// Maximum skin blood flow [kg/h/m²]
-    pub max_skin_blood_flow: f64,
+    /// Maximum skin blood flow
+    pub max_skin_blood_flow: VolumeFluxDensity,
     /// Round output values
     pub round_output: bool,
-    /// Maximum sweating rate [kg/h/m²]
-    pub max_sweating: f64,
+    /// Maximum regulatory sweating rate
+    pub max_sweating: MassFluxDensity,
     /// Maximum skin wettedness. `None`, the default, computes it from `v` and `clo`, as
     /// upstream's `False` or `0` does.
     pub w_max: Option<MaxSkinWettedness>,
@@ -125,9 +128,9 @@ impl Default for GaggeTwoNodesOptions {
             body_surface_area: Area::from_square_meters(1.8258),
             p_atm: Pressure::from_pascals(101325.0),
             position: GaggePosture::Standing,
-            max_skin_blood_flow: 90.0,
+            max_skin_blood_flow: VolumeFluxDensity::from_liters_per_hour_per_square_meter(90.0),
             round_output: true,
-            max_sweating: 500.0,
+            max_sweating: MassFluxDensity::from_grams_per_hour_per_square_meter(500.0),
             w_max: None,
             calculate_ce: false,
         }
@@ -259,8 +262,10 @@ pub fn two_nodes_gagge(
         options.p_atm.as_pascals(),
         options.position,
         options.calculate_ce,
-        options.max_skin_blood_flow,
-        options.max_sweating,
+        options
+            .max_skin_blood_flow
+            .as_liters_per_hour_per_square_meter(),
+        options.max_sweating.as_grams_per_hour_per_square_meter(),
         options.w_max.map(MaxSkinWettedness::as_fraction),
         options.round_output,
     );
@@ -275,8 +280,8 @@ pub fn two_nodes_gagge(
         q_res: HeatFluxDensity::from_watts_per_square_meter(raw.q_res),
         t_core: Temperature::from_celsius(raw.t_core),
         t_skin: Temperature::from_celsius(raw.t_skin),
-        m_bl: raw.m_bl,
-        m_rsw: raw.m_rsw,
+        m_bl: VolumeFluxDensity::from_liters_per_hour_per_square_meter(raw.m_bl),
+        m_rsw: MassFluxDensity::from_grams_per_hour_per_square_meter(raw.m_rsw),
         w: raw.w,
         w_max: raw.w_max,
         et: Temperature::from_celsius(raw.et),
@@ -1178,9 +1183,16 @@ mod tests {
             },
             Default::default(),
         );
-        assert_eq!(result.m_rsw, 0.0, "magnitude");
+        assert_eq!(
+            result.m_rsw.as_grams_per_hour_per_square_meter(),
+            0.0,
+            "magnitude"
+        );
         assert!(
-            result.m_rsw.is_sign_negative(),
+            result
+                .m_rsw
+                .as_grams_per_hour_per_square_meter()
+                .is_sign_negative(),
             "m_rsw should be -0.0 as upstream returns, got +0.0"
         );
         assert!(
@@ -1238,7 +1250,7 @@ mod tests {
 
         // In hot conditions, expect higher SET and sweating
         assert!(result.set.as_celsius() > 28.0);
-        assert!(result.m_rsw > 0.0); // Should be sweating
+        assert!(result.m_rsw.as_grams_per_hour_per_square_meter() > 0.0); // Should be sweating
         assert!(result.t_sens > 0.0); // Should feel hot
     }
 

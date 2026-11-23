@@ -8,7 +8,7 @@ use std::time::Duration;
 use thermalcomfort::models::jos3::{Jos3Builder, Jos3Posture, PerBodyPart};
 use thermalcomfort::{
     ActivityRatio, Age, BodyFat, ClothingInsulation, Humidity, Length, Mass, Sex, Speed,
-    Temperature,
+    Temperature, UnitSystem,
 };
 
 fn main() {
@@ -117,14 +117,15 @@ fn main() {
             .last()
             .map_or(0.0, |s| s.as_secs_f64() / 60.0)
     );
-    println!("  time   t_skin_mean  w_mean  cardiac output  heat production");
+    println!("  time   t_skin_mean  w_mean  cardiac output          heat production");
     for &minute in &[0usize, 30, 60, 75, 90, 105, 120] {
         println!(
-            "  {:>3} min   {:.2}°C     {:.2}    {:.0} L/h       {:.0} W",
+            "  {:>3} min   {:.2}°C     {:.2}    {:.0} L/h ({:.1} gal/h)   {:.0} W",
             minute,
             results.t_skin_mean[minute].as_celsius(),
             results.w_mean[minute],
-            results.cardiac_output[minute],
+            results.cardiac_output[minute].as_liters_per_hour(),
+            results.cardiac_output[minute].as_ip(),
             results.q_thermogenesis_total[minute].as_watts()
         );
     }
