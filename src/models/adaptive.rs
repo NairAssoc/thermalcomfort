@@ -83,7 +83,8 @@ pub struct AdaptiveOptions {
     /// Unit system, SI or IP (inch-pound), the result is rounded in. Inputs are typed, so
     /// this never changes what a value means: read the result with `as_si()` or `as_ip()`
     /// ([`crate::UnitSystem`]) in either case. Pass the system you read in to
-    /// get pythermalcomfort's rounded number exactly.
+    /// get pythermalcomfort's rounded number, to within the storage round-off described in
+    /// [`crate::unit_system`].
     pub units: Units,
 }
 

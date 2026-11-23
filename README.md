@@ -94,11 +94,11 @@ The rule for what is typed, on inputs **and** outputs:
   Dimensionless numbers are `f64`: PMV, PPD, fractions, percentages and dimensionless
   coefficients.
 - A result is `Temperature` when it is a temperature — measured, equivalent or weighted:
-  SET, PET, WBGT, apparent temperature, net effective temperature, wind-chill temperature,
-  operative and mean radiant temperature.
-- A classification index read against bands is `f64`: UTCI, humidex, heat index (both),
-  discomfort index, THI, ESI. UTCI keeps its `Units` option because upstream rounds it in
-  the output unit.
+  SET, PET, WBGT, UTCI, heat index (Rothfusz, Schoen and Lu), apparent temperature, net
+  effective temperature, wind-chill temperature, operative and mean radiant temperature.
+  UTCI keeps its `Units` option because upstream rounds it in the output unit.
+- An index read against bands that exist in one scale only is `f64`: humidex, discomfort
+  index, THI, ESI.
 - Yes/no outputs (acceptability, compliance, heat strain) are `Option<bool>`: `None` is
   upstream's NaN, for inputs outside the model's applicability limits or a NaN input.
 - Durations are `core::time::Duration`, inputs and outputs alike. Models that step in

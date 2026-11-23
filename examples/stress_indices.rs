@@ -26,7 +26,11 @@ fn main() {
     // Heat Index (Rothfusz)
     let hi_result = heat_index_rothfusz(hot_temp, hot_rh, Default::default());
     println!("Heat Index (Rothfusz):");
-    println!("  {:.1}°C", hi_result.hi);
+    println!(
+        "  {:.1}°C ({:.1}°F)",
+        hi_result.hi.as_celsius(),
+        hi_result.hi.as_fahrenheit()
+    );
     if let Some(cat) = hi_result.stress_category {
         println!("  {}", cat.as_str());
     } else {
@@ -43,8 +47,9 @@ fn main() {
         Default::default(),
     );
     println!(
-        "  At 30.645°C: {:.1}°C, {}",
-        on_the_edge.hi,
+        "  At 30.645°C: {:.1}°C ({:.1}°F), {}",
+        on_the_edge.hi.as_celsius(),
+        on_the_edge.hi.as_fahrenheit(),
         on_the_edge
             .stress_category
             .map_or("(uncategorised)", |c| c.as_str())
@@ -81,7 +86,11 @@ fn main() {
     // always available.
     let schoen = heat_index_schoen(hot_temp, hot_rh, Default::default());
     println!("\nHeat Index (Schoen):");
-    println!("  {:.1}°C", schoen.hi);
+    println!(
+        "  {:.1}°C ({:.1}°F)",
+        schoen.hi.as_celsius(),
+        schoen.hi.as_fahrenheit()
+    );
     println!(
         "  {}",
         schoen
@@ -94,7 +103,11 @@ fn main() {
     // It reports a temperature only, with no stress category.
     let lu = heat_index_lu(hot_temp, hot_rh, Default::default());
     println!("\nHeat Index (Lu & Romps):");
-    println!("  {:.1}°C", lu.hi);
+    println!(
+        "  {:.1}°C ({:.1}°F)",
+        lu.hi.as_celsius(),
+        lu.hi.as_fahrenheit()
+    );
 
     // Wind-dependent heat indices: a light breeze at 1.2 m (NET) / 10 m (AT)
     let hot_wind = Speed::from_meters_per_second(1.0);
@@ -198,8 +211,11 @@ fn main() {
         let hum = humidex(temp_30, rh, Default::default());
 
         println!(
-            "  RH {:.0}%: HI = {:.1}°C, Humidex = {:.0}",
-            rh_val, hi.hi, hum.humidex
+            "  RH {:.0}%: HI = {:.1}°C ({:.1}°F), Humidex = {:.0}",
+            rh_val,
+            hi.hi.as_celsius(),
+            hi.hi.as_fahrenheit(),
+            hum.humidex
         );
     }
 

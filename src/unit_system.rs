@@ -110,15 +110,16 @@
 //! Three sources of round-off besides the factors:
 //!
 //! - **Temperatures are stored in kelvin** (by the `measurements` crate), so a Celsius or
-//!   Fahrenheit value read back can differ from the one stored by about 2e-14 °C, the
-//!   last bit of the kelvin value. Integers and half-integers are exact. Model code that
+//!   Fahrenheit value read back can differ from the one stored by about 3e-14 °C (5e-14 °F),
+//!   the last bit of the kelvin value. Integers and half-integers are exact. Model code that
 //!   must match upstream bit-for-bit converts plain `f64` values with upstream's own
 //!   `(value * 9 / 5) + 32` instead.
 //! - **A model's `units` option selects the unit its result is rounded in**, as
 //!   pythermalcomfort's does: the cooling effect to 0.01, the adaptive comfort
 //!   temperatures, UTCI and the running mean outdoor temperature to 0.1, each in °C for
 //!   `SI` or °F for `IP`. Read the result in the same system you passed to get upstream's
-//!   rounded number exactly. Reading it in the other system is the same physical value,
+//!   rounded number, to within the storage round-off above (a temperature difference
+//!   read in °F is stored in °C, so it carries the same few-ULP round-off). Reading it in the other system is the same physical value,
 //!   unrounded: an `IP` cooling effect of 6.62 °F reads `as_si()` as 3.6778 °C, not 3.68.
 //! - **Rounding rules follow upstream's, which use two.** Values rounded by numpy, which is
 //!   most of them, use round-half-to-even on `value × 10ⁿ`. The running mean outdoor

@@ -429,8 +429,9 @@ pub fn discomfort_index(tdb: Temperature, rh: Humidity) -> DiscomfortIndexResult
 /// `Optional[str]` field on Python's `HI` dataclass.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeatIndexResult {
-    /// Heat Index [°C]
-    pub hi: f64,
+    /// Heat index, an apparent temperature. Upstream computes and rounds it in °C only, so
+    /// `as_celsius()` reads upstream's number.
+    pub hi: Temperature,
     /// Stress category derived from the heat index value
     pub stress_category: Option<HeatIndexStress>,
 }
@@ -451,21 +452,33 @@ pub enum HeatIndexStress {
 }
 
 impl HeatIndexStress {
-    /// Categorize a heat-index value. Bands are right-inclusive to match
-    /// pythermalcomfort's `mapping(..., right=True)` semantics.
-    pub fn from_hi_opt(hi: f64) -> Option<Self> {
-        if hi.is_nan() {
-            return None;
-        }
-        Some(Self::from_hi(hi))
+    /// Categorize a heat-index value, or `None` when it is not available (NaN). Bands are
+    /// in °C and right-inclusive to match pythermalcomfort's `mapping(..., right=True)`
+    /// semantics; the value is compared as [`Temperature::as_celsius`].
+    pub fn from_hi_opt(hi: Temperature) -> Option<Self> {
+        Self::from_hi_celsius_opt(hi.as_celsius())
     }
 
     /// Categorize a heat-index value that is known to be a number.
     ///
-    /// Prefer [`from_hi_opt`](Self::from_hi_opt): a NaN heat index has no band, and
-    /// falling through to `ExtremeDanger` reported the most severe category for a
-    /// calculation that was never made.
-    pub fn from_hi(hi: f64) -> Self {
+    /// Prefer [`from_hi_opt`](Self::from_hi_opt): a NaN heat index has no band, and this
+    /// reports it as `ExtremeDanger`, the most severe category, for a calculation that was
+    /// never made.
+    pub fn from_hi(hi: Temperature) -> Self {
+        Self::from_hi_celsius(hi.as_celsius())
+    }
+
+    /// The banding of [`from_hi_opt`](Self::from_hi_opt) on a plain °C value. The models
+    /// band the unrounded Celsius value they computed, before it is stored in kelvin: the
+    /// storage round trip can move a value within ~1e-14 °C of an edge onto the edge.
+    fn from_hi_celsius_opt(hi: f64) -> Option<Self> {
+        if hi.is_nan() {
+            return None;
+        }
+        Some(Self::from_hi_celsius(hi))
+    }
+
+    fn from_hi_celsius(hi: f64) -> Self {
         if hi <= 27.0 {
             HeatIndexStress::NoRisk
         } else if hi <= 32.0 {
@@ -513,7 +526,7 @@ impl Default for HeatIndexRothfuszOptions {
 ///
 /// # Returns
 ///
-/// [`HeatIndexResult`] with the heat index [°C] and stress category (None when
+/// [`HeatIndexResult`] with the heat index (rounded in °C) and stress category (None when
 /// `limit_inputs` is true and the input falls below the applicability range).
 ///
 /// # Examples
@@ -527,7 +540,7 @@ impl Default for HeatIndexRothfuszOptions {
 ///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
-/// assert!((result.hi - 29.7).abs() < 0.2);
+/// assert!((result.hi.as_celsius() - 29.7).abs() < 0.2);
 /// assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
 /// ```
 ///
@@ -576,19 +589,19 @@ pub fn heat_index_rothfusz(
     // This is the applicability limit from NWS (≈80°F)
     if options.limit_inputs && dry_bulb_celsius < 27.0 {
         return HeatIndexResult {
-            hi: f64::NAN,
+            hi: Temperature::from_celsius(f64::NAN),
             stress_category: None,
         };
     }
 
     // The category is judged on the unrounded index; rounding only affects `hi`.
-    let stress_category = HeatIndexStress::from_hi_opt(hi);
+    let stress_category = HeatIndexStress::from_hi_celsius_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
-        hi,
+        hi: Temperature::from_celsius(hi),
         stress_category,
     }
 }
@@ -614,7 +627,7 @@ impl Default for HeatIndexSchoenOptions {
 ///
 /// # Returns
 ///
-/// [`HeatIndexResult`] with the heat index [°C] and stress category. Unlike
+/// [`HeatIndexResult`] with the heat index (rounded in °C) and stress category. Unlike
 /// [`heat_index_rothfusz`], this model has no dry-bulb applicability gate, so the
 /// stress category is always populated.
 ///
@@ -629,7 +642,7 @@ impl Default for HeatIndexSchoenOptions {
 ///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
-/// assert!((result.hi - 30.0).abs() < 0.2);
+/// assert!((result.hi.as_celsius() - 30.0).abs() < 0.2);
 /// assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
 /// ```
 ///
@@ -653,13 +666,13 @@ pub fn heat_index_schoen(
             * (1.0 - libm::exp(0.0801 * (t_dew_celsius - 14.0)));
 
     // The category is judged on the unrounded index; rounding only affects `hi`.
-    let stress_category = HeatIndexStress::from_hi_opt(hi);
+    let stress_category = HeatIndexStress::from_hi_celsius_opt(hi);
     if options.round_output {
         hi = crate::utilities::round_half_even(hi * 10.0) / 10.0;
     }
 
     HeatIndexResult {
-        hi,
+        hi: Temperature::from_celsius(hi),
         stress_category,
     }
 }
@@ -1024,7 +1037,7 @@ mod tests {
             Humidity::from_percent(50.0),
             Default::default(),
         );
-        assert!((result.hi - 29.7).abs() < 0.5);
+        assert!((result.hi.as_celsius() - 29.7).abs() < 0.5);
         assert_eq!(result.stress_category, Some(HeatIndexStress::Caution));
 
         // Below the applicability range with limit_inputs=true → NaN and no category
@@ -1033,7 +1046,7 @@ mod tests {
             Humidity::from_percent(50.0),
             Default::default(),
         );
-        assert!(result.hi.is_nan());
+        assert!(result.hi.as_celsius().is_nan());
         assert_eq!(result.stress_category, None);
 
         // Same inputs with limits disabled → numeric value and a category
@@ -1045,7 +1058,7 @@ mod tests {
                 limit_inputs: false,
             },
         );
-        assert!(!result.hi.is_nan());
+        assert!(!result.hi.as_celsius().is_nan());
         assert!(result.stress_category.is_some());
     }
 
@@ -1063,9 +1076,9 @@ mod tests {
                 Default::default(),
             );
             assert!(
-                (result.hi - expected_hi).abs() < 0.05,
+                (result.hi.as_celsius() - expected_hi).abs() < 0.05,
                 "schoen({tdb}, {rh}) = {} expected {expected_hi}",
-                result.hi
+                result.hi.as_celsius()
             );
             assert_eq!(result.stress_category, Some(expected_cat));
         }
@@ -1076,29 +1089,69 @@ mod tests {
             Humidity::from_percent(50.0),
             Default::default(),
         );
-        assert!(!result.hi.is_nan());
+        assert!(!result.hi.as_celsius().is_nan());
         assert!(result.stress_category.is_some());
     }
 
     #[test]
     fn test_heat_index_stress_categories() {
         // Right-inclusive bands per pythermalcomfort: <=27, <=32, <=41, <=54, >54.
-        assert_eq!(HeatIndexStress::from_hi(27.0), HeatIndexStress::NoRisk);
-        assert_eq!(HeatIndexStress::from_hi(27.1), HeatIndexStress::Caution);
-        assert_eq!(HeatIndexStress::from_hi(32.0), HeatIndexStress::Caution);
         assert_eq!(
-            HeatIndexStress::from_hi(32.1),
+            HeatIndexStress::from_hi(Temperature::from_celsius(27.0)),
+            HeatIndexStress::NoRisk
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(Temperature::from_celsius(27.1)),
+            HeatIndexStress::Caution
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(Temperature::from_celsius(32.0)),
+            HeatIndexStress::Caution
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(Temperature::from_celsius(32.1)),
             HeatIndexStress::ExtremeCaution
         );
         assert_eq!(
-            HeatIndexStress::from_hi(41.0),
+            HeatIndexStress::from_hi(Temperature::from_celsius(41.0)),
             HeatIndexStress::ExtremeCaution
         );
-        assert_eq!(HeatIndexStress::from_hi(41.1), HeatIndexStress::Danger);
-        assert_eq!(HeatIndexStress::from_hi(54.0), HeatIndexStress::Danger);
         assert_eq!(
-            HeatIndexStress::from_hi(54.1),
+            HeatIndexStress::from_hi(Temperature::from_celsius(41.1)),
+            HeatIndexStress::Danger
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(Temperature::from_celsius(54.0)),
+            HeatIndexStress::Danger
+        );
+        assert_eq!(
+            HeatIndexStress::from_hi(Temperature::from_celsius(54.1)),
             HeatIndexStress::ExtremeDanger
+        );
+    }
+
+    /// Every band edge is exact through kelvin storage, so a `Temperature` built on an edge
+    /// in °C keeps the lower band. The value one ulp above an edge is not: kelvin storage
+    /// reads it back as the edge itself, which is why the models band their plain °C value.
+    #[test]
+    fn test_heat_index_stress_edges_through_kelvin_storage() {
+        for edge in [27.0, 32.0, 41.0, 54.0] {
+            assert_eq!(
+                HeatIndexStress::from_hi_opt(Temperature::from_celsius(edge)),
+                HeatIndexStress::from_hi_celsius_opt(edge),
+                "edge {edge}"
+            );
+            let above = libm::nextafter(edge, f64::INFINITY);
+            assert_eq!(Temperature::from_celsius(above).as_celsius(), edge);
+            assert_ne!(
+                HeatIndexStress::from_hi_celsius(above),
+                HeatIndexStress::from_hi_celsius(edge),
+                "above {edge}"
+            );
+        }
+        assert_eq!(
+            HeatIndexStress::from_hi_opt(Temperature::from_celsius(f64::NAN)),
+            None
         );
     }
 

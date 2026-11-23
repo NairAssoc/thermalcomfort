@@ -694,11 +694,11 @@ fn sweep_utci() {
                 },
             );
 
-            let field = match units {
-                Units::SI => &field_si,
-                Units::IP => &field_ip,
+            let (field, rust_utci) = match units {
+                Units::SI => (&field_si, rust.utci.as_celsius()),
+                Units::IP => (&field_ip, rust.utci.as_fahrenheit()),
             };
-            compare_field(field, rust.utci, py_float(&py_result, "utci")?)
+            compare_field(field, rust_utci, py_float(&py_result, "utci")?)
         });
     });
 }
@@ -2981,7 +2981,7 @@ fn sweep_heat_index_lu() {
                 HeatIndexLuOptions { round_output },
             );
 
-            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_field(&field, rust.hi.as_celsius(), py_float(&py_result, "hi")?)?;
             compare_category(
                 "stress_category",
                 rust.stress_category.map(|c| c.as_str()),
@@ -3033,7 +3033,7 @@ fn sweep_heat_index_rothfusz() {
                 },
             );
 
-            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_field(&field, rust.hi.as_celsius(), py_float(&py_result, "hi")?)?;
             compare_category(
                 "stress_category",
                 rust.stress_category.map(|c| c.as_str()),
@@ -3073,7 +3073,7 @@ fn sweep_heat_index_schoen() {
                 HeatIndexSchoenOptions { round_output },
             );
 
-            compare_field(&field, rust.hi, py_float(&py_result, "hi")?)?;
+            compare_field(&field, rust.hi.as_celsius(), py_float(&py_result, "hi")?)?;
             compare_category(
                 "stress_category",
                 rust.stress_category.map(|c| c.as_str()),
