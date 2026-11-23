@@ -45,19 +45,20 @@
 
 #![no_std]
 
-/// Compiles every ```` ```rust ```` block in `README.md` as a doctest.
-///
-/// The README's examples had all rotted to a previous API — they still showed positional
-/// calls after every model moved to named input structs, so anything copy-pasted from the
-/// front page did not compile. Nothing caught it, because a fenced block in a `.md` file is
-/// just text. This makes that impossible: the examples are now compiled by
-/// `cargo test --doc` like any other doctest.
+/// Compiles every ```` ```rust ```` block in `README.md` as a doctest, so the front page's
+/// examples cannot drift from the API.
 ///
 /// `#[cfg(doctest)]` means the item exists only during a doctest run, so it costs nothing
 /// in a normal build and adds nothing to the public API.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 pub struct ReadmeExamples;
+
+/// Compiles every ```` ```rust ```` block in `MIGRATING.md` as a doctest, so the migration
+/// guide's replacement code compiles against this release.
+#[cfg(doctest)]
+#[doc = include_str!("../MIGRATING.md")]
+pub struct MigratingExamples;
 
 pub mod clothing;
 pub(crate) mod constants;

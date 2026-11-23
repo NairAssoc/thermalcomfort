@@ -123,6 +123,9 @@ Add this to your `Cargo.toml`:
 thermalcomfort = "4.8.1"
 ```
 
+Upgrading from 4.6.2? [MIGRATING.md](MIGRATING.md) lists every breaking change and its
+replacement.
+
 ## Usage
 
 The quickest start is PMV/PPD under ISO 7730:
