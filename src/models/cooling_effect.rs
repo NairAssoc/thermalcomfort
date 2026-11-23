@@ -7,7 +7,7 @@ use crate::models::set_tmp::{SetInputs, SetOptions, set_tmp};
 use crate::models::two_nodes_gagge::GaggePosture;
 use crate::numerical::brentq;
 use crate::utilities::Units;
-use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta};
+use crate::{ClothingInsulation, MetabolicRate, TemperatureDelta, UnitSystem};
 use measurements::{Area, Humidity, Pressure, Speed, Temperature};
 
 // pythermalcomfort's cooling_effect() hardcodes these as private module constants
@@ -51,12 +51,10 @@ pub struct CoolingEffectInputs {
 pub struct CoolingEffectOptions {
     /// External work
     pub wme: MetabolicRate,
-    /// Unit system the result is expressed in.
-    ///
-    /// Unit system the result is rounded in. Upstream converts the Celsius cooling effect
-    /// to a Fahrenheit difference (`* 1.8`) and then rounds to two decimals, so an `IP`
-    /// result is the same physical difference as an `SI` one, rounded in °F instead of °C;
-    /// read it with `as_fahrenheit()` to get upstream's number exactly.
+    /// Unit system, SI or IP (inch-pound), the result is rounded in. Inputs are typed, so
+    /// this never changes what a value means: read the result with `as_si()` or `as_ip()`
+    /// ([`crate::UnitSystem`]) in either case. Pass the system you read in to
+    /// get pythermalcomfort's rounded number exactly.
     pub units: Units,
 }
 
@@ -185,18 +183,12 @@ pub fn cooling_effect(
     // tdb=8.1, tr=31.5, vr=0.58, rh=5.6, met=4.6), which then shifted pmv_ppd_ashrae.
     let ce_celsius = brentq(function, 0.0, 40.0, Some(2e-12), Some(100)).unwrap_or(0.0);
 
-    // pythermalcomfort rounds to two decimals AFTER the unit rescale below, not before.
-    match options.units {
-        Units::SI => {
-            let ce = crate::utilities::round_half_even(ce_celsius * 100.0) / 100.0;
-            TemperatureDelta::from_celsius(ce)
-        }
-        Units::IP => {
-            let ce_ip = ce_celsius * 1.8;
-            let ce_ip = crate::utilities::round_half_even(ce_ip * 100.0) / 100.0;
-            TemperatureDelta::from_fahrenheit(ce_ip)
-        }
-    }
+    // pythermalcomfort rounds to two decimals in the output unit, after the conversion.
+    let ce = TemperatureDelta::from_si(ce_celsius).in_units(options.units);
+    TemperatureDelta::from_units(
+        crate::utilities::round_half_even(ce * 100.0) / 100.0,
+        options.units,
+    )
 }
 
 #[cfg(test)]

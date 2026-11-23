@@ -11,7 +11,7 @@ use thermalcomfort::models::{
     PmvPpdAshraeOptions, PmvPpdInputs, PmvPpdIsoOptions, cooling_effect, pmv_a, pmv_athb, pmv_e,
     pmv_ppd_ashrae, pmv_ppd_iso,
 };
-use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature};
+use thermalcomfort::{ClothingInsulation, Humidity, MetabolicRate, Speed, Temperature, UnitSystem};
 
 fn main() {
     println!("=== PMV Model Variants ===\n");
@@ -134,10 +134,13 @@ fn main() {
         },
         Default::default(),
     );
+    // A temperature difference reads in either system: SI °C or IP (inch-pound) °F
     println!(
-        "  {:.1} m/s relative air speed cools like a {:.2} K drop in temperature",
-        vr_fan.as_meters_per_second(),
-        ce.as_celsius()
+        "  {:.1} m/s ({:.2} ft/s) relative air speed cools like a {:.2} °C ({:.2} °F) drop",
+        vr_fan.as_si(),
+        vr_fan.as_ip(),
+        ce.as_si(),
+        ce.as_ip()
     );
 
     // --- Adaptive and expectancy corrections ---

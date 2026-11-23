@@ -65,13 +65,16 @@ pub mod environment;
 pub mod models;
 pub mod numerical;
 pub mod psychrometrics;
+pub mod unit_system;
 pub mod utilities;
 
 // Re-export commonly used items
 pub use environment::v_relative;
 pub use models::pmv::{PmvPpdResult, pmv_ppd_iso};
+pub use unit_system::UnitSystem;
 pub use utilities::{
-    CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, clo_individual_garment, clo_typical_ensemble,
+    CLO_INDIVIDUAL_GARMENTS, CLO_TYPICAL_ENSEMBLES, Units, clo_individual_garment,
+    clo_typical_ensemble,
 };
 
 // Re-export measurements types for convenience

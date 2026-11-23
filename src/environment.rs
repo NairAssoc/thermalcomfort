@@ -3,7 +3,9 @@
 //! helpers. Mirrors `pythermalcomfort.environment`.
 
 use crate::MetabolicRate;
+use crate::UnitSystem;
 use crate::constants::*;
+use crate::unit_system::celsius_in_units;
 use crate::utilities::{Units, np_maximum, round_to, round_to_exact_decimal};
 use libm::{fabs as abs, log, pow, round, sqrt};
 use measurements::{Angle, Length, Speed, Temperature};
@@ -17,16 +19,10 @@ pub struct RunningMeanOutdoorTemperatureOptions {
     /// - ASHRAE 55 recommends 0.6-0.9 (slow to fast response)
     /// - Use 0.9 for stable climates, 0.6 for variable climates
     pub alpha: f64,
-    /// Unit system the result is expressed in.
-    ///
-    /// `utilities.py:944-950`'s IP branch is a genuine °C<->°F conversion: it converts
-    /// each element of `temp_array` from °F before averaging, and converts the result
-    /// back to °F afterwards, **rounding in that output unit**. Typed [`Temperature`]
-    /// inputs make the input-side conversion moot (they already carry their true SI
-    /// value regardless of `units`), but the output-side rounding is real: `round(t_rm_f,
-    /// 1)` is not the same physical temperature as rounding an already-Celsius-rounded
-    /// value and converting it, so it is replicated here rather than derived after the
-    /// fact.
+    /// Unit system, SI or IP (inch-pound), the result is rounded in. Inputs are typed, so
+    /// this never changes what a value means: read the result with `as_si()` or `as_ip()`
+    /// ([`crate::UnitSystem`]) in either case. Pass the system you read in to
+    /// get pythermalcomfort's rounded number exactly.
     pub units: Units,
 }
 
@@ -84,10 +80,7 @@ pub fn running_mean_outdoor_temperature(
     // branch (both would hit ZeroDivisionError in Python); this NaN-avoiding shortcut is
     // a pre-existing Rust-only guard, not upstream behaviour, so it is unit-agnostic too.
     if temp_array.is_empty() {
-        return match units {
-            Units::SI => Temperature::from_celsius(0.0),
-            Units::IP => Temperature::from_fahrenheit(32.0),
-        };
+        return Temperature::from_celsius(0.0);
     }
 
     let mut sum_weighted = 0.0;
@@ -105,10 +98,7 @@ pub fn running_mean_outdoor_temperature(
     // `units_converter`'s literal `(value * 9 / 5) + 32` formula exactly (rather than
     // routing through `Temperature`'s Kelvin storage, which would lose the last ULP —
     // see 28adfa8).
-    let t_rm_out = match units {
-        Units::SI => t_rm_celsius,
-        Units::IP => t_rm_celsius * 9.0 / 5.0 + 32.0,
-    };
+    let t_rm_out = celsius_in_units(t_rm_celsius, units);
 
     // pythermalcomfort rounds this to one decimal before returning; without it the two
     // implementations disagree in the second decimal for every input. `utilities.py:955`
@@ -116,10 +106,7 @@ pub fn running_mean_outdoor_temperature(
     // builtin decimal rounding, not numpy's.
     let t_rm_rounded = round_to_exact_decimal(t_rm_out, 1);
 
-    match units {
-        Units::SI => Temperature::from_celsius(t_rm_rounded),
-        Units::IP => Temperature::from_fahrenheit(t_rm_rounded),
-    }
+    Temperature::from_units(t_rm_rounded, units)
 }
 /// Calculate relative air speed which combines average air speed plus body movement
 ///

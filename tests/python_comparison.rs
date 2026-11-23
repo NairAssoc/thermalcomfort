@@ -7817,3 +7817,52 @@ fn test_jos3_t_core_and_t_skin_setters() {
         );
     });
 }
+
+/// `UnitSystem`'s IP conversions agree with pythermalcomfort's `units_converter` for the
+/// quantities its models convert: temperatures (`tdb`, `tr`, `tmp`) and air speeds (`v`,
+/// `vr`). Upstream's table also lists area (`× 10.764`) and pressure (atm), which no
+/// upstream model converts; the port uses the exact ft² and inch-pound psi for those.
+#[test]
+fn test_unit_system_matches_upstream_units_converter() {
+    use thermalcomfort::UnitSystem;
+    Python::attach(|py| {
+        let utilities = import_reference(py, "pythermalcomfort.utilities").unwrap();
+        let convert = |from_units: &str, key: &str, value: f64| -> f64 {
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("from_units", from_units).unwrap();
+            kwargs.set_item(key, value).unwrap();
+            let out: Vec<f64> = utilities
+                .getattr("units_converter")
+                .unwrap()
+                .call((), Some(&kwargs))
+                .unwrap()
+                .extract()
+                .unwrap();
+            out[0]
+        };
+        for x in [-40.0, 0.0, 21.7, 37.0, 100.0] {
+            assert_abs_diff_eq!(
+                Temperature::from_si(x).as_ip(),
+                convert("SI", "tdb", x),
+                epsilon = 1e-9
+            );
+            assert_abs_diff_eq!(
+                Temperature::from_ip(x).as_si(),
+                convert("IP", "tdb", x),
+                epsilon = 1e-9
+            );
+        }
+        for x in [0.0, 0.1, 0.8, 4.0] {
+            assert_abs_diff_eq!(
+                Speed::from_si(x).as_ip(),
+                convert("SI", "v", x),
+                epsilon = 1e-12
+            );
+            assert_abs_diff_eq!(
+                Speed::from_ip(x).as_si(),
+                convert("IP", "vr", x),
+                epsilon = 1e-12
+            );
+        }
+    });
+}

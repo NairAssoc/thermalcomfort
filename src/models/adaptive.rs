@@ -3,7 +3,9 @@
 //! Adaptive models relate indoor design temperatures to outdoor climate parameters.
 //! Only applicable to naturally conditioned spaces without mechanical cooling/heating.
 
+use crate::UnitSystem;
 use crate::environment::operative_temperature_celsius;
+use crate::unit_system::celsius_in_units;
 use crate::utilities::{Units, round_to};
 use measurements::{Speed, Temperature};
 
@@ -78,12 +80,10 @@ pub struct AdaptiveOptions {
     /// Round the reported temperatures to one decimal place, in the output unit. The
     /// acceptability flags always come from unrounded values, so this never changes them.
     pub round_output: bool,
-    /// Unit system the result is expressed in.
-    ///
-    /// Upstream's IP branch (`adaptive_ashrae.py`/`adaptive_en.py`) is a genuine
-    /// affine °C→°F conversion (`value * 9 / 5 + 32`), unlike `cooling_effect`'s
-    /// literal, non-physical rescale — so there is no "meaningless as_celsius" caveat
-    /// here; `as_fahrenheit()` on an `IP` result is the real Fahrenheit value.
+    /// Unit system, SI or IP (inch-pound), the result is rounded in. Inputs are typed, so
+    /// this never changes what a value means: read the result with `as_si()` or `as_ip()`
+    /// ([`crate::UnitSystem`]) in either case. Pass the system you read in to
+    /// get pythermalcomfort's rounded number exactly.
     pub units: Units,
 }
 
@@ -94,25 +94,6 @@ impl Default for AdaptiveOptions {
             round_output: true,
             units: Units::SI,
         }
-    }
-}
-
-/// Convert a Celsius value to the requested output unit, matching pythermalcomfort's
-/// `units_converter`'s literal `(value * 9 / 5) + 32` formula exactly (rather than
-/// routing through `Temperature`'s Kelvin storage, which would lose the last ULP —
-/// see 28adfa8).
-fn to_output_unit(value_celsius: f64, units: Units) -> f64 {
-    match units {
-        Units::SI => value_celsius,
-        Units::IP => value_celsius * 9.0 / 5.0 + 32.0,
-    }
-}
-
-/// Wrap a value already expressed in the given output unit back into a [`Temperature`].
-fn wrap_temperature(value_in_unit: f64, units: Units) -> Temperature {
-    match units {
-        Units::SI => Temperature::from_celsius(value_in_unit),
-        Units::IP => Temperature::from_fahrenheit(value_in_unit),
     }
 }
 
@@ -250,8 +231,8 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
     // Only the reported temperatures are rounded, after the conversion to the output unit.
     let units = options.units;
     let report = |value_celsius: f64| {
-        let value = to_output_unit(value_celsius, units);
-        wrap_temperature(
+        let value = celsius_in_units(value_celsius, units);
+        Temperature::from_units(
             if options.round_output {
                 round_to(value, 1)
             } else {
@@ -364,13 +345,13 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     // rounds — each bound independently, in whatever unit it ends up in
     // (adaptive_en.py:140-162).
     let units = options.units;
-    let mut t_cmf_out = to_output_unit(t_cmf, units);
-    let mut cat_i_low_out = to_output_unit(tmp_cmf_cat_i_low, units);
-    let mut cat_i_up_out = to_output_unit(tmp_cmf_cat_i_up, units);
-    let mut cat_ii_low_out = to_output_unit(tmp_cmf_cat_ii_low, units);
-    let mut cat_ii_up_out = to_output_unit(tmp_cmf_cat_ii_up, units);
-    let mut cat_iii_low_out = to_output_unit(tmp_cmf_cat_iii_low, units);
-    let mut cat_iii_up_out = to_output_unit(tmp_cmf_cat_iii_up, units);
+    let mut t_cmf_out = celsius_in_units(t_cmf, units);
+    let mut cat_i_low_out = celsius_in_units(tmp_cmf_cat_i_low, units);
+    let mut cat_i_up_out = celsius_in_units(tmp_cmf_cat_i_up, units);
+    let mut cat_ii_low_out = celsius_in_units(tmp_cmf_cat_ii_low, units);
+    let mut cat_ii_up_out = celsius_in_units(tmp_cmf_cat_ii_up, units);
+    let mut cat_iii_low_out = celsius_in_units(tmp_cmf_cat_iii_low, units);
+    let mut cat_iii_up_out = celsius_in_units(tmp_cmf_cat_iii_up, units);
 
     if options.round_output {
         t_cmf_out = round_to(t_cmf_out, 1);
@@ -383,13 +364,13 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     }
 
     AdaptiveEnResult {
-        tmp_cmf: wrap_temperature(t_cmf_out, units),
-        tmp_cmf_cat_i_low: wrap_temperature(cat_i_low_out, units),
-        tmp_cmf_cat_i_up: wrap_temperature(cat_i_up_out, units),
-        tmp_cmf_cat_ii_low: wrap_temperature(cat_ii_low_out, units),
-        tmp_cmf_cat_ii_up: wrap_temperature(cat_ii_up_out, units),
-        tmp_cmf_cat_iii_low: wrap_temperature(cat_iii_low_out, units),
-        tmp_cmf_cat_iii_up: wrap_temperature(cat_iii_up_out, units),
+        tmp_cmf: Temperature::from_units(t_cmf_out, units),
+        tmp_cmf_cat_i_low: Temperature::from_units(cat_i_low_out, units),
+        tmp_cmf_cat_i_up: Temperature::from_units(cat_i_up_out, units),
+        tmp_cmf_cat_ii_low: Temperature::from_units(cat_ii_low_out, units),
+        tmp_cmf_cat_ii_up: Temperature::from_units(cat_ii_up_out, units),
+        tmp_cmf_cat_iii_low: Temperature::from_units(cat_iii_low_out, units),
+        tmp_cmf_cat_iii_up: Temperature::from_units(cat_iii_up_out, units),
         acceptability_cat_i,
         acceptability_cat_ii,
         acceptability_cat_iii,
