@@ -5,30 +5,6 @@ use core::time::Duration;
 use libm::{copysign, fabs, pow, round, trunc};
 pub use measurements::{Area, Humidity, Length, Mass, Pressure, Speed, Temperature};
 
-/// Convert Temperature to Celsius (f64)
-#[inline]
-pub fn temp_to_celsius(temp: Temperature) -> f64 {
-    temp.as_celsius()
-}
-
-/// Convert f64 Celsius to Temperature
-#[inline]
-pub fn celsius_to_temp(temp_c: f64) -> Temperature {
-    Temperature::from_celsius(temp_c)
-}
-
-/// Convert Speed to m/s (f64)
-#[inline]
-pub fn speed_to_ms(speed: Speed) -> f64 {
-    speed.as_meters_per_second()
-}
-
-/// Convert f64 m/s to Speed
-#[inline]
-pub fn ms_to_speed(speed_ms: f64) -> Speed {
-    Speed::from_meters_per_second(speed_ms)
-}
-
 /// Unit system: SI or IP (inch-pound).
 ///
 /// Every input and result is a typed quantity, so this never changes what a value means.

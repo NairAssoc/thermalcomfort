@@ -2,7 +2,6 @@
 //! air-layer and total insulation, environmental correction, and ensemble summation.
 //! Mirrors `pythermalcomfort.clothing`.
 
-use crate::constants::MET_TO_W_M2;
 use crate::environment::v_relative;
 use crate::utilities::round_to;
 use crate::{ClothingInsulation, MetabolicRate};
@@ -373,7 +372,7 @@ pub fn clo_dynamic_iso(
     // v_walk = 0.0052 * (M - 58), clipped to [0, 0.7] m/s, where M is metabolic rate
     // in W/m². This is a distinct formula from `v_relative`'s activity-generated air
     // speed, which the previous implementation incorrectly reused here.
-    let v_walk_ms = (0.0052 * (met.as_met() * MET_TO_W_M2 - 58.0)).clamp(0.0, 0.7);
+    let v_walk_ms = (0.0052 * (met.as_met() * MetabolicRate::MET_TO_W_M2 - 58.0)).clamp(0.0, 0.7);
     let v_walk = Speed::from_meters_per_second(v_walk_ms);
 
     // Calculate total dynamic insulation

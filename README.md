@@ -47,6 +47,11 @@ Defined in this crate:
 - `AirPermeability` - Air permeability of clothing (l/(m²·s)), per ISO 11079
 - `ClothingInsulation` - Clothing insulation (clo, tog, m²·K/W)
 - `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
+- `HeatFluxDensity`, `HeatPerArea`, `MassFluxDensity`, `VolumeFluxDensity`, `MassFlow`,
+  `VolumeFlow`, `PowerRate`, `SpecificEnthalpy`, `HumidityRatio`, `ThermalResistance`,
+  `EvaporativeResistance`, and the two-node models' `SweatingCoefficient`,
+  `VasodilationCoefficient` and `VasoconstrictionCoefficient` - one type per physical
+  quantity; each type's documentation states its SI and IP units
 - `Age` - Age in years, shared by PET, the ridge-regression predictor and JOS3
 - `Sex` - Biological sex for physiological models
 - `WorkEfficiency`, `MaxSkinWettedness` - fractions with a validated range (`[0, 1]` and

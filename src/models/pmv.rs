@@ -3,7 +3,6 @@
 //! Implementation of thermal comfort models according to ISO 7730 and ASHRAE 55 standards
 
 use crate::clothing::Ashrae55Model;
-use crate::constants::*;
 use crate::utilities::{py_max, round_to, valid_range};
 use crate::{ClothingInsulation, MetabolicRate};
 use libm::{exp, fabs as abs, pow, sqrt};
@@ -623,10 +622,10 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     let icl = 0.155 * clo;
 
     // Metabolic rate [W/m²]
-    let m = met * MET_TO_W_M2;
+    let m = met * MetabolicRate::MET_TO_W_M2;
 
     // External work [W/m²]
-    let w = wme * MET_TO_W_M2;
+    let w = wme * MetabolicRate::MET_TO_W_M2;
 
     // Internal heat production
     let mw = m - w;
@@ -701,8 +700,8 @@ fn pmv_optimized(tdb: f64, tr: f64, vr: f64, rh: f64, met: f64, clo: f64, wme: f
     // Heat loss by sweating (regulatory sweating)
     // 0.42 = sweating efficiency coefficient [W/(m²) per W/(m²)]
     // Only occurs when metabolic rate exceeds 1 met (58.15 W/m²)
-    let hl2 = if mw > MET_TO_W_M2 {
-        0.42 * (mw - MET_TO_W_M2)
+    let hl2 = if mw > MetabolicRate::MET_TO_W_M2 {
+        0.42 * (mw - MetabolicRate::MET_TO_W_M2)
     } else {
         0.0
     };
@@ -1110,7 +1109,7 @@ pub fn pmv_athb(inputs: PmvAthbInputs, options: PmvAthbOptions) -> f64 {
     // Calculate thermal sensation coefficient
     // 58.15 here, not the 58.2 used above for met_adapted: pythermalcomfort uses the
     // met_to_w_m2 constant in this expression and a literal 58.2 in the other.
-    let ts = 0.303 * libm::exp(-0.036 * met_adapted * MET_TO_W_M2) + 0.028;
+    let ts = 0.303 * libm::exp(-0.036 * met_adapted * MetabolicRate::MET_TO_W_M2) + 0.028;
     let l_adapted = pmv_result / ts;
 
     // Calculate ATHB PMV

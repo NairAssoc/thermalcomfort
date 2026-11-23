@@ -54,10 +54,6 @@ EXEMPT: dict[str, str] = {
         "Covered against CPython by unit tests in src/utilities.rs, and through "
         "pythermalcomfort by every JOS3 t_cb comparison"
     ),
-    "celsius_to_temp": "Rust measurement-type adapter, no Python analogue",
-    "temp_to_celsius": "Rust measurement-type adapter, no Python analogue",
-    "ms_to_speed": "Rust measurement-type adapter, no Python analogue",
-    "speed_to_ms": "Rust measurement-type adapter, no Python analogue",
     "body_surface_area_dubois": "Rust splits this out; Python's body_surface_area takes a formula argument",
 }
 
@@ -246,10 +242,6 @@ EXAMPLE_EXEMPT: dict[str, str] = {
     "round_to": "formatting helper used inside the models",
     "round_half_even": "rounding helper used inside the models",
     "round_to_exact_decimal": "rounding helper used inside the models",
-    "celsius_to_temp": "measurement-type adapter used inside the models",
-    "temp_to_celsius": "measurement-type adapter used inside the models",
-    "ms_to_speed": "measurement-type adapter used inside the models",
-    "speed_to_ms": "measurement-type adapter used inside the models",
 }
 
 # Public entry points that are types rather than free functions, and so are invisible to
