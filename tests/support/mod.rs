@@ -5,5 +5,6 @@
 
 pub mod compare;
 pub mod domain;
+pub mod flag;
 pub mod rng;
 pub mod sweep;

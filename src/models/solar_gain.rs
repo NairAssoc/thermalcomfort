@@ -206,7 +206,9 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
         ],
     };
 
-    // Transpose angles for supine posture
+    // For a supine occupant the standing table is read with the sun's position rotated
+    // into the body's frame. The rotated angles are used only for this lookup; the
+    // floor-reflected term below takes the solar altitude itself.
     let (sharp_adj, alt_adj) = if posture == SolarGainPosture::Supine {
         crate::environment::transpose_sharp_altitude_degrees(sharp, sol_altitude)
     } else {
@@ -219,8 +221,17 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
         0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0, 165.0, 180.0,
     ];
 
-    let alt_i = find_span(&alt_range, alt_adj);
-    let az_i = find_span(&az_range, sharp_adj);
+    // The rotated angles can in principle leave the table's domain; upstream returns NaN
+    // there rather than interpolating from the wrong span.
+    let (Some(alt_i), Some(az_i)) = (
+        find_span(&alt_range, alt_adj),
+        find_span(&az_range, sharp_adj),
+    ) else {
+        return SolarGainResult {
+            erf: HeatFluxDensity::from_watts_per_square_meter(f64::NAN),
+            delta_mrt: TemperatureDelta::from_celsius(f64::NAN),
+        };
+    };
 
     // Bilinear interpolation
     let fp11 = fp_table[az_i][alt_i];
@@ -262,11 +273,9 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
         * f_svv
         * 0.5
         * sol_transmittance
-        // alt_adj, not sol_altitude: for a supine occupant the sun's position is
-        // rotated into the body's frame, and Python reassigns sol_altitude in place so
-        // the transposed value feeds this term too. Reading the original here made 94%
-        // of supine cases wrong.
-        * (sol_radiation_dir * libm::sin(alt_adj * deg_to_rad) + i_diff)
+        // The solar altitude, not the body-relative one: floor reflection depends on
+        // the sun's height above the floor, whatever the occupant's posture.
+        * (sol_radiation_dir * libm::sin(sol_altitude * deg_to_rad) + i_diff)
         * floor_reflectance;
 
     let e_solar = e_diff + e_direct + e_reflected;
@@ -290,14 +299,10 @@ pub fn solar_gain(inputs: SolarGainInputs, options: SolarGainOptions) -> SolarGa
     }
 }
 
-/// Find the span index in a sorted array
-fn find_span(arr: &[f64], x: f64) -> usize {
-    for i in 0..arr.len() - 1 {
-        if x >= arr[i] && x <= arr[i + 1] {
-            return i;
-        }
-    }
-    0
+/// Index of the span of a sorted array that contains `x`, or `None` if `x` is outside the
+/// array's range or NaN.
+fn find_span(arr: &[f64], x: f64) -> Option<usize> {
+    arr.windows(2).position(|w| x >= w[0] && x <= w[1])
 }
 
 #[cfg(test)]

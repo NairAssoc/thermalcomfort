@@ -99,14 +99,6 @@ pub struct GaggeTwoNodesSleepOptions {
     pub c_str: f64,
     /// Skin temperature at neutral conditions
     pub temp_skin_neutral: Temperature,
-    /// Core temperature at neutral conditions.
-    ///
-    /// Accepted for parity with upstream's kwarg of the same name, but never read there:
-    /// it seeds a dictionary entry that the simulation loop overwrites before anything
-    /// looks at it, because each minute's neutral reference is the prescribed core
-    /// temperature rather than a fixed value. Kept so the two APIs take the same
-    /// arguments; changing it has no effect in either implementation.
-    pub temp_core_neutral: Temperature,
     /// Initial evaporative heat loss from skin
     pub e_skin: HeatFluxDensity,
     /// Initial fraction of body mass at skin temperature
@@ -115,8 +107,7 @@ pub struct GaggeTwoNodesSleepOptions {
     pub skin_blood_flow: f64,
     /// Initial shivering thermogenesis.
     ///
-    /// Like [`temp_core_neutral`](Self::temp_core_neutral), setting this has no effect in
-    /// either implementation: it seeds `SleepState::met_shivering`, but every minute
+    /// Setting this has no effect in either implementation: it seeds `SleepState::met_shivering`, but every minute
     /// recomputes `met_shivering = 19.4 * cold_s * cold_c` before first use, so the seed
     /// never reaches an output. Kept so the two APIs take the same arguments.
     ///
@@ -138,7 +129,6 @@ impl Default for GaggeTwoNodesSleepOptions {
             c_dil: 120.0,
             c_str: 0.5,
             temp_skin_neutral: Temperature::from_celsius(33.7),
-            temp_core_neutral: Temperature::from_celsius(36.8),
             e_skin: HeatFluxDensity::from_watts_per_square_meter(0.094),
             alfa: 0.1,
             skin_blood_flow: 6.3,
@@ -345,14 +335,26 @@ fn sleep_set(
         r_ea = 1.0 / (lr * f_a_cl * chc);
         r_ecl = r_clo / (lr * i_cl);
         e_max = (svp_torr(t_skin) - pa) / (r_ea + r_ecl);
+        if e_max == 0.0 {
+            // otherwise e_rsw / e_max cannot be calculated
+            e_max = 0.001;
+        }
         let mut p_rsw = e_rsw / e_max;
         p_wet = 0.06 + 0.94 * p_rsw;
         e_diff = p_wet * e_max - e_rsw;
         if p_wet > w_max {
             p_wet = w_max;
-            p_rsw = w_max / 0.94;
+            // Inverse of p_wet = 0.06 + 0.94 * p_rsw, as in Gagge et al. (1986). ASHRAE 55's
+            // reference code uses w_max / 0.94, which makes SET discontinuous at the cap.
+            p_rsw = (w_max - 0.06) / 0.94;
             e_rsw = p_rsw * e_max;
             e_diff = 0.06 * (1.0 - p_rsw) * e_max;
+        }
+        if e_max < 0.0 {
+            // The air is more humid than the skin, so no sweat evaporates.
+            e_diff = 0.0;
+            e_rsw = 0.0;
+            p_wet = w_max;
         }
         e_skin = e_rsw + e_diff;
         met_shivering = 19.4 * cold_s * cold_c;
@@ -429,10 +431,18 @@ fn sleep_set(
         w_max * 4.7 + 0.4685 * (t_body - tbm_h)
     };
 
-    let mut disc = 4.7 * (e_rsw - e_comfort) / (e_max - e_comfort - e_diff);
+    // e_max was multiplied by w_max above, as in two_nodes_gagge's `e_max * w_max`. Where
+    // sweating can no longer cope, discomfort is at its ceiling of 6.
+    let mut disc = if t_sens > 0.0 && 0.0 > e_max - e_comfort - e_diff {
+        6.0
+    } else {
+        4.7 * (e_rsw - e_comfort) / (e_max - e_comfort - e_diff)
+    };
     if disc < 0.0 {
         disc = t_sens;
     }
+    // `two_nodes_gagge_sleep.py`: builtin `min(disc, 6.0)`, NaN-propagating in `disc`.
+    disc = py_min(disc, 6.0);
 
     (
         SleepMinute {
@@ -459,11 +469,10 @@ fn sleep_set(
 
 /// Iteration cap for the SET secant solves.
 ///
-/// Upstream's loops are unbounded. Where the solve has no physical root they still
-/// terminate, but only after a few hundred iterations spent walking `x` out to around
-/// 6e7 °C, and the port has to follow them there to report the same number. The cap is
-/// therefore well above anything upstream has been observed to need (under 500) and
-/// exists only so a solve that never settles cannot hang the caller.
+/// Upstream's loops are unbounded, so the port must follow a solve for as long as upstream
+/// does to report the same number. The cap is far above anything upstream has been
+/// observed to need (under 500) and exists only so a solve that never settles cannot hang
+/// the caller.
 const MAX_SECANT_ITERATIONS: usize = 100_000;
 
 /// One minute of results, before they are transposed into the per-field vectors upstream

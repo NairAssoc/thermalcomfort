@@ -20,10 +20,12 @@ pub struct AdaptiveAshraeResult {
     pub tmp_cmf_90_low: Temperature,
     /// Upper bound of 90% acceptability
     pub tmp_cmf_90_up: Temperature,
-    /// Whether conditions meet 80% acceptability
-    pub acceptability_80: bool,
-    /// Whether conditions meet 90% acceptability
-    pub acceptability_90: bool,
+    /// Whether conditions meet 80% acceptability; `None` where the inputs are outside the
+    /// applicability limits or an input is NaN (upstream's NaN flag)
+    pub acceptability_80: Option<bool>,
+    /// Whether conditions meet 90% acceptability; `None` where the inputs are outside the
+    /// applicability limits or an input is NaN (upstream's NaN flag)
+    pub acceptability_90: Option<bool>,
 }
 
 /// Result from EN 16798-1 adaptive comfort model
@@ -43,12 +45,13 @@ pub struct AdaptiveEnResult {
     pub tmp_cmf_cat_iii_low: Temperature,
     /// Category III upper limit
     pub tmp_cmf_cat_iii_up: Temperature,
-    /// Whether conditions meet Category I
-    pub acceptability_cat_i: bool,
-    /// Whether conditions meet Category II
-    pub acceptability_cat_ii: bool,
-    /// Whether conditions meet Category III
-    pub acceptability_cat_iii: bool,
+    /// Whether conditions meet Category I; `None` where the inputs are outside the
+    /// applicability limits or an input is NaN (upstream's NaN flag)
+    pub acceptability_cat_i: Option<bool>,
+    /// Whether conditions meet Category II; `None` as for Category I
+    pub acceptability_cat_ii: Option<bool>,
+    /// Whether conditions meet Category III; `None` as for Category I
+    pub acceptability_cat_iii: Option<bool>,
 }
 
 /// The comfort inputs shared by [`adaptive_ashrae`] and [`adaptive_en`].
@@ -60,7 +63,8 @@ pub struct AdaptiveInputs {
     pub tdb: Temperature,
     /// Mean radiant temperature (recommended range: 10-40°C)
     pub tr: Temperature,
-    /// Running mean outdoor temperature (recommended range: 10-33.5°C)
+    /// Running mean outdoor temperature (applicability: 10-33.5 °C for ASHRAE 55,
+    /// 10-30 °C for EN 16798-1)
     pub t_running_mean: Temperature,
     /// Air speed (recommended range: 0-2 m/s)
     pub v: Speed,
@@ -71,7 +75,8 @@ pub struct AdaptiveInputs {
 pub struct AdaptiveOptions {
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
-    /// Round `tmp_cmf` to one decimal place before deriving comfort bounds
+    /// Round the reported temperatures to one decimal place, in the output unit. The
+    /// acceptability flags always come from unrounded values, so this never changes them.
     pub round_output: bool,
     /// Unit system the result is expressed in.
     ///
@@ -126,7 +131,9 @@ fn wrap_temperature(value_in_unit: f64, units: Units) -> Temperature {
 ///
 /// Cooling effect [°C]: 0.0, 1.2, 1.8 or 2.2
 fn adaptive_cooling_effect(v_ms: f64, to_celsius: f64) -> f64 {
-    if to_celsius < 25.0 {
+    // A NaN operative temperature gets no allowance, as upstream's
+    // `np.where(to >= 25, ...)` gives it none
+    if to_celsius.is_nan() || to_celsius < 25.0 {
         return 0.0;
     }
     if v_ms >= 1.2 {
@@ -180,7 +187,7 @@ fn adaptive_cooling_effect(v_ms: f64, to_celsius: f64) -> f64 {
 ///     },
 ///     Default::default()
 /// );
-/// assert!(result.acceptability_80);
+/// assert_eq!(result.acceptability_80, Some(true));
 /// println!("Comfort temp: {:.1}°C", result.tmp_cmf.as_celsius());
 /// ```
 pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> AdaptiveAshraeResult {
@@ -224,12 +231,6 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
         t_cmf = f64::NAN;
     }
 
-    // pythermalcomfort rounds `t_cmf` here, in SI, BEFORE deriving the comfort bounds
-    // — unlike adaptive_en, which rounds each bound independently at the very end.
-    if options.round_output {
-        t_cmf = crate::utilities::round_half_even(t_cmf * 10.0) / 10.0;
-    }
-
     // Calculate acceptability bounds (ASHRAE 55-2023), still in SI Celsius
     // 80% acceptability: ±3.5°C from comfort temperature
     // 90% acceptability: ±2.5°C from comfort temperature
@@ -238,23 +239,33 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
     let tmp_cmf_80_up = t_cmf + 3.5 + ce;
     let tmp_cmf_90_up = t_cmf + 2.5 + ce;
 
-    // Check acceptability against the SI values (unaffected by the `units` output
-    // rescale below)
-    let acceptability_80 =
-        !t_cmf.is_nan() && to_celsius >= tmp_cmf_80_low && to_celsius <= tmp_cmf_80_up;
-    let acceptability_90 =
-        !t_cmf.is_nan() && to_celsius >= tmp_cmf_90_low && to_celsius <= tmp_cmf_90_up;
+    // Acceptability comes from the unrounded SI values. It is undefined where the inputs
+    // are outside the applicability limits (t_cmf is NaN) or an input is NaN; the
+    // cooling effect treats a NaN v as still air, so v is checked directly.
+    let valid = !(t_cmf.is_nan() || to_celsius.is_nan() || speed_mps.is_nan());
+    let within = |low: f64, up: f64| valid.then_some(low <= to_celsius && to_celsius <= up);
+    let acceptability_80 = within(tmp_cmf_80_low, tmp_cmf_80_up);
+    let acceptability_90 = within(tmp_cmf_90_low, tmp_cmf_90_up);
 
-    // Convert to the output unit as the last step; no further rounding happens after
-    // this in pythermalcomfort, so an IP result carries the extra decimals from the
-    // °C-to-°F conversion of the already-rounded SI value.
+    // Only the reported temperatures are rounded, after the conversion to the output unit.
     let units = options.units;
+    let report = |value_celsius: f64| {
+        let value = to_output_unit(value_celsius, units);
+        wrap_temperature(
+            if options.round_output {
+                round_to(value, 1)
+            } else {
+                value
+            },
+            units,
+        )
+    };
     AdaptiveAshraeResult {
-        tmp_cmf: wrap_temperature(to_output_unit(t_cmf, units), units),
-        tmp_cmf_80_low: wrap_temperature(to_output_unit(tmp_cmf_80_low, units), units),
-        tmp_cmf_80_up: wrap_temperature(to_output_unit(tmp_cmf_80_up, units), units),
-        tmp_cmf_90_low: wrap_temperature(to_output_unit(tmp_cmf_90_low, units), units),
-        tmp_cmf_90_up: wrap_temperature(to_output_unit(tmp_cmf_90_up, units), units),
+        tmp_cmf: report(t_cmf),
+        tmp_cmf_80_low: report(tmp_cmf_80_low),
+        tmp_cmf_80_up: report(tmp_cmf_80_up),
+        tmp_cmf_90_low: report(tmp_cmf_90_low),
+        tmp_cmf_90_up: report(tmp_cmf_90_up),
         acceptability_80,
         acceptability_90,
     }
@@ -296,7 +307,7 @@ pub fn adaptive_ashrae(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adap
 ///     },
 ///     Default::default()
 /// );
-/// assert!(result.acceptability_cat_ii);
+/// assert_eq!(result.acceptability_cat_ii, Some(true));
 /// println!("Comfort temp: {:.1}°C", result.tmp_cmf.as_celsius());
 /// ```
 pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> AdaptiveEnResult {
@@ -324,8 +335,8 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     let mut t_cmf = 0.33 * running_mean_celsius + 18.8;
 
     // Apply input limits if requested. EN 16798-1:2019 bounds only the running mean
-    // outdoor temperature; tdb, tr and v are not gated.
-    if options.limit_inputs && !(10.0..=33.5).contains(&running_mean_celsius) {
+    // outdoor temperature, to 10-30 °C; tdb, tr and v are not gated.
+    if options.limit_inputs && !(10.0..=30.0).contains(&running_mean_celsius) {
         t_cmf = f64::NAN;
     }
 
@@ -341,11 +352,13 @@ pub fn adaptive_en(inputs: AdaptiveInputs, options: AdaptiveOptions) -> Adaptive
     let tmp_cmf_cat_iii_low = t_cmf - 5.0;
     let tmp_cmf_cat_iii_up = t_cmf + 4.0 + ce;
 
-    // Acceptability is evaluated against the unrounded SI bounds
-    let acceptability_cat_i = to_celsius >= tmp_cmf_cat_i_low && to_celsius <= tmp_cmf_cat_i_up;
-    let acceptability_cat_ii = to_celsius >= tmp_cmf_cat_ii_low && to_celsius <= tmp_cmf_cat_ii_up;
-    let acceptability_cat_iii =
-        to_celsius >= tmp_cmf_cat_iii_low && to_celsius <= tmp_cmf_cat_iii_up;
+    // Acceptability is evaluated against the unrounded SI bounds, and is undefined where
+    // the inputs are outside the applicability limits (t_cmf is NaN) or `to` is NaN.
+    let valid = !(t_cmf.is_nan() || to_celsius.is_nan());
+    let within = |low: f64, up: f64| valid.then_some(low <= to_celsius && to_celsius <= up);
+    let acceptability_cat_i = within(tmp_cmf_cat_i_low, tmp_cmf_cat_i_up);
+    let acceptability_cat_ii = within(tmp_cmf_cat_ii_low, tmp_cmf_cat_ii_up);
+    let acceptability_cat_iii = within(tmp_cmf_cat_iii_low, tmp_cmf_cat_iii_up);
 
     // Unlike adaptive_ashrae, EN converts to the output unit FIRST, and only then
     // rounds — each bound independently, in whatever unit it ends up in
@@ -400,8 +413,8 @@ mod tests {
     fn test_adaptive_ashrae_comfortable() {
         let result = adaptive_ashrae(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
         assert!((result.tmp_cmf.as_celsius() - 24.0).abs() < 0.1);
-        assert!(result.acceptability_80);
-        assert!(result.acceptability_90);
+        assert_eq!(result.acceptability_80, Some(true));
+        assert_eq!(result.acceptability_90, Some(true));
     }
 
     #[test]
@@ -409,7 +422,8 @@ mod tests {
         // Test invalid running mean (too low)
         let result = adaptive_ashrae(inputs(25.0, 25.0, 5.0, 0.1), Default::default());
         assert!(result.tmp_cmf.as_celsius().is_nan());
-        assert!(!result.acceptability_80);
+        assert_eq!(result.acceptability_80, None);
+        assert_eq!(result.acceptability_90, None);
 
         // Test with limits disabled
         let options = AdaptiveOptions {
@@ -432,7 +446,7 @@ mod tests {
     fn test_adaptive_en_comfortable() {
         let result = adaptive_en(inputs(25.0, 25.0, 20.0, 0.1), Default::default());
         assert!((result.tmp_cmf.as_celsius() - 25.4).abs() < 0.1);
-        assert!(result.acceptability_cat_ii);
+        assert_eq!(result.acceptability_cat_ii, Some(true));
     }
 
     #[test]
@@ -451,7 +465,7 @@ mod tests {
         // Test invalid running mean
         let result = adaptive_en(inputs(25.0, 25.0, 5.0, 0.1), Default::default());
         assert!(result.tmp_cmf.as_celsius().is_nan());
-        assert!(!result.acceptability_cat_ii);
+        assert_eq!(result.acceptability_cat_ii, None);
     }
 
     #[test]
@@ -461,12 +475,16 @@ mod tests {
         let result = adaptive_en(inputs(30.5, 30.5, 24.0, 0.1), Default::default());
         assert!((result.tmp_cmf.as_celsius() - 26.7).abs() < 1e-9);
         assert!((result.tmp_cmf_cat_iii_up.as_celsius() - 30.7).abs() < 1e-9);
-        assert!(result.acceptability_cat_iii);
-        assert!(!result.acceptability_cat_ii);
+        assert_eq!(result.acceptability_cat_iii, Some(true));
+        assert_eq!(result.acceptability_cat_ii, Some(false));
 
-        // Running mean outdoor temperatures up to 33.5 °C are accepted
-        let result = adaptive_en(inputs(30.0, 30.0, 32.0, 0.1), Default::default());
+        // EN 16798-1 accepts running mean outdoor temperatures up to 30 °C, not
+        // ASHRAE 55's 33.5 °C
+        let result = adaptive_en(inputs(30.0, 30.0, 30.0, 0.1), Default::default());
         assert!(!result.tmp_cmf.as_celsius().is_nan());
+        let result = adaptive_en(inputs(30.0, 30.0, 30.5, 0.1), Default::default());
+        assert!(result.tmp_cmf.as_celsius().is_nan());
+        assert_eq!(result.acceptability_cat_iii, None);
     }
 
     #[test]
@@ -504,8 +522,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(result.acceptability_cat_iii);
-        assert!(!result.acceptability_cat_ii);
+        assert_eq!(result.acceptability_cat_iii, Some(true));
+        assert_eq!(result.acceptability_cat_ii, Some(false));
     }
 
     #[test]
@@ -522,7 +540,7 @@ mod tests {
             },
         );
         assert!((rounded.tmp_cmf.as_celsius() - 26.2).abs() < 1e-9);
-        // Derived bounds inherit the rounded value.
+        // Each bound is rounded on its own: 26.17 - 3.5 = 22.67 -> 22.7.
         assert!((rounded.tmp_cmf_80_low.as_celsius() - 22.7).abs() < 1e-9);
         assert!((rounded.tmp_cmf_80_up.as_celsius() - 29.7).abs() < 1e-9);
 
@@ -569,39 +587,62 @@ mod tests {
     }
 
     #[test]
-    fn test_adaptive_ashrae_units_ip_rounds_before_bounds() {
-        // trm=27°C -> t_cmf rounds to 26.2°C in SI *before* the bounds are derived,
-        // then that already-rounded value (and the derived bounds) convert to °F as
-        // the last step, with no further rounding — so IP results carry extra decimals.
-        let case = inputs(25.0, 25.0, 27.0, 0.1);
-        let si = adaptive_ashrae(
-            case,
-            AdaptiveOptions {
-                units: Units::SI,
-                ..Default::default()
-            },
-        );
+    fn test_adaptive_ashrae_units_ip_rounds_after_conversion() {
+        // The IP temperatures are rounded to one decimal in °F, after the conversion of
+        // the unrounded SI value: trm=27°C gives t_cmf = 26.17°C = 79.106°F -> 79.1°F.
         let ip = adaptive_ashrae(
-            case,
+            inputs(25.0, 25.0, 27.0, 0.1),
             AdaptiveOptions {
                 units: Units::IP,
                 ..Default::default()
             },
         );
+        assert!((ip.tmp_cmf.as_fahrenheit() - 79.1).abs() < 1e-9);
+        // 26.17 - 3.5 = 22.67°C = 72.806°F -> 72.8°F; rounding in SI first would give
+        // 22.7°C = 72.86°F.
+        assert!((ip.tmp_cmf_80_low.as_fahrenheit() - 72.8).abs() < 1e-9);
+    }
 
-        // Converting the rounded SI value should reproduce the IP value exactly
-        // (same formula, same order of operations).
-        let expected_f = si.tmp_cmf.as_celsius() * 9.0 / 5.0 + 32.0;
-        assert!((ip.tmp_cmf.as_fahrenheit() - expected_f).abs() < 1e-9);
-        // Not a round-numbered °F value, proving no further rounding happened in IP.
-        assert!((ip.tmp_cmf.as_fahrenheit() * 10.0).round() / 10.0 != ip.tmp_cmf.as_fahrenheit());
+    #[test]
+    fn test_adaptive_ashrae_round_output_never_changes_acceptability() {
+        // tdb = tr = 21.11, trm = 22: t_cmf = 24.62, so the 80 % lower limit is 21.12
+        // and `to` is just outside it. Rounding t_cmf first (to 24.6, limit 21.1) used
+        // to accept the same point.
+        for round_output in [true, false] {
+            let result = adaptive_ashrae(
+                inputs(21.11, 21.11, 22.0, 0.1),
+                AdaptiveOptions {
+                    round_output,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                result.acceptability_80,
+                Some(false),
+                "round_output={round_output}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adaptive_nan_input_gives_undefined_acceptability() {
+        let nan_v = AdaptiveInputs {
+            v: Speed::from_meters_per_second(f64::NAN),
+            ..inputs(25.0, 25.0, 20.0, 0.1)
+        };
+        let options = AdaptiveOptions {
+            limit_inputs: false,
+            ..Default::default()
+        };
+        assert_eq!(adaptive_ashrae(nan_v, options).acceptability_80, None);
+        assert_eq!(adaptive_en(nan_v, options).acceptability_cat_i, None);
     }
 
     #[test]
     fn test_adaptive_en_units_ip_rounds_after_bounds() {
         // adaptive_en converts to °F BEFORE rounding, then rounds each bound
         // independently in the output unit, so the IP result should land on a clean
-        // 1-decimal °F boundary (unlike adaptive_ashrae's IP output above).
+        // 1-decimal °F boundary (as adaptive_ashrae's IP output above).
         let ip = adaptive_en(
             inputs(25.0, 25.0, 22.0, 0.1),
             AdaptiveOptions {

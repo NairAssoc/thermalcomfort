@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 
 use crate::psychrometrics::p_sat_torr;
 use crate::utilities::{py_max, py_min, round_to, whole_minutes};
-use crate::{ClothingInsulation, HeatFluxDensity, Mass, MetabolicRate};
+use crate::{ClothingInsulation, HeatFluxDensity, Mass, MaxSkinWettedness, MetabolicRate};
 use core::time::Duration;
 use libm::{exp, fabs as abs, pow, sqrt};
 
@@ -111,8 +111,9 @@ pub struct GaggeTwoNodesOptions {
     pub round_output: bool,
     /// Maximum sweating rate [kg/h/m²]
     pub max_sweating: f64,
-    /// Maximum skin wettedness (0-1), None for auto-calculation
-    pub w_max: Option<f64>,
+    /// Maximum skin wettedness. `None`, the default, computes it from `v` and `clo`, as
+    /// upstream's `False` or `0` does.
+    pub w_max: Option<MaxSkinWettedness>,
     /// Calculate only SET (faster, for cooling effect calculations)
     pub calculate_ce: bool,
 }
@@ -154,6 +155,32 @@ struct GaggeTwoNodesRaw {
     pmv_set: f64,
     disc: f64,
     t_sens: f64,
+}
+
+impl GaggeTwoNodesRaw {
+    const fn nan() -> Self {
+        let nan = f64::NAN;
+        Self {
+            set: nan,
+            e_skin: nan,
+            e_rsw: nan,
+            e_max: nan,
+            q_sensible: nan,
+            q_skin: nan,
+            q_res: nan,
+            t_core: nan,
+            t_skin: nan,
+            m_bl: nan,
+            m_rsw: nan,
+            w: nan,
+            w_max: nan,
+            et: nan,
+            pmv_gagge: nan,
+            pmv_set: nan,
+            disc: nan,
+            t_sens: nan,
+        }
+    }
 }
 
 /// Upstream's `(signal > 0) * signal` idiom, reproduced exactly.
@@ -234,7 +261,7 @@ pub fn two_nodes_gagge(
         options.calculate_ce,
         options.max_skin_blood_flow,
         options.max_sweating,
-        options.w_max,
+        options.w_max.map(MaxSkinWettedness::as_fraction),
         options.round_output,
     );
 
@@ -309,6 +336,15 @@ fn gagge_two_nodes_optimized(
     } else {
         (max_skin_blood_flow, max_sweating, w_max_opt)
     };
+
+    // A NaN or infinite input never converges in the clothing temperature loop below, so
+    // every output is NaN instead.
+    if ![tdb, tr, v, met, clo, vapor_pressure]
+        .iter()
+        .all(|x| x.is_finite())
+    {
+        return GaggeTwoNodesRaw::nan();
+    }
 
     // Initial variables as defined in ASHRAE 55-2020
     let air_speed = py_max(v, 0.1);
@@ -479,7 +515,9 @@ fn gagge_two_nodes_optimized(
         e_diff = w * e_max - e_rsw; // vapor diffusion through skin
         if w > w_max {
             w = w_max;
-            let p_rsw = w_max / 0.94;
+            // Inverse of w = 0.06 + 0.94 * p_rsw, as in Gagge et al. (1986). ASHRAE 55's
+            // reference code uses w_max / 0.94, which makes SET discontinuous at the cap.
+            let p_rsw = (w_max - 0.06) / 0.94;
             e_rsw = p_rsw * e_max;
             e_diff = 0.06 * (1.0 - p_rsw) * e_max;
         }
