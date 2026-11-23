@@ -53,14 +53,10 @@ pub struct CoolingEffectOptions {
     pub wme: MetabolicRate,
     /// Unit system the result is expressed in.
     ///
-    /// Upstream's IP branch is `_ce / 1.8 * 3.28`, not a standard delta-°C-to-°F
-    /// conversion (`* 9 / 5`) — 3.28 is a feet-per-metre factor, not a temperature one.
-    /// It is not derivable from the SI answer, so it is ported verbatim rather than
-    /// reconstructed from first principles. Because the result is not a genuine
-    /// Fahrenheit delta, the `Units::IP` result is carried in the returned
-    /// [`TemperatureDelta`] via `from_fahrenheit`/`as_fahrenheit` purely so the exact
-    /// upstream number round-trips; `as_celsius()` on that value is not physically
-    /// meaningful.
+    /// Unit system the result is rounded in. Upstream converts the Celsius cooling effect
+    /// to a Fahrenheit difference (`* 1.8`) and then rounds to two decimals, so an `IP`
+    /// result is the same physical difference as an `SI` one, rounded in °F instead of °C;
+    /// read it with `as_fahrenheit()` to get upstream's number exactly.
     pub units: Units,
 }
 
@@ -196,8 +192,7 @@ pub fn cooling_effect(
             TemperatureDelta::from_celsius(ce)
         }
         Units::IP => {
-            // Upstream's literal `_ce / 1.8 * 3.28`, not a delta-°C-to-°F conversion.
-            let ce_ip = ce_celsius / 1.8 * 3.28;
+            let ce_ip = ce_celsius * 1.8;
             let ce_ip = crate::utilities::round_half_even(ce_ip * 100.0) / 100.0;
             TemperatureDelta::from_fahrenheit(ce_ip)
         }
@@ -254,11 +249,10 @@ mod tests {
         assert!(ce.as_celsius() > 0.0);
     }
 
-    /// `units` controls how the result is packaged; upstream's IP rescale is a literal
-    /// `/1.8*3.28` on the Celsius value, not a physical delta-°C-to-°F conversion, so
-    /// the two must not agree via the standard `TemperatureDelta` accessors.
+    /// An `IP` result is the `SI` cooling effect as a Fahrenheit difference, rounded to two
+    /// decimals in °F.
     #[test]
-    fn units_ip_matches_upstreams_literal_rescale() {
+    fn units_ip_is_the_fahrenheit_difference() {
         let si = cooling_effect(
             inputs(25.0, 25.0, 0.5, 50.0, 1.2, 0.5),
             CoolingEffectOptions {
@@ -278,7 +272,7 @@ mod tests {
         // unrounded root the IP branch actually rescales) can differ by up to one
         // rounding step at the second decimal, so compare with that slack rather than
         // exactly.
-        let expected_ip = si.as_celsius() / 1.8 * 3.28;
+        let expected_ip = si.as_celsius() * 1.8;
         assert!(
             (ip.as_fahrenheit() - expected_ip).abs() < 0.01,
             "ip={}, expected~{expected_ip}",

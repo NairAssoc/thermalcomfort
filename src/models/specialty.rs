@@ -38,7 +38,7 @@ pub struct AnkleDraftInputs {
 /// `units` flag has nothing left to do here and is not ported.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnkleDraftOptions {
-    /// If true, returns NaN/false when any input is outside the ASHRAE 55
+    /// If true, returns NaN/`None` when any input is outside the ASHRAE 55
     /// applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
     /// 1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
     pub limit_inputs: bool,
@@ -57,7 +57,8 @@ impl Default for AnkleDraftOptions {
 ///
 /// # Returns
 ///
-/// Tuple of (ppd_ankle_draft %, acceptability bool)
+/// Tuple of (ppd_ankle_draft %, acceptability). Acceptability is `Some(ppd ≤ 20 %)`, and
+/// `None` where the PPD is NaN or the inputs are outside the applicability limits.
 ///
 /// # Examples
 ///
@@ -77,14 +78,14 @@ impl Default for AnkleDraftOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// println!("PPD ankle draft: {:.1}%, Acceptable: {}", ppd, acceptable);
+/// println!("PPD ankle draft: {:.1}%, Acceptable: {:?}", ppd, acceptable);
 /// ```
 ///
 /// # References
 ///
 /// - Liu et al. (2017)
 /// - ASHRAE 55-2023
-pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64, bool) {
+pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64, Option<bool>) {
     let AnkleDraftInputs {
         tdb,
         tr,
@@ -123,12 +124,10 @@ pub fn ankle_draft(inputs: AnkleDraftInputs, options: AnkleDraftOptions) -> (f64
     let ppd_ad = crate::utilities::round_half_even(ppd_ad * 10.0) / 10.0;
 
     if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
-        return (f64::NAN, false);
+        return (f64::NAN, None);
     }
 
-    let acceptability = ppd_ad <= 20.0;
-
-    (ppd_ad, acceptability)
+    (ppd_ad, (!ppd_ad.is_nan()).then_some(ppd_ad <= 20.0))
 }
 
 fn ashrae55_ankle_inputs_valid(
@@ -181,7 +180,7 @@ pub struct VerticalTmpGradPpdOptions {
     /// If true, rounds the returned PPD to one decimal place. Acceptability is always
     /// judged on the unrounded value, matching upstream.
     pub round_output: bool,
-    /// If true, returns NaN/false when any input is outside the ASHRAE 55
+    /// If true, returns NaN/`None` when any input is outside the ASHRAE 55
     /// applicability range: 10 ≤ tdb [°C] ≤ 40, 10 ≤ tr [°C] ≤ 40, 0 ≤ vr [m/s] ≤ 0.2,
     /// 1 ≤ met ≤ 4, 0 ≤ clo ≤ 1.5.
     pub limit_inputs: bool,
@@ -203,7 +202,8 @@ impl Default for VerticalTmpGradPpdOptions {
 ///
 /// # Returns
 ///
-/// Tuple of (ppd %, acceptability bool). The PPD is ASHRAE 55's offset-logistic fit,
+/// Tuple of (ppd %, acceptability). Acceptability is `Some(ppd ≤ 5 %)`, and `None` where
+/// the PPD is NaN or the inputs are outside the applicability limits. The PPD is ASHRAE 55's offset-logistic fit,
 /// `max((x / (1 + x) - 0.345) * 100, 0)` with
 /// `x = exp(0.13 (PMV - 1.91)² + 0.15 gradient - 1.6)`: the 34.5 % term is the baseline
 /// share of dissatisfied occupants, so small gradients near PMV 0 give 0 %.
@@ -228,7 +228,7 @@ impl Default for VerticalTmpGradPpdOptions {
 ///     },
 ///     Default::default(),
 /// );
-/// println!("PPD vertical gradient: {:.1}%, Acceptable: {}", ppd, acceptable);
+/// println!("PPD vertical gradient: {:.1}%, Acceptable: {:?}", ppd, acceptable);
 /// ```
 ///
 /// # References
@@ -238,7 +238,7 @@ impl Default for VerticalTmpGradPpdOptions {
 pub fn vertical_tmp_grad_ppd(
     inputs: VerticalTmpGradPpdInputs,
     options: VerticalTmpGradPpdOptions,
-) -> (f64, bool) {
+) -> (f64, Option<bool>) {
     let VerticalTmpGradPpdInputs {
         tdb,
         tr,
@@ -281,7 +281,7 @@ pub fn vertical_tmp_grad_ppd(
         crate::utilities::np_maximum((numerator / (1.0 + numerator) - 0.345) * 100.0, 0.0);
     // Acceptability is judged on the unrounded value, then the value is rounded.
     // (ankle_draft rounds first - the port had applied ankle_draft's ordering to both.)
-    let acceptability_raw = ppd_vtg <= 5.0;
+    let acceptability = (!ppd_vtg.is_nan()).then_some(ppd_vtg <= 5.0);
     // Upstream exposes this as `round_output`; rounding unconditionally, as this did
     // before, left the full-precision value unobtainable.
     let ppd_vtg = if round_output {
@@ -291,10 +291,8 @@ pub fn vertical_tmp_grad_ppd(
     };
 
     if limit_inputs && !ashrae55_ankle_inputs_valid(tdb, tr, vr, met, clo) {
-        return (f64::NAN, false);
+        return (f64::NAN, None);
     }
-
-    let acceptability = acceptability_raw;
 
     (ppd_vtg, acceptability)
 }
@@ -374,7 +372,7 @@ mod tests {
         );
         assert!((0.0..=100.0).contains(&ppd));
         // High ankle draft velocity should cause dissatisfaction
-        assert!(!acceptable || ppd <= 20.0);
+        assert_eq!(acceptable, Some(ppd <= 20.0));
     }
 
     #[test]
@@ -399,8 +397,8 @@ mod tests {
             );
             assert!(ppd.is_nan(), "{label}: expected NaN with limit_inputs=true");
             assert!(
-                !acceptable,
-                "{label}: expected !acceptable with limit_inputs=true"
+                acceptable.is_none(),
+                "{label}: expected no acceptability with limit_inputs=true"
             );
 
             let (ppd_unlimited, _) = ankle_draft(
@@ -461,8 +459,8 @@ mod tests {
             );
             assert!(ppd.is_nan(), "{label}: expected NaN with limit_inputs=true");
             assert!(
-                !acceptable,
-                "{label}: expected !acceptable with limit_inputs=true"
+                acceptable.is_none(),
+                "{label}: expected no acceptability with limit_inputs=true"
             );
 
             let (ppd_unlimited, _) = vertical_tmp_grad_ppd(

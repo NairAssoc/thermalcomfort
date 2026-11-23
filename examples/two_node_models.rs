@@ -5,13 +5,14 @@
 //! per-minute schedules, and the heat-wave fan-use assessment.
 
 use thermalcomfort::models::{
-    GaggePosture, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, SetInputs, SetOptions, SleepInputs,
-    SleepScheduleError, UseFansHeatwavesInputs, set_tmp, two_nodes_gagge, two_nodes_gagge_ji,
-    two_nodes_gagge_sleep, use_fans_heatwaves,
+    GaggePosture, GaggeTwoNodesInputs, GaggeTwoNodesJiInputs, GaggeTwoNodesOptions, SetInputs,
+    SetOptions, SleepInputs, SleepScheduleError, UseFansHeatwavesInputs, set_tmp, two_nodes_gagge,
+    two_nodes_gagge_ji, two_nodes_gagge_sleep, use_fans_heatwaves,
 };
 use thermalcomfort::psychrometrics::p_sat_torr;
 use thermalcomfort::{
-    ClothingInsulation, Humidity, Length, MetabolicRate, Pressure, Speed, Temperature,
+    ClothingInsulation, Humidity, Length, MaxSkinWettedness, MetabolicRate, Pressure, Speed,
+    Temperature,
 };
 
 fn main() {
@@ -73,6 +74,28 @@ fn main() {
     println!("  Discomfort:             {:.2}", gagge.disc);
     println!("  PMV (Gagge):            {:.2}", gagge.pmv_gagge);
     println!("  PMV (SET):              {:.2}", gagge.pmv_set);
+
+    // A caller-supplied wettedness cap, e.g. for a less heat-tolerant occupant. It must be
+    // above 0.06 (skin diffusion alone) and at most 1; `None` computes it from v and clo.
+    let capped = two_nodes_gagge(
+        GaggeTwoNodesInputs {
+            tdb,
+            tr,
+            v,
+            rh,
+            met,
+            clo,
+        },
+        GaggeTwoNodesOptions {
+            w_max: MaxSkinWettedness::new(0.3),
+            ..Default::default()
+        },
+    );
+    println!(
+        "  With w_max = 0.3:       SET {:.1}°C, wettedness {:.2}",
+        capped.set.as_celsius(),
+        capped.w
+    );
 
     // --- SET ---
     println!("\n--- Standard Effective Temperature ---");

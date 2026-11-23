@@ -14,12 +14,16 @@ PTC_VERSION := $(firstword $(subst -, ,$(shell cargo metadata --no-deps --format
 # Virtualenv holding the reference pythermalcomfort. Kept inside the repo (gitignored)
 # rather than /tmp so it survives reboots. Override with PARITY_VENV=... if needed.
 PARITY_VENV ?= .parity-venv
-PYTHON ?= python3
+
+# The interpreter minor version the reference venv is built on: the oldest one the ported
+# pythermalcomfort supports, which is also the one CI's setup-python step installs. uv
+# provides it, because a distribution's own python3 may be older than upstream accepts.
+PARITY_PYTHON_VERSION ?= 3.11
 
 # Every cargo invocation goes through $(CARGO) so a whole target can be re-run on another
 # toolchain: `make lint test TOOLCHAIN=beta` is what CI's beta matrix leg does.
 TOOLCHAIN ?=
-CARGO = cargo$(if $(TOOLCHAIN), +$(TOOLCHAIN),)
+CARGO = $(PARITY_ENV) cargo$(if $(TOOLCHAIN), +$(TOOLCHAIN),)
 
 # The no_std proof needs two targets: a bare-metal one, where there is no std to fall
 # back on at all, and wasm32, which is also built in release because that is how it ships.
@@ -40,7 +44,18 @@ CI_SWEEP_N ?= 2000
 # tries to execute the second one as a command.
 PARITY_SITE_PACKAGES = $(shell $(PARITY_VENV)/bin/python -c \
 	'import site; print(site.getsitepackages()[0])' 2>/dev/null)
-PARITY_ENV = $(if $(PARITY_SITE_PACKAGES),PYTHONPATH=$(PARITY_SITE_PACKAGES),) \
+PARITY_LIBDIR = $(shell $(PARITY_VENV)/bin/python -c \
+	'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))' 2>/dev/null)
+
+# pyo3 embeds the interpreter it is built against, and the reference's compiled numba and
+# scipy extensions only load into the minor version they were built for, so with a venv
+# every cargo build links the venv's interpreter (PYO3_PYTHON) and finds its libpython at
+# run time (LD_LIBRARY_PATH). Applying this to every cargo call, not just the test runs,
+# also keeps clippy and check from rebuilding pyo3 against a different python3.
+PYTHON = $(if $(PARITY_SITE_PACKAGES),$(abspath $(PARITY_VENV))/bin/python,python3)
+PARITY_ENV = $(if $(PARITY_SITE_PACKAGES),PYTHONPATH=$(PARITY_SITE_PACKAGES) \
+	PYO3_PYTHON=$(PYTHON) \
+	LD_LIBRARY_PATH=$(PARITY_LIBDIR)$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH},) \
 	NUMBA_THREADING_LAYER=workqueue
 
 # NUMBA_THREADING_LAYER is pinned to `workqueue`, the only layer numba has on the macOS
@@ -89,8 +104,9 @@ parity-version:
 # are upgraded eagerly so a re-run resolves what a fresh CI runner resolves today, rather
 # than keeping whatever numba and scipy the venv was first created with.
 setup-parity:
-	@echo "Creating parity venv at $(PARITY_VENV) with pythermalcomfort==$(PTC_VERSION)..."
-	@$(PYTHON) -m venv $(PARITY_VENV)
+	@command -v uv >/dev/null || { echo "✗ setup-parity needs uv: https://docs.astral.sh/uv/"; exit 1; }
+	@echo "Creating parity venv at $(PARITY_VENV) on Python $(PARITY_PYTHON_VERSION) with pythermalcomfort==$(PTC_VERSION)..."
+	@uv venv --quiet --allow-existing --seed --python $(PARITY_PYTHON_VERSION) $(PARITY_VENV)
 	@$(PARITY_VENV)/bin/pip install --quiet --upgrade pip
 	@$(PARITY_VENV)/bin/pip install --quiet --upgrade --upgrade-strategy eager \
 		pythermalcomfort==$(PTC_VERSION)
@@ -166,7 +182,7 @@ test:
 		echo "Run 'make setup-parity' if the version guard fails."; \
 	fi
 	@echo "Running full suite against pythermalcomfort $(PTC_VERSION)..."
-	@$(PARITY_ENV) $(CARGO) test --release
+	@$(CARGO) test --release
 	@echo "✓ Suite passed!"
 
 # `cargo test` links the std test harness, so a green suite says nothing about whether the
@@ -191,7 +207,7 @@ no-std-check:
 SWEEP_N ?= 20000
 sweep:
 	@echo "Running differential sweep with SWEEP_N=$(SWEEP_N)..."
-	@$(PARITY_ENV) SWEEP_N=$(SWEEP_N) $(CARGO) test --release \
+	@SWEEP_N=$(SWEEP_N) $(CARGO) test --release \
 		--test differential_sweep -- --nocapture
 
 sweep-ci:

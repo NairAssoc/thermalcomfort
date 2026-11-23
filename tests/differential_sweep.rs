@@ -18,6 +18,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAnyMethods, PyBool, PyDict, PyModule};
 use support::compare::{FieldCmp, NanPolicy, compare_field};
 use support::domain::{Domain, Sample};
+use support::flag::py_flag;
 use support::rng::Rng;
 use support::sweep::{import_reference, report_skipped, run_sweep};
 use thermalcomfort::clothing::{
@@ -70,8 +71,8 @@ use thermalcomfort::utilities::{
 };
 use thermalcomfort::{
     ActivityRatio, Age, AirPermeability, Angle, Area, BmrEquation, BodyFat, CardiacIndex,
-    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MetabolicRate, Power, Pressure,
-    Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
+    ClothingInsulation, HeatFluxDensity, Humidity, Length, Mass, MaxSkinWettedness, MetabolicRate,
+    Power, Pressure, Sex, Speed, Temperature, TemperatureDelta, WorkEfficiency,
 };
 
 /// Read a numeric field from a Python result, tolerating the 0-d numpy arrays the 4.x
@@ -297,7 +298,7 @@ fn sweep_pmv_ppd_ashrae() {
             compare_optional_bool(
                 "compliance",
                 rust.compliance,
-                py_optional_bool(&py_result, "compliance")?,
+                py_flag(&py_result, "compliance")?,
             )
         });
     });
@@ -365,7 +366,9 @@ fn sweep_two_nodes_gagge() {
         // path entirely (and forces Standing, see the note in two_nodes_gagge.rs), so
         // leaving it false meant half this model was never swept.
         .flag("use_w_max")
-        .real("w_max", 0.2, 1.0)
+        // Down to just above upstream's 0.06 floor, where the regulatory sweating fraction
+        // at the cap, (w_max - 0.06) / 0.94, approaches zero.
+        .real("w_max", 0.07, 1.0)
         .flag("calculate_ce")
         .flag("round_output");
 
@@ -455,7 +458,8 @@ fn sweep_two_nodes_gagge() {
                     max_skin_blood_flow: msbf,
                     max_sweating: msw,
                     round_output,
-                    w_max,
+                    w_max: w_max
+                        .map(|x| MaxSkinWettedness::new(x).expect("sampled inside (0.06, 1]")),
                     calculate_ce,
                 },
             );
@@ -714,9 +718,9 @@ fn sweep_cooling_effect() {
         let models = import_reference(py, "pythermalcomfort.models")
             .expect("failed to import pythermalcomfort.models");
         let field_si = FieldCmp::new("ce", 0.011);
-        // Upstream's IP branch rescales the Celsius value by 3.28/1.8 (~1.822), so an
-        // equivalent-precision absolute tolerance scales by the same factor.
-        let field_ip = FieldCmp::new("ce", 0.011 * 3.28 / 1.8);
+        // Upstream's IP result is the Celsius one as a Fahrenheit difference (`* 1.8`), so
+        // an equivalent-precision absolute tolerance scales by the same factor.
+        let field_ip = FieldCmp::new("ce", 0.011 * 1.8);
 
         run_sweep("sweep_cooling_effect", &domain, |s: &Sample| {
             let (tdb, tr, vr, rh, met, clo, wme) = (
@@ -923,25 +927,14 @@ fn sweep_use_fans_heatwaves() {
                 compare_field(field, rust_value, py_float(&py_result, field.name)?)?;
             }
 
-            // The heat-strain verdicts are the model's actual output; Python reports
-            // them as float64 0.0/1.0 rather than bool.
+            // The heat-strain verdicts are the model's actual output
             for (name, rust_flag) in [
                 ("heat_strain", rust.heat_strain),
                 ("heat_strain_blood_flow", rust.heat_strain_blood_flow),
                 ("heat_strain_w", rust.heat_strain_w),
                 ("heat_strain_sweating", rust.heat_strain_sweating),
             ] {
-                // Python masks these to NaN outside the applicability limits, which
-                // maps to None on the Rust side rather than to `false`.
-                let py_raw = py_float(&py_result, name)?;
-                let py_flag = if py_raw.is_nan() {
-                    None
-                } else {
-                    Some(py_raw != 0.0)
-                };
-                if py_flag != rust_flag {
-                    return Err(format!("{name}: Rust {rust_flag:?}, Python {py_flag:?}"));
-                }
+                compare_flag(name, rust_flag, &py_result)?;
             }
             Ok(())
         });
@@ -1486,9 +1479,9 @@ fn sweep_two_nodes_gagge_ji() {
 struct SleepPyCall {
     /// `tdb, tr, v, rh, clo, thickness_quilt`, one value per minute.
     schedules: [Vec<f64>; 6],
-    /// `wme, p_atm, height, weight, c_sw, c_dil, c_str, temp_skin_neutral,
-    /// temp_core_neutral, e_skin, alfa, skin_blood_flow, met_shivering`.
-    scalars: [f64; 13],
+    /// `wme, p_atm, height, weight, c_sw, c_dil, c_str, temp_skin_neutral, e_skin, alfa,
+    /// skin_blood_flow, met_shivering`.
+    scalars: [f64; 12],
     ltime: u32,
 }
 
@@ -1507,7 +1500,6 @@ fn two_nodes_gagge_sleep_python_run<'py>(
         "c_dil",
         "c_str",
         "temp_skin_neutral",
-        "temp_core_neutral",
         "e_skin",
         "alfa",
         "skin_blood_flow",
@@ -1614,8 +1606,6 @@ fn sweep_two_nodes_gagge_sleep() {
         // `..Default::default()` until 2026-08-26, which is the same shape of hole that
         // let `thickness_quilt` have no effect at all for the life of the port: a
         // parameter nothing varies is a parameter nothing can prove is wired up.
-        // `temp_core_neutral` is documented as inert in both implementations -- sweeping
-        // it is what turns that from a claim into a tested one.
         .enumerated("ltime", 3)
         .real("height", 140.0, 200.0)
         .real("weight", 40.0, 120.0)
@@ -1623,7 +1613,6 @@ fn sweep_two_nodes_gagge_sleep() {
         .real("c_dil", 80.0, 200.0)
         .real("c_str", 0.1, 1.0)
         .real("temp_skin_neutral", 30.0, 36.0)
-        .real("temp_core_neutral", 35.0, 38.0)
         .real("e_skin", 0.0, 0.5)
         .real("alfa", 0.05, 0.3)
         .real("skin_blood_flow", 3.0, 12.0)
@@ -1653,7 +1642,6 @@ fn sweep_two_nodes_gagge_sleep() {
             let c_dil = s.real("c_dil");
             let c_str = s.real("c_str");
             let temp_skin_neutral = s.real("temp_skin_neutral");
-            let temp_core_neutral = s.real("temp_core_neutral");
             let e_skin = s.real("e_skin");
             let alfa = s.real("alfa");
             let skin_blood_flow = s.real("skin_blood_flow");
@@ -1692,7 +1680,6 @@ fn sweep_two_nodes_gagge_sleep() {
                     c_dil,
                     c_str,
                     temp_skin_neutral,
-                    temp_core_neutral,
                     e_skin,
                     alfa,
                     skin_blood_flow,
@@ -1760,7 +1747,6 @@ fn sweep_two_nodes_gagge_sleep() {
                     c_dil,
                     c_str,
                     temp_skin_neutral: Temperature::from_celsius(temp_skin_neutral),
-                    temp_core_neutral: Temperature::from_celsius(temp_core_neutral),
                     e_skin: HeatFluxDensity::from_watts_per_square_meter(e_skin),
                     alfa,
                     skin_blood_flow,
@@ -1769,13 +1755,9 @@ fn sweep_two_nodes_gagge_sleep() {
             )
             .map_err(|e| format!("rust rejected the schedule: {e}"))?;
 
-            // Upstream does not round this model, so an absolute 1e-9 is the primary
-            // bound. The relative bound exists for the samples where upstream's own SET
-            // secant solve has no physical root and walks out to around 5e7 °C; the port
-            // follows it there (`test_two_nodes_gagge_sleep_follows_upstream_secant_runaway`
-            // pins one), and at that magnitude 1e-9 absolute is a tolerance on the ulp.
+            // Upstream does not round this model, so the bound is an absolute 1e-9.
             //
-            // Neither bound can be right everywhere, because each minute's state feeds
+            // It cannot be right everywhere, because each minute's state feeds
             // the next through a step that is locally unstable. In a window of a few
             // minutes, typically where `e_skin` passes near zero, an ulp-level difference
             // grows by roughly an order of magnitude per minute before the trajectory
@@ -1831,7 +1813,7 @@ fn sweep_two_nodes_gagge_sleep() {
                         py_series.len()
                     ));
                 }
-                let cmp = FieldCmp::new(name, 1e-9).rel(1e-9);
+                let cmp = FieldCmp::new(name, 1e-9);
                 for (minute, (rust_value, py_value)) in
                     rust_series.iter().zip(py_series.iter()).enumerate()
                 {
@@ -2401,6 +2383,11 @@ fn sweep_jos3() {
         .real("par", 1.0, 2.5)
         .enumerated("posture", 5)
         .real("dtime", 30.0, 120.0)
+        // The state setters: a run from a perturbed start must match upstream's too
+        .flag("set_t_core")
+        .real("t_core", 36.0, 38.5)
+        .flag("set_t_skin")
+        .real("t_skin", 31.0, 36.0)
         .enumerated("duration", 4);
 
     Python::attach(|py| {
@@ -2454,6 +2441,10 @@ fn sweep_jos3() {
                 _ => (Jos3Posture::Lying, "supine"),
             };
             let dtime = s.real("dtime");
+            let initial = Jos3InitialState {
+                t_core: s.flag("set_t_core").then(|| s.real("t_core")),
+                t_skin: s.flag("set_t_skin").then(|| s.real("t_skin")),
+            };
             // At least "a few hundred steps" per the brief; see the comment above the
             // domain for why the run needs to be long, not just varied.
             let steps: u32 = match s.index("duration") {
@@ -2477,7 +2468,7 @@ fn sweep_jos3() {
             .unwrap();
 
             let py_results = match jos3_python_run(
-                &models, &kwargs, tdb, tr, rh, v, clo, par, py_posture, steps, dtime,
+                &models, &kwargs, tdb, tr, rh, v, clo, par, py_posture, initial, steps, dtime,
             ) {
                 Ok(results) => results,
                 // A physically-invalid combination the thermoregulation loop cannot
@@ -2509,6 +2500,16 @@ fn sweep_jos3() {
                 .bsa_equation(bsa)
                 .build()
                 .map_err(|e| format!("rust build failed where python succeeded: {e}"))?;
+            if let Some(t_core) = initial.t_core {
+                rust_model
+                    .set_t_core(PerBodyPart::Uniform(Temperature::from_celsius(t_core)))
+                    .map_err(|e| format!("set_t_core: {e}"))?;
+            }
+            if let Some(t_skin) = initial.t_skin {
+                rust_model
+                    .set_t_skin(PerBodyPart::Uniform(Temperature::from_celsius(t_skin)))
+                    .map_err(|e| format!("set_t_skin: {e}"))?;
+            }
 
             let mut conditions = rust_model.conditions();
             conditions.tdb = PerBodyPart::Uniform(Temperature::from_celsius(tdb));
@@ -2545,6 +2546,7 @@ fn sweep_jos3() {
                         clo,
                         par,
                         py_posture,
+                        initial,
                         steps,
                         dtime,
                     )
@@ -2583,6 +2585,14 @@ fn sweep_jos3() {
     });
 }
 
+/// Uniform core and skin temperatures set on a fresh model before it simulates, through
+/// `JOS3`'s `t_core` and `t_skin` setters; `None` leaves the constructor's state.
+#[derive(Clone, Copy)]
+struct Jos3InitialState {
+    t_core: Option<f64>,
+    t_skin: Option<f64>,
+}
+
 /// Build and drive one Python `JOS3` run, returning its `results()`.
 ///
 /// Factored out because the sweep runs it twice on a divergence: once for the reference
@@ -2598,10 +2608,17 @@ fn jos3_python_run<'py>(
     clo: f64,
     par: f64,
     posture: &str,
+    initial: Jos3InitialState,
     steps: u32,
     dtime: f64,
 ) -> PyResult<Bound<'py, PyAny>> {
     let model = models.getattr("JOS3")?.call((), Some(kwargs))?;
+    if let Some(t_core) = initial.t_core {
+        model.setattr("t_core", t_core)?;
+    }
+    if let Some(t_skin) = initial.t_skin {
+        model.setattr("t_skin", t_skin)?;
+    }
     model.setattr("tdb", tdb)?;
     model.setattr("tr", tr)?;
     model.setattr("rh", rh)?;
@@ -2842,29 +2859,13 @@ fn py_category(obj: &Bound<'_, PyAny>, field: &str) -> Result<Option<String>, St
         .map_err(|e| format!("{field}: could not read as a string: {e}"))
 }
 
-/// Read an optional boolean field from a Python result.
-///
-/// `pmv_ppd_ashrae`'s `compliance` is a plain `bool` in range, but out of applicability
-/// range Python masks it to NaN, where the Rust port uses `None` -- the same "not
-/// applicable" the [`py_category`] NaN branch handles for `tsv`.
-fn py_optional_bool(obj: &Bound<'_, PyAny>, field: &str) -> Result<Option<bool>, String> {
-    let attr = obj
-        .getattr(field)
-        .map_err(|e| format!("{field}: missing on Python result: {e}"))?;
-    if attr.is_none() {
-        return Ok(None);
-    }
-    if let Ok(b) = attr.extract::<bool>() {
-        return Ok(Some(b));
-    }
-    if attr.extract::<f64>().is_ok_and(f64::is_nan) {
-        return Ok(None);
-    }
-    // A numpy scalar rather than a Python bool.
-    attr.call_method0("item")
-        .and_then(|i| i.extract::<bool>())
-        .map(Some)
-        .map_err(|e| format!("{field}: could not read as a bool: {e}"))
+/// Compare a Rust yes/no output against the Python result's flag of the same name.
+fn compare_flag(
+    name: &str,
+    rust: Option<bool>,
+    py_result: &Bound<'_, PyAny>,
+) -> Result<(), String> {
+    compare_optional_bool(name, rust, py_flag(py_result, name)?)
 }
 
 /// Compare two optional booleans.
@@ -3868,31 +3869,6 @@ fn sweep_work_capacity_hothaps() {
     });
 }
 
-/// Compare a Rust bool against Python's acceptability, which arrives as a numpy bool or
-/// as a 0.0/1.0 float depending on the model.
-fn compare_bool(name: &str, rust: bool, obj: &Bound<'_, PyAny>) -> Result<(), String> {
-    let attr = obj
-        .getattr(name)
-        .map_err(|e| format!("{name}: missing on Python result: {e}"))?;
-    let py: bool = if let Ok(b) = attr.extract::<bool>() {
-        b
-    } else {
-        let value = attr
-            .extract::<f64>()
-            .or_else(|_| attr.call_method0("item").and_then(|i| i.extract::<f64>()))
-            .map_err(|e| format!("{name}: could not read as a bool: {e}"))?;
-        // Outside its applicability range Python sets acceptability to NaN. A Rust bool
-        // cannot hold that, and the port spells "not applicable" as false alongside a
-        // NaN result value, so NaN maps to false rather than to a truthy non-zero.
-        if value.is_nan() { false } else { value != 0.0 }
-    };
-    if rust == py {
-        Ok(())
-    } else {
-        Err(format!("{name}: Rust {rust}, Python {py}"))
-    }
-}
-
 /// Input space shared by the two adaptive models.
 fn adaptive_domain() -> Domain {
     Domain::new()
@@ -4008,8 +3984,8 @@ fn sweep_adaptive_ashrae() {
                     py_float(&py_result, name)?,
                 )?;
             }
-            compare_bool("acceptability_80", rust.acceptability_80, &py_result)?;
-            compare_bool("acceptability_90", rust.acceptability_90, &py_result)
+            compare_flag("acceptability_80", rust.acceptability_80, &py_result)?;
+            compare_flag("acceptability_90", rust.acceptability_90, &py_result)
         });
     });
 }
@@ -4120,13 +4096,13 @@ fn sweep_adaptive_en() {
                     py_float(&py_result, name)?,
                 )?;
             }
-            compare_bool("acceptability_cat_i", rust.acceptability_cat_i, &py_result)?;
-            compare_bool(
+            compare_flag("acceptability_cat_i", rust.acceptability_cat_i, &py_result)?;
+            compare_flag(
                 "acceptability_cat_ii",
                 rust.acceptability_cat_ii,
                 &py_result,
             )?;
-            compare_bool(
+            compare_flag(
                 "acceptability_cat_iii",
                 rust.acceptability_cat_iii,
                 &py_result,
@@ -4193,7 +4169,7 @@ fn sweep_ankle_draft() {
             );
 
             compare_field(&field, ppd_ad, py_float(&py_result, "ppd_ad")?)?;
-            compare_bool("acceptability", acceptability, &py_result)
+            compare_flag("acceptability", acceptability, &py_result)
         });
     });
 }
@@ -4272,7 +4248,7 @@ fn sweep_vertical_tmp_grad_ppd() {
                 ppd_vg,
                 py_float(&py_result, "ppd_vg")?,
             )?;
-            compare_bool("acceptability", acceptability, &py_result)
+            compare_flag("acceptability", acceptability, &py_result)
         });
     });
 }

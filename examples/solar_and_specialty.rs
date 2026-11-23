@@ -104,15 +104,14 @@ fn main() {
             },
             Default::default(),
         );
-        println!("  {v_ankle_ms:.2} m/s at the ankles: PPD {ppd:.1}%, acceptable: {acceptable}");
+        println!("  {v_ankle_ms:.2} m/s at the ankles: PPD {ppd:.1}%, acceptable: {acceptable:?}");
     }
 
     // --- Vertical temperature gradient ---
     println!("\n--- Vertical air temperature gradient (ISO 7730 / ASHRAE 55) ---");
     // Warm head, cool feet: the difference between 1.1 m and 0.1 m above the floor.
-    // Acceptable is PPD <= 5%. The ASHRAE 55 fit is an offset logistic curve, so for
-    // small gradients it reports a slightly negative percentage; read that as "no one
-    // dissatisfied".
+    // Acceptable is PPD <= 5%. The ASHRAE 55 fit subtracts a 34.5% baseline, so small
+    // gradients report 0%.
     for gradient_k in [3.0, 5.0, 7.0] {
         let (ppd, acceptable) = vertical_tmp_grad_ppd(
             VerticalTmpGradPpdInputs {
@@ -127,7 +126,7 @@ fn main() {
             Default::default(),
         );
         println!(
-            "  {gradient_k:.1} K between head and ankles: PPD {ppd:.1}%, acceptable: {acceptable}"
+            "  {gradient_k:.1} K between head and ankles: PPD {ppd:.1}%, acceptable: {acceptable:?}"
         );
     }
 }

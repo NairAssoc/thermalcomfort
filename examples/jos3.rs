@@ -42,6 +42,13 @@ fn main() {
         sim.bsa().iter().map(|a| a.as_square_meters()).sum::<f64>()
     );
 
+    // Start from a subject who arrives slightly warm: the core and skin temperatures can
+    // be set before simulating, uniformly or per segment.
+    sim.set_t_core(PerBodyPart::Uniform(Temperature::from_celsius(37.2)))
+        .expect("a uniform value covers every segment");
+    sim.set_t_skin(PerBodyPart::Uniform(Temperature::from_celsius(34.5)))
+        .expect("a uniform value covers every segment");
+
     // --- Phase 1: an hour of seated office work ---
     println!("\n--- Phase 1: 60 min seated in a 24 °C office ---");
     // Start from the model's current environment and override only what changes.

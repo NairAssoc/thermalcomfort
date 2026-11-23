@@ -435,8 +435,8 @@ pub fn f_svv(inputs: FSvvInputs) -> f64 {
 ///
 /// # Returns
 ///
-/// Tuple of (transposed sharp, transposed altitude) in degrees, each rounded to 3
-/// decimals to match pythermalcomfort.
+/// Tuple of (transposed sharp, transposed altitude) in degrees, unrounded as in
+/// pythermalcomfort.
 pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f64, f64) {
     let to_rad = core::f64::consts::PI / 180.0;
     let to_deg = 180.0 / core::f64::consts::PI;
@@ -447,15 +447,7 @@ pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f6
     let sharp_new =
         libm::atan(libm::sin(sharp * to_rad) * libm::tan((90.0 - altitude) * to_rad)) * to_deg;
 
-    // utilities.py:490's `transpose_sharp_altitude` is `@njit(cache=True)`-decorated.
-    // Numba compiles `round(x, n)` to its own multiply/rint/divide sequence
-    // (numba/cpython/builtins.py:262-278), which is numpy's ties-to-even rule, not
-    // CPython's exact-decimal builtin — confirmed by reading that source and by probing
-    // the compiled function directly: over 2,000,000 engineered tie-adjacent values it
-    // agreed with `np.round` on all of them and disagreed with the plain-Python `round`
-    // builtin on 5. So despite `sharp`/`altitude` being ordinary `float` parameters, the
-    // jit context makes this numpy's rule.
-    (round_to(sharp_new, 3), round_to(altitude_new, 3))
+    (sharp_new, altitude_new)
 }
 
 /// Transpose the solar altitude and solar azimuth angles
@@ -469,8 +461,7 @@ pub(crate) fn transpose_sharp_altitude_degrees(sharp: f64, altitude: f64) -> (f6
 ///
 /// # Returns
 ///
-/// Tuple of (transposed sharp, transposed altitude), each rounded to 3 decimals to
-/// match pythermalcomfort.
+/// Tuple of (transposed sharp, transposed altitude), unrounded as in pythermalcomfort.
 ///
 /// The arguments are in the order the name gives, `sharp` then `altitude`, which is the
 /// reverse of [`SolarGainInputs`](crate::models::solar_gain::SolarGainInputs), where
@@ -500,11 +491,16 @@ pub fn transpose_sharp_altitude(sharp: Angle, altitude: Angle) -> (Angle, Angle)
 pub struct ScaleWindSpeedLogOptions {
     /// Reference height of the measurement. Defaults to 10 m.
     pub z1: Length,
-    /// Surface roughness length. Defaults to 0.01 m (open terrain); 0.03 m pasture,
-    /// 0.1 m crops, 0.4 m towns and forests, 1 m urban, 1.6 m large cities.
+    /// Surface roughness length. Defaults to 0.01 m (open terrain). Table 1 of Sharples
+    /// and Baron-Hay (2023) gives 0.005 m for inland waterbodies, 0.03 m irrigated
+    /// pasture, 0.1 m irrigated cropping, 0.25 m irrigated sugar, 0.43 m closed forest
+    /// and 1 m urban areas.
     pub z0: Length,
     /// Zero-plane displacement height, the height at which the wind effectively drops
-    /// to zero among obstacles. Defaults to 0 m.
+    /// to zero among obstacles. Defaults to 0 m, which Sharples and Baron-Hay (2023)
+    /// recommend for scaling 10 m wind to about 2 m. The 0.5 m in their Table 1 is a cap
+    /// imposed by that 2 m target height, not the displacement height of real buildings,
+    /// which is usually several metres in a city.
     pub d: Length,
     /// Round the result to 0.01 m/s, as upstream does. Defaults to `true`.
     pub round_output: bool,
@@ -577,7 +573,10 @@ impl core::error::Error for ScaleWindSpeedLogError {}
 ///
 /// `v(z2) = v(z1) · ln((z2 - d) / z0) / ln((z1 - d) / z0)`, which assumes neutral
 /// atmospheric stability and holds from a few metres to about 100 m above ground. It
-/// does not account for obstacles or complex terrain.
+/// does not account for obstacles or complex terrain, and describes wind only well above
+/// the obstacles: among buildings or trees a target height of about 2 m is inside the
+/// canopy, where the profile does not apply for any `d`, so the result is a rough
+/// estimate only.
 ///
 /// # Errors
 ///

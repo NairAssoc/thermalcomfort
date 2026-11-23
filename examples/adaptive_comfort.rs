@@ -65,16 +65,16 @@ fn main() {
         ashrae_result.tmp_cmf_90_low, ashrae_result.tmp_cmf_90_up
     );
 
-    if ashrae_result.acceptability_80 {
-        println!("  ✓ Acceptable for 80% of occupants");
-    } else {
-        println!("  ✗ Not acceptable for 80% of occupants");
-    }
-
-    if ashrae_result.acceptability_90 {
-        println!("  ✓ Acceptable for 90% of occupants");
-    } else {
-        println!("  ✗ Not acceptable for 90% of occupants");
+    // `None` means the inputs are outside the model's applicability limits
+    for (share, flag) in [
+        (80, ashrae_result.acceptability_80),
+        (90, ashrae_result.acceptability_90),
+    ] {
+        match flag {
+            Some(true) => println!("  ✓ Acceptable for {share}% of occupants"),
+            Some(false) => println!("  ✗ Not acceptable for {share}% of occupants"),
+            None => println!("  - Outside the model's applicability limits"),
+        }
     }
 
     // EN 16798-1 Adaptive Model
@@ -104,14 +104,16 @@ fn main() {
     );
 
     print!("\n  Comfort category: ");
-    if en_result.acceptability_cat_i {
-        println!("Category I (highest comfort)");
-    } else if en_result.acceptability_cat_ii {
-        println!("Category II (medium comfort)");
-    } else if en_result.acceptability_cat_iii {
-        println!("Category III (acceptable comfort)");
-    } else {
-        println!("Outside acceptable range");
+    match (
+        en_result.acceptability_cat_i,
+        en_result.acceptability_cat_ii,
+        en_result.acceptability_cat_iii,
+    ) {
+        (None, _, _) => println!("Outside the model's applicability limits"),
+        (Some(true), _, _) => println!("Category I (highest comfort)"),
+        (_, Some(true), _) => println!("Category II (medium comfort)"),
+        (_, _, Some(true)) => println!("Category III (acceptable comfort)"),
+        _ => println!("Outside acceptable range"),
     }
 
     // Comparison

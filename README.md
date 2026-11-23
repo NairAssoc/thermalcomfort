@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/thermalcomfort/badge.svg)](https://docs.rs/thermalcomfort)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.6.2) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
+A comprehensive Rust port of the [pythermalcomfort](https://pypi.org/project/pythermalcomfort/) Python package (v4.8.1) for thermal comfort calculations. Every model, utility function and clothing database is implemented and verified against the Python reference (see [Coverage](#coverage) for the divergences that remain).
 
 This library is `no_std` compatible and can run in WASM environments, making it suitable for embedded systems, web applications, and resource-constrained environments.
 
@@ -12,7 +12,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 ## Features
 
-- **Complete coverage**: every pythermalcomfort v4.6.2 model, `JOS3` included
+- **Complete coverage**: every pythermalcomfort v4.8.1 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Coverage](#coverage) for the five edge-case divergences)
 - **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: every public function with a pythermalcomfort counterpart has
@@ -49,6 +49,8 @@ Defined in this crate:
 - `MetabolicRate` - Metabolic rate (met, W/m², Btu/(h·ft²))
 - `Age` - Age in years, shared by PET, the ridge-regression predictor and JOS3
 - `Sex` - Biological sex for physiological models
+- `WorkEfficiency`, `MaxSkinWettedness` - fractions with a validated range (`[0, 1]` and
+  `(0.06, 1]`): `new` returns `None` for anything upstream would reject
 
 All types support automatic unit conversion through the type system, preventing errors like passing Fahrenheit where Celsius is expected.
 
@@ -67,6 +69,8 @@ The rule for what is typed, on inputs **and** outputs:
   index (both), discomfort index, THI, ESI — or is dimensionless (PMV, PPD, fractions,
   percentages, coefficients). UTCI additionally keeps its `Units` option because upstream
   rounds it in the output unit.
+- Yes/no outputs (acceptability, compliance, heat strain) are `Option<bool>`: `None` is
+  upstream's NaN, for inputs outside the model's applicability limits or a NaN input.
 - Durations are `core::time::Duration`, inputs and outputs alike. Models that step in
   one-minute increments round the duration to whole minutes (at least one) and say so in
   the field's doc comment.
@@ -102,7 +106,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-thermalcomfort = "4.6.2"
+thermalcomfort = "4.8.1"
 ```
 
 ## Usage
@@ -175,7 +179,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Accuracy & Validation
 
-All models produce results identical to pythermalcomfort v4.6.2 across the swept input
+All models produce results identical to pythermalcomfort v4.8.1 across the swept input
 space, in the one build configuration the crate has. There is no accuracy trade-off to
 choose between. The five edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
@@ -228,8 +232,9 @@ pyo3, so they need the **exact version this crate ports** to be importable. The 
 version is that version — they are kept in lockstep deliberately.
 
 ```bash
-# One-time: create a venv holding pythermalcomfort==<crate version>, and install the
-# no_std targets and beta toolchain that verify needs
+# One-time: create a Python 3.11 venv (via uv) holding pythermalcomfort==<crate
+# version), and install the no_std targets and beta toolchain that verify needs. The
+# tests embed that venv's interpreter, so the Makefile points pyo3 at it.
 make setup-parity
 make setup-toolchain
 
@@ -313,7 +318,7 @@ When bumping to a new pythermalcomfort release, change the version in `Cargo.tom
 
 ## Credits
 
-Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.6.2), developed by Federico Tartarini and Stefano Schiavon.
+Rust port of [pythermalcomfort](https://github.com/pythermalcomfort/pythermalcomfort) (v4.8.1), developed by Federico Tartarini and Stefano Schiavon.
 
 If you use this crate in your research, please cite the original work:
 

@@ -791,7 +791,7 @@ impl Jos3Model {
         }
     }
 
-    // -- Body temperature state getters (Python: read-only properties) --
+    // -- Body temperature state getters and the two setters Python has (t_skin, t_core) --
 
     /// All 85 node temperatures, in `matrix::IDICT` node order. Python: `JOS3.t_body`.
     #[must_use]
@@ -813,6 +813,31 @@ impl Jos3Model {
     #[must_use]
     pub fn t_core(&self) -> [Temperature; NUM_BODY_PARTS] {
         celsius(self.t_core_c())
+    }
+
+    /// Set the skin temperature of every body segment. Python: the `JOS3.t_skin` setter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BodyPartsInputError::MissingKey`] if a [`PerBodyPart::ByName`] input is
+    /// missing one of the 17 body-part names; the model is then unchanged.
+    pub fn set_t_skin(
+        &mut self,
+        t_skin: PerBodyPart<'_, Temperature>,
+    ) -> Result<(), BodyPartsInputError> {
+        self.set_full_layer(|li| li.skin, t_skin)
+    }
+
+    /// Set the core temperature of every body segment. Python: the `JOS3.t_core` setter.
+    ///
+    /// # Errors
+    ///
+    /// As [`set_t_skin`](Self::set_t_skin).
+    pub fn set_t_core(
+        &mut self,
+        t_core: PerBodyPart<'_, Temperature>,
+    ) -> Result<(), BodyPartsInputError> {
+        self.set_full_layer(|li| li.core, t_core)
     }
 
     /// Arterial temperature of each of the 17 body segments. Python: `JOS3.t_artery`.
@@ -894,6 +919,18 @@ impl Jos3Model {
     #[must_use]
     pub fn results(&self) -> &Jos3Results {
         &self.history
+    }
+
+    fn set_full_layer(
+        &mut self,
+        pick: impl Fn(&matrix::LayerIndex) -> Option<usize>,
+        values: PerBodyPart<'_, Temperature>,
+    ) -> Result<(), BodyPartsInputError> {
+        let values = values.resolve()?;
+        for (li, value) in IDICT.iter().zip(values) {
+            self.t_body[pick(li).expect("every body part has this layer")] = value.as_celsius();
+        }
+        Ok(())
     }
 
     fn extract_full_layer(

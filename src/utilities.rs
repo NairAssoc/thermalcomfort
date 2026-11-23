@@ -301,8 +301,9 @@ pub fn body_surface_area(weight: Mass, height: Length, options: BodySurfaceAreaO
 /// Calculate representative clothing insulation based on outdoor temperature
 ///
 /// Estimates clothing insulation (clo) based on outdoor air temperature at 06:00 a.m.
-/// according to Schiavon et al. (2013). This is useful for estimating typical indoor
-/// clothing levels in mechanically conditioned buildings.
+/// according to Schiavon et al. (2013). ASHRAE 55 Section 5.2.2.2 (f) uses this
+/// relationship (its Figure 5-1) to determine the clothing insulation of a representative
+/// occupant for a day.
 ///
 /// # Arguments
 ///

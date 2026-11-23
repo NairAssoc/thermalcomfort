@@ -201,6 +201,41 @@ impl Default for WorkEfficiency {
     }
 }
 
+/// Practical upper limit of skin wettedness, as a fraction in `(0.06, 1]`.
+///
+/// 0.06 is the wettedness of skin diffusion alone, with no regulatory sweating, so a cap at
+/// or below it leaves the two-node model a zero or negative sweating rate at the cap, and
+/// its discomfort index divides by zero. pythermalcomfort rejects those values, and NaN, so
+/// they cannot be constructed here.
+///
+/// # Examples
+///
+/// ```
+/// use thermalcomfort::MaxSkinWettedness;
+///
+/// let w = MaxSkinWettedness::new(0.5).expect("0.5 is a valid cap");
+/// assert_eq!(w.as_fraction(), 0.5);
+///
+/// assert!(MaxSkinWettedness::new(1.0).is_some());
+/// assert!(MaxSkinWettedness::new(0.06).is_none());
+/// assert!(MaxSkinWettedness::new(1.01).is_none());
+/// assert!(MaxSkinWettedness::new(f64::NAN).is_none());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct MaxSkinWettedness(f64);
+
+impl MaxSkinWettedness {
+    /// Construct from a fraction in `(0.06, 1]`, returning `None` outside that range.
+    pub fn new(value: f64) -> Option<Self> {
+        (value > 0.06 && value <= 1.0).then_some(Self(value))
+    }
+
+    /// The cap as a fraction in `(0.06, 1]`
+    pub const fn as_fraction(self) -> f64 {
+        self.0
+    }
+}
+
 /// Clothing insulation measurement.
 ///
 /// Represents thermal resistance of clothing per unit body surface area.

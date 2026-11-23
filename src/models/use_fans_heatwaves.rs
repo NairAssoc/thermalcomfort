@@ -95,7 +95,8 @@ pub struct UseFansHeatwavesResult {
     pub w: f64,
     /// Maximum skin wettedness [0-1]
     pub w_max: f64,
-    /// Heat strain from blood flow (m_bl at maximum)
+    /// Heat strain from blood flow (m_bl at maximum); `None` where it is undefined, as for
+    /// [`heat_strain`](Self::heat_strain)
     pub heat_strain_blood_flow: Option<bool>,
     /// Heat strain from wettedness (w at maximum)
     pub heat_strain_w: Option<bool>,
@@ -103,8 +104,8 @@ pub struct UseFansHeatwavesResult {
     pub heat_strain_sweating: Option<bool>,
     /// Overall heat strain indicator
     ///
-    /// `None` when the inputs fell outside the applicability limits, matching Python's
-    /// `nan` for this field. Reporting `false` there would assert "no heat strain" for
+    /// `None` when the inputs fell outside the applicability limits, or when any of the
+    /// three flags above is `None`, matching Python's `nan` for this field. Reporting `false` there would assert "no heat strain" for
     /// a calculation the model declined to make.
     pub heat_strain: Option<bool>,
 }
@@ -202,22 +203,30 @@ pub fn use_fans_heatwaves(
     // merely near the cap.
     //
     // Pinned by `test_use_fans_heatwaves_strain_flags_at_the_caps`, which pairs a
-    // saturating input with one whose `w` sits 4.7e-05 below `w_max`. Re-deriving that
+    // saturating input with one whose `w` sits 3.1e-05 below `w_max`. Re-deriving that
     // pair is the point: this comment used to cite tdb=38.1, tr=43.7, v=2.16 as the case
     // a 1e-3 window got wrong, and by 4.4.2 those inputs put `w` 0.032 from the cap --
     // nowhere near any window, so the example had quietly stopped demonstrating the bug
     // it was recorded for. Cite a test, not a tuple.
+    //
+    // A flag is undefined (`None`) where the value it tests is NaN, and `heat_strain` is
+    // undefined if any of the three is, as upstream's `np.max` over them carries NaN.
     #[allow(clippy::float_cmp)]
-    let heat_strain_blood_flow = gagge_result.m_bl == max_skin_blood_flow;
+    let heat_strain_blood_flow =
+        (!gagge_result.m_bl.is_nan()).then_some(gagge_result.m_bl == max_skin_blood_flow);
     #[allow(clippy::float_cmp)]
-    let heat_strain_w = gagge_result.w == gagge_result.w_max;
+    let heat_strain_w = (!(gagge_result.w.is_nan() || gagge_result.w_max.is_nan()))
+        .then_some(gagge_result.w == gagge_result.w_max);
     #[allow(clippy::float_cmp)]
-    let heat_strain_sweating = gagge_result.m_rsw == max_sweating;
-    let heat_strain = heat_strain_blood_flow || heat_strain_w || heat_strain_sweating;
+    let heat_strain_sweating =
+        (!gagge_result.m_rsw.is_nan()).then_some(gagge_result.m_rsw == max_sweating);
+    let heat_strain = [heat_strain_blood_flow, heat_strain_w, heat_strain_sweating]
+        .into_iter()
+        .try_fold(false, |any, flag| flag.map(|f| any || f));
 
     // ASHRAE 55 / Jay et al. applicability limits. Outside them pythermalcomfort masks
-    // every output to NaN, and the heat-strain verdicts to false, rather than reporting
-    // a fan recommendation the model cannot stand behind.
+    // every output, the heat-strain verdicts included, to NaN rather than reporting a
+    // fan recommendation the model cannot stand behind.
     let within_limits = !limit_inputs
         || ((20.0..=50.0).contains(&tdb.as_celsius())
             && (20.0..=50.0).contains(&tr.as_celsius())
@@ -279,10 +288,10 @@ pub fn use_fans_heatwaves(
         m_rsw: round1(gagge_result.m_rsw),
         w: round1(gagge_result.w),
         w_max: round1(gagge_result.w_max),
-        heat_strain_blood_flow: Some(heat_strain_blood_flow),
-        heat_strain_w: Some(heat_strain_w),
-        heat_strain_sweating: Some(heat_strain_sweating),
-        heat_strain: Some(heat_strain),
+        heat_strain_blood_flow,
+        heat_strain_w,
+        heat_strain_sweating,
+        heat_strain,
     }
 }
 
