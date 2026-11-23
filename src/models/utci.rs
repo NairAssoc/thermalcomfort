@@ -3,6 +3,7 @@
 //! The UTCI is the equivalent temperature for the environment derived from a
 //! reference environment, widely used for outdoor thermal comfort assessment.
 
+use crate::unit_system::{UnitSystem, celsius_in_units};
 use crate::utilities::Units;
 use libm::{exp, pow};
 use measurements::{Humidity, Speed, Temperature};
@@ -10,9 +11,9 @@ use measurements::{Humidity, Speed, Temperature};
 /// UTCI result with stress category
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UtciResult {
-    /// Universal Thermal Climate Index [°C]
-    pub utci: f64,
-    /// Thermal stress category
+    /// Universal Thermal Climate Index, an equivalent temperature. Read it in the unit
+    /// system passed as [`UtciOptions::units`] to get upstream's rounded value; see there.
+    pub utci: Temperature,
     /// Stress category, or `None` when the UTCI is not available (NaN)
     pub stress_category: Option<StressCategory>,
 }
@@ -41,8 +42,16 @@ impl StressCategory {
     /// be wrong in for a cold- and heat-stress index.
     ///
     /// Bands are right-inclusive, matching pythermalcomfort's `mapping(..., right=True)`:
-    /// a UTCI of exactly -40.0 is extreme cold stress, not very strong cold stress.
-    pub fn from_utci_opt(utci: f64) -> Option<Self> {
+    /// a UTCI of exactly -40.0 °C is extreme cold stress, not very strong cold stress. The
+    /// bands are in °C, so the value is compared as [`Temperature::as_celsius`].
+    pub fn from_utci_opt(utci: Temperature) -> Option<Self> {
+        Self::from_utci_celsius(utci.as_celsius())
+    }
+
+    /// The banding of [`from_utci_opt`](Self::from_utci_opt) on a plain °C value. [`utci`]
+    /// bands the Celsius value it computed, before it is stored in kelvin: the storage
+    /// round trip can move a value within ~1e-14 °C of an edge onto the other side.
+    fn from_utci_celsius(utci: f64) -> Option<Self> {
         if utci.is_nan() {
             return None;
         }
@@ -105,9 +114,11 @@ pub struct UtciInputs {
 /// Options for UTCI calculation
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UtciOptions {
-    /// Unit system, SI or IP (inch-pound), of the result: the UTCI is an `f64` index, so
-    /// it is returned in °C for `SI` and °F for `IP`, rounded in that unit as upstream does.
-    /// The stress category always comes from the Celsius value.
+    /// Unit system, SI or IP (inch-pound), the UTCI is rounded in: to 0.1 °C for `SI` and
+    /// 0.1 °F for `IP`, as upstream does. Read the result in the same system
+    /// (`result.utci.in_units(units)`) to get upstream's number; the other system reads the
+    /// same temperature unrounded. The stress category always comes from the Celsius
+    /// value, rounded in °C when `round_output` is set.
     pub units: Units,
     /// Limit inputs to standard applicability ranges
     pub limit_inputs: bool,
@@ -136,15 +147,9 @@ impl Default for UtciOptions {
 /// in outdoor spaces, taking into account dry bulb temperature, mean radiation temperature,
 /// water vapor pressure (via relative humidity), and wind speed at 10m elevation.
 ///
-/// UTCI is returned as `f64`, not [`Temperature`]: like [`wbgt`](fn@crate::models::wbgt) and
-/// [`pet_steady`](crate::models::pet::pet_steady), it is a 6th-order polynomial
-/// regression producing an equivalent temperature, not a literal physical temperature
-/// solved from an energy balance. That also keeps `options.units` meaningful: Python's
-/// `utci()` returns a raw float whose *magnitude* depends on `units` (°C for SI, °F for
-/// IP), so a plain `f64` here reproduces that behaviour exactly. Wrapping the result in
-/// [`Temperature`] would make `units` a no-op for every caller who reads the value back
-/// out via `.as_celsius()`/`.as_fahrenheit()`, silently losing the output-side rounding
-/// Python applies in the target unit (see [`UtciOptions::units`]).
+/// UTCI is an equivalent temperature, returned as a [`Temperature`]. `options.units`
+/// selects the unit it is rounded in, so it keeps upstream's rounded number in that unit
+/// (see [`UtciOptions::units`]).
 ///
 /// # Arguments
 ///
@@ -153,9 +158,9 @@ impl Default for UtciOptions {
 ///
 /// # Returns
 ///
-/// UtciResult containing UTCI value (in the unit selected by `options.units`) and stress
-/// category. Returns NaN for UTCI if inputs are outside valid ranges and limit_inputs is
-/// true.
+/// UtciResult containing the UTCI (rounded in the unit selected by `options.units`) and
+/// stress category. The UTCI is NaN and the category `None` if inputs are outside valid
+/// ranges and limit_inputs is true.
 ///
 /// # Applicability Limits (when limit_inputs = true)
 ///
@@ -186,7 +191,11 @@ impl Default for UtciOptions {
 ///     },
 ///     Default::default()
 /// );
-/// println!("UTCI: {:.1}°C", result.utci);
+/// println!(
+///     "UTCI: {:.1} °C ({:.1} °F)",
+///     result.utci.as_celsius(),
+///     result.utci.as_fahrenheit()
+/// );
 /// println!("Stress: {:?}", result.stress_category);
 /// ```
 pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
@@ -249,7 +258,7 @@ pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
     // utci.py:126-130: a genuine SI->IP temperature conversion of the *result*, applied
     // after the polynomial and the limit check, not a rescale of typed input units (the
     // typed `Temperature`/`Speed` inputs above are already exact regardless of `units`).
-    let mut utci_out = crate::unit_system::celsius_in_units(utci_value, options.units);
+    let mut utci_out = celsius_in_units(utci_value, options.units);
 
     // utci.py:145-147: both values are rounded to 1 decimal in their own unit -- Python
     // rounds `utci_si` in Celsius and `utci_approx` (this function's `utci_out`) in
@@ -264,10 +273,10 @@ pub fn utci(inputs: UtciInputs, options: UtciOptions) -> UtciResult {
         }
     }
 
-    let stress_category = StressCategory::from_utci_opt(utci_si);
+    let stress_category = StressCategory::from_utci_celsius(utci_si);
 
     UtciResult {
-        utci: utci_out,
+        utci: Temperature::from_units(utci_out, options.units),
         stress_category,
     }
 }
@@ -531,7 +540,7 @@ mod tests {
     #[test]
     fn test_utci_basic() {
         let result = utci(inputs(25.0, 25.0, 1.0, 50.0), Default::default());
-        assert!(result.utci > 20.0 && result.utci < 30.0);
+        assert!(result.utci.as_celsius() > 20.0 && result.utci.as_celsius() < 30.0);
         assert_eq!(
             result.stress_category,
             Some(StressCategory::NoThermalStress)
@@ -541,7 +550,7 @@ mod tests {
     #[test]
     fn test_utci_cold() {
         let result = utci(inputs(-10.0, -10.0, 2.0, 50.0), Default::default());
-        assert!(result.utci < 0.0);
+        assert!(result.utci.as_celsius() < 0.0);
         assert!(matches!(
             result.stress_category,
             Some(StressCategory::StrongColdStress | StressCategory::ModerateColdStress)
@@ -551,7 +560,7 @@ mod tests {
     #[test]
     fn test_utci_hot() {
         let result = utci(inputs(35.0, 35.0, 1.0, 50.0), Default::default());
-        assert!(result.utci > 30.0);
+        assert!(result.utci.as_celsius() > 30.0);
         assert!(matches!(
             result.stress_category,
             Some(
@@ -566,11 +575,11 @@ mod tests {
     fn test_utci_limits() {
         // Test invalid tdb
         let result = utci(inputs(-60.0, -60.0, 1.0, 50.0), Default::default());
-        assert!(result.utci.is_nan());
+        assert!(result.utci.as_celsius().is_nan());
 
         // Test invalid wind speed
         let result = utci(inputs(25.0, 25.0, 0.2, 50.0), Default::default());
-        assert!(result.utci.is_nan());
+        assert!(result.utci.as_celsius().is_nan());
 
         // Test with limits off
         let options = UtciOptions {
@@ -579,7 +588,7 @@ mod tests {
             round_output: true,
         };
         let result = utci(inputs(-60.0, -60.0, 1.0, 50.0), options);
-        assert!(!result.utci.is_nan());
+        assert!(!result.utci.as_celsius().is_nan());
     }
 
     /// utci.py:126-130: `Units::IP` converts the *result* (a genuine °C->°F
@@ -605,12 +614,13 @@ mod tests {
             },
         );
 
-        assert!(!si_unrounded.utci.is_nan() && !ip.utci.is_nan());
+        assert!(!si_unrounded.utci.as_celsius().is_nan() && !ip.utci.as_celsius().is_nan());
         // The IP result is the *unrounded* SI value converted to Fahrenheit and then
         // rounded, exactly reproducing utci.py's rounding-after-conversion order.
-        let expected_ip =
-            crate::utilities::round_half_even((si_unrounded.utci * 9.0 / 5.0 + 32.0) * 10.0) / 10.0;
-        assert!((ip.utci - expected_ip).abs() < 1e-9);
+        let expected_ip = crate::utilities::round_half_even(
+            (si_unrounded.utci.as_celsius() * 9.0 / 5.0 + 32.0) * 10.0,
+        ) / 10.0;
+        assert!((ip.utci.as_fahrenheit() - expected_ip).abs() < 1e-9);
         // Stress category is always derived from the SI value, regardless of units.
         assert_eq!(si_unrounded.stress_category, ip.stress_category);
     }
@@ -631,12 +641,13 @@ mod tests {
             },
         );
 
-        let naive_ip =
-            crate::utilities::round_half_even((si_rounded.utci * 9.0 / 5.0 + 32.0) * 10.0) / 10.0;
+        let naive_ip = crate::utilities::round_half_even(
+            (si_rounded.utci.as_celsius() * 9.0 / 5.0 + 32.0) * 10.0,
+        ) / 10.0;
         assert!(
-            (ip.utci - naive_ip).abs() > 1e-6,
+            (ip.utci.as_fahrenheit() - naive_ip).abs() > 1e-6,
             "expected rounding order to matter: ip={}, naive={}",
-            ip.utci,
+            ip.utci.as_fahrenheit(),
             naive_ip
         );
     }
@@ -655,25 +666,52 @@ mod tests {
             (42.0, StressCategory::VeryStrongHeatStress),
             (50.0, StressCategory::ExtremeHeatStress),
         ] {
-            assert_eq!(StressCategory::from_utci_opt(utci), Some(expected));
+            assert_eq!(
+                StressCategory::from_utci_opt(Temperature::from_celsius(utci)),
+                Some(expected)
+            );
         }
 
         // Bands are right-inclusive: a value sitting exactly on an edge belongs to the
         // colder band. Reference values from pythermalcomfort 4.4.0.
         assert_eq!(
-            StressCategory::from_utci_opt(-40.0),
+            StressCategory::from_utci_opt(Temperature::from_celsius(-40.0)),
             Some(StressCategory::ExtremeColdStress)
         );
         assert_eq!(
-            StressCategory::from_utci_opt(26.0),
+            StressCategory::from_utci_opt(Temperature::from_celsius(26.0)),
             Some(StressCategory::NoThermalStress)
         );
         assert_eq!(
-            StressCategory::from_utci_opt(32.0),
+            StressCategory::from_utci_opt(Temperature::from_celsius(32.0)),
             Some(StressCategory::ModerateHeatStress)
         );
 
         // A UTCI that was never computed has no category
-        assert_eq!(StressCategory::from_utci_opt(f64::NAN), None);
+        assert_eq!(
+            StressCategory::from_utci_opt(Temperature::from_celsius(f64::NAN)),
+            None
+        );
+    }
+
+    /// Every band edge is exact through kelvin storage, so a `Temperature` built on an edge
+    /// in °C keeps the colder band. The value one ulp above an edge is not: kelvin storage
+    /// reads it back as the edge itself, which is why [`utci`] bands its plain °C value.
+    #[test]
+    fn test_stress_category_edges_through_kelvin_storage() {
+        for edge in [-40.0, -27.0, -13.0, 0.0, 9.0, 26.0, 32.0, 38.0, 46.0] {
+            assert_eq!(
+                StressCategory::from_utci_opt(Temperature::from_celsius(edge)),
+                StressCategory::from_utci_celsius(edge),
+                "edge {edge}"
+            );
+            let above = libm::nextafter(edge, f64::INFINITY);
+            assert_eq!(Temperature::from_celsius(above).as_celsius(), edge);
+            assert_ne!(
+                StressCategory::from_utci_celsius(above),
+                StressCategory::from_utci_celsius(edge),
+                "above {edge}"
+            );
+        }
     }
 }

@@ -25,7 +25,7 @@ impl Default for HeatIndexLuOptions {
 ///
 /// # Returns
 ///
-/// [`HeatIndexResult`] with the heat index [°C]. `stress_category` is always
+/// [`HeatIndexResult`] with the heat index, rounded in °C. `stress_category` is always
 /// `None` for the Lu model, mirroring pythermalcomfort which leaves the field
 /// unset for this variant.
 ///
@@ -40,7 +40,7 @@ impl Default for HeatIndexLuOptions {
 ///     Humidity::from_percent(50.0),
 ///     Default::default(),
 /// );
-/// assert!((result.hi - 25.0).abs() < 1.0);
+/// assert!((result.hi.as_celsius() - 25.0).abs() < 1.0);
 /// assert!(result.stress_category.is_none());
 /// ```
 ///
@@ -64,7 +64,7 @@ pub fn heat_index_lu(
     }
 
     HeatIndexResult {
-        hi,
+        hi: Temperature::from_celsius(hi),
         stress_category: None,
     }
 }
@@ -383,7 +383,11 @@ mod tests {
             Default::default(),
         );
         // pythermalcomfort gives 25.0 °C
-        assert!((result.hi - 25.0).abs() < 1e-9, "hi = {}", result.hi);
+        assert!(
+            (result.hi.as_celsius() - 25.0).abs() < 1e-9,
+            "hi = {}",
+            result.hi.as_celsius()
+        );
         assert!(result.stress_category.is_none());
     }
 
@@ -395,7 +399,7 @@ mod tests {
             Default::default(),
         );
         // Should be significantly higher than air temperature
-        assert!(result.hi > 35.0);
+        assert!(result.hi.as_celsius() > 35.0);
         assert!(result.stress_category.is_none());
     }
 
@@ -415,6 +419,6 @@ mod tests {
         );
         // Both should agree to within the rounding step; unrounded need not land on a
         // 1-decimal boundary.
-        assert!((rounded.hi - unrounded.hi).abs() < 0.05);
+        assert!((rounded.hi.as_celsius() - unrounded.hi.as_celsius()).abs() < 0.05);
     }
 }

@@ -90,7 +90,7 @@ fn main() {
         );
 
         // `units` selects the unit pythermalcomfort rounds the result in; reading the
-        // result in the same system gives upstream's number exactly
+        // result in the same system gives upstream's rounded number, to within storage round-off
         let ce = cooling_effect(
             CoolingEffectInputs {
                 tdb: t,

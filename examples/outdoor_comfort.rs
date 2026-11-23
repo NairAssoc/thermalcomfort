@@ -42,9 +42,13 @@ fn main() {
     );
 
     println!("UTCI Assessment:");
-    println!("  UTCI: {:.1}°C", utci_result1.utci);
-    // UTCI is an index, so it is returned in the unit `units` selects (°C or °F),
-    // rounded there as upstream does
+    println!(
+        "  UTCI: {:.1}°C ({:.1}°F)",
+        utci_result1.utci.as_celsius(),
+        utci_result1.utci.as_fahrenheit()
+    );
+    // `units` selects the unit the UTCI is rounded in, as upstream does: read it in
+    // that unit to get upstream's rounded number
     let utci_ip = utci(
         UtciInputs {
             tdb: tdb1,
@@ -57,7 +61,10 @@ fn main() {
             ..Default::default()
         },
     );
-    println!("  UTCI (IP, inch-pound): {:.1}°F", utci_ip.utci);
+    println!(
+        "  UTCI rounded in IP (inch-pound): {:.1}°F",
+        utci_ip.utci.as_fahrenheit()
+    );
     println!(
         "  Thermal stress: {}",
         utci_result1.stress_category.map_or("n/a", |c| c.as_str())
@@ -132,7 +139,11 @@ fn main() {
     );
 
     println!("UTCI Assessment:");
-    println!("  UTCI: {:.1}°C", utci_result2.utci);
+    println!(
+        "  UTCI: {:.1}°C ({:.1}°F)",
+        utci_result2.utci.as_celsius(),
+        utci_result2.utci.as_fahrenheit()
+    );
     println!(
         "  Thermal stress: {}",
         utci_result2.stress_category.map_or("n/a", |c| c.as_str())
@@ -192,7 +203,11 @@ fn main() {
     );
 
     println!("UTCI Assessment:");
-    println!("  UTCI: {:.1}°C", utci_result3.utci);
+    println!(
+        "  UTCI: {:.1}°C ({:.1}°F)",
+        utci_result3.utci.as_celsius(),
+        utci_result3.utci.as_fahrenheit()
+    );
     println!(
         "  Thermal stress: {}",
         utci_result3.stress_category.map_or("n/a", |c| c.as_str())

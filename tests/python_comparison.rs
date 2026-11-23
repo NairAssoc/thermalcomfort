@@ -399,7 +399,7 @@ fn test_compare_heat_index_schoen() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 0.05);
+            assert_abs_diff_eq!(rust_result.hi.as_celsius(), py_hi, epsilon = 0.05);
             assert_eq!(
                 rust_result.stress_category.map(|c| c.as_str().to_string()),
                 py_category,
@@ -1796,7 +1796,7 @@ fn test_compare_utci() {
             );
 
             // Compare results (UTCI polynomial should match very closely)
-            assert_abs_diff_eq!(rust_result.utci, py_utci, epsilon = 0.1);
+            assert_abs_diff_eq!(rust_result.utci.as_celsius(), py_utci, epsilon = 0.1);
             assert_eq!(
                 rust_result.stress_category.map(|c| c.as_str().to_string()),
                 py_stress,
@@ -2702,7 +2702,7 @@ fn test_compare_utci_ip_units() {
                 },
             );
 
-            assert_abs_diff_eq!(rust_result.utci, py_utci, epsilon = 0.2);
+            assert_abs_diff_eq!(rust_result.utci.as_fahrenheit(), py_utci, epsilon = 0.2);
         }
     });
 }
@@ -3422,7 +3422,7 @@ fn test_compare_heat_index_rothfusz() {
                 Default::default(),
             );
 
-            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 0.5);
+            assert_abs_diff_eq!(rust_result.hi.as_celsius(), py_hi, epsilon = 0.5);
             assert_eq!(
                 rust_result.stress_category.map(|c| c.as_str()),
                 py_category.as_deref(),
@@ -3458,7 +3458,7 @@ fn test_compare_heat_index_lu() {
             );
 
             // Lu model uses iterative solver, allow larger tolerance
-            assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 1.0);
+            assert_abs_diff_eq!(rust_result.hi.as_celsius(), py_hi, epsilon = 1.0);
             // pythermalcomfort leaves stress_category unset for the Lu model.
             assert!(rust_result.stress_category.is_none());
         }
@@ -3492,7 +3492,7 @@ fn test_compare_heat_index_lu_round_output() {
                     HeatIndexLuOptions { round_output },
                 );
 
-                assert_abs_diff_eq!(rust_result.hi, py_hi, epsilon = 1.0);
+                assert_abs_diff_eq!(rust_result.hi.as_celsius(), py_hi, epsilon = 1.0);
             }
         }
     });
@@ -4378,7 +4378,7 @@ fn test_scenario_utci() {
             Default::default(),
         );
 
-        assert_abs_diff_eq!(result.utci, py_utci, epsilon = 0.15);
+        assert_abs_diff_eq!(result.utci.as_celsius(), py_utci, epsilon = 0.15);
 
         // Verify stress category matches
         assert_eq!(
@@ -4387,7 +4387,10 @@ fn test_scenario_utci() {
         );
 
         // Check that results are close to documented values: UTCI: 25.2°C
-        assert!((result.utci - 25.2).abs() < 0.5, "UTCI should be ~25.2°C");
+        assert!(
+            (result.utci.as_celsius() - 25.2).abs() < 0.5,
+            "UTCI should be ~25.2°C"
+        );
         assert_eq!(
             result.stress_category.map(|c| c.as_str()),
             Some("no thermal stress")
@@ -6363,7 +6366,9 @@ fn test_utci_hardy_wexler_fixtures() {
                 },
             );
             assert_eq!(py_utci, expected, "reference drifted at {tdb_f} °F");
-            assert_eq!(rust.utci, expected, "utci IP fixture at {tdb_f} °F");
+            // 1e-12: the UTCI comes back through `Temperature`'s kelvin storage, which reads
+            // 76.3 °F back as 76.29999999999995.
+            assert_abs_diff_eq!(rust.utci.as_fahrenheit(), expected, epsilon = 1e-12);
         }
 
         // Category is mapped from the rounded SI value by default, from the unrounded
@@ -6384,12 +6389,16 @@ fn test_utci_hardy_wexler_fixtures() {
         };
         let rounded = at(true);
         let unrounded = at(false);
-        assert_eq!(rounded.utci, 26.0);
+        assert_eq!(rounded.utci.as_celsius(), 26.0);
         assert_eq!(
             rounded.stress_category.map(|c| c.as_str()),
             Some("no thermal stress")
         );
-        assert!(unrounded.utci > 26.0, "unrounded {}", unrounded.utci);
+        assert!(
+            unrounded.utci.as_celsius() > 26.0,
+            "unrounded {}",
+            unrounded.utci.as_celsius()
+        );
         assert_eq!(
             unrounded.stress_category.map(|c| c.as_str()),
             Some("moderate heat stress")
@@ -6429,7 +6438,7 @@ fn test_utci_hardy_wexler_fixtures() {
                 ..Default::default()
             },
         );
-        assert_abs_diff_eq!(rust_hot.utci, py_hot, epsilon = 1e-9);
+        assert_abs_diff_eq!(rust_hot.utci.as_celsius(), py_hot, epsilon = 1e-9);
     });
 }
 
@@ -6470,14 +6479,15 @@ fn test_heat_index_categories_use_unrounded_value() {
                         limit_inputs: false,
                     },
                 );
-                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                let rust_hi = rust.hi.as_celsius();
+                assert_abs_diff_eq!(rust_hi, py_hi, epsilon = 1e-9);
                 if round_output {
-                    assert_eq!(rust.hi, rounded_hi, "rothfusz hi at tdb={tdb}");
+                    assert_eq!(rust_hi, rounded_hi, "rothfusz hi at tdb={tdb}");
                 } else {
                     assert!(
-                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        rust_hi > rounded_hi && rust_hi < rounded_hi + 0.05,
                         "rothfusz unrounded hi {} at tdb={tdb}",
-                        rust.hi
+                        rust_hi
                     );
                 }
                 assert_eq!(py_category.as_deref(), Some(category));
@@ -6511,14 +6521,15 @@ fn test_heat_index_categories_use_unrounded_value() {
                     Humidity::from_percent(50.0),
                     thermalcomfort::models::HeatIndexSchoenOptions { round_output },
                 );
-                assert_abs_diff_eq!(rust.hi, py_hi, epsilon = 1e-9);
+                let rust_hi = rust.hi.as_celsius();
+                assert_abs_diff_eq!(rust_hi, py_hi, epsilon = 1e-9);
                 if round_output {
-                    assert_eq!(rust.hi, rounded_hi, "schoen hi at tdb={tdb}");
+                    assert_eq!(rust_hi, rounded_hi, "schoen hi at tdb={tdb}");
                 } else {
                     assert!(
-                        rust.hi > rounded_hi && rust.hi < rounded_hi + 0.05,
+                        rust_hi > rounded_hi && rust_hi < rounded_hi + 0.05,
                         "schoen unrounded hi {} at tdb={tdb}",
-                        rust.hi
+                        rust_hi
                     );
                 }
                 assert_eq!(py_category.as_deref(), Some(category));
@@ -6536,7 +6547,7 @@ fn test_heat_index_categories_use_unrounded_value() {
             Humidity::from_percent(50.0),
             Default::default(),
         );
-        assert!(cold.hi.is_nan());
+        assert!(cold.hi.as_celsius().is_nan());
         assert_eq!(cold.stress_category, None);
     });
 }
@@ -6989,7 +7000,10 @@ fn test_utci_humidity_limits() {
                     py_value.is_nan() && py_category.is_none(),
                     "reference at {tdb}/{rh}"
                 );
-                assert!(rust.utci.is_nan(), "utci at {tdb} °C, {rh} % ({py_units})");
+                assert!(
+                    rust.utci.as_celsius().is_nan(),
+                    "utci at {tdb} °C, {rh} % ({py_units})"
+                );
                 assert_eq!(rust.stress_category, None, "category at {tdb} °C, {rh} %");
             }
         }
@@ -6999,19 +7013,19 @@ fn test_utci_humidity_limits() {
             let (py_value, _) = py_utci_at(&models, 25.0, 1.0, rh, true, "SI");
             let rust = rust_at(25.0, rh, true, Units::SI);
             assert!(py_value.is_nan(), "reference at rh={rh}");
-            assert!(rust.utci.is_nan(), "utci at rh={rh}");
+            assert!(rust.utci.as_celsius().is_nan(), "utci at rh={rh}");
             assert_eq!(rust.stress_category, None, "category at rh={rh}");
         }
         for rh in [0.0, 100.0] {
             let (py_value, py_category) = py_utci_at(&models, 25.0, 1.0, rh, true, "SI");
             let limited = rust_at(25.0, rh, true, Units::SI);
             let unlimited = rust_at(25.0, rh, false, Units::SI);
-            assert!(limited.utci.is_finite(), "utci at rh={rh}");
+            assert!(limited.utci.as_celsius().is_finite(), "utci at rh={rh}");
             assert_eq!(
                 limited.utci, unlimited.utci,
                 "limit changed the value at rh={rh}"
             );
-            assert_abs_diff_eq!(limited.utci, py_value, epsilon = 1e-9);
+            assert_abs_diff_eq!(limited.utci.as_celsius(), py_value, epsilon = 1e-9);
             assert_eq!(
                 limited.stress_category.map(|c| c.as_str()),
                 py_category.as_deref(),
@@ -7030,9 +7044,9 @@ fn test_utci_humidity_limits() {
             let (py_value, _) = py_utci_at(&models, 40.0, 1.0, rh, true, "SI");
             let rust = rust_at(40.0, rh, true, Units::SI);
             assert_eq!(py_value.is_nan(), rejected, "reference at rh={rh}");
-            assert_eq!(rust.utci.is_nan(), rejected, "utci at rh={rh}");
+            assert_eq!(rust.utci.as_celsius().is_nan(), rejected, "utci at rh={rh}");
             if !rejected {
-                assert_abs_diff_eq!(rust.utci, py_value, epsilon = 1e-9);
+                assert_abs_diff_eq!(rust.utci.as_celsius(), py_value, epsilon = 1e-9);
             }
         }
 
@@ -7040,7 +7054,7 @@ fn test_utci_humidity_limits() {
         let (py_value, py_category) = py_utci_at(&models, 50.0, 1.0, 100.0, false, "SI");
         let rust = rust_at(50.0, 100.0, false, Units::SI);
         assert_abs_diff_eq!(py_value, -326.079_232_209_162_9, epsilon = 1e-9);
-        assert_abs_diff_eq!(rust.utci, py_value, epsilon = 1e-9);
+        assert_abs_diff_eq!(rust.utci.as_celsius(), py_value, epsilon = 1e-9);
         assert_eq!(py_category.as_deref(), Some("extreme cold stress"));
         assert_eq!(
             rust.stress_category.map(|c| c.as_str()),
