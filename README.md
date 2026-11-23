@@ -14,7 +14,7 @@ For model documentation, parameters, and references, see the [pythermalcomfort d
 
 - **Complete coverage**: every pythermalcomfort v4.8.1 model, `JOS3` included
 - **Identical Results**: verified against the Python reference by a randomised differential sweep over the full input space (see [Coverage](#coverage) for the five edge-case divergences)
-- **`no_std`**: one configuration, no std/no_std accuracy split. Verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
+- **`no_std`**: verified on `wasm32-unknown-unknown` and bare-metal `thumbv7em-none-eabihf`
 - **Rigorously Validated**: every public function with a pythermalcomfort counterpart has
   a cross-library parity test *and* is driven through the randomised differential sweep,
   and `make parity-coverage` fails the build if either stops being true. The code on this
@@ -111,18 +111,6 @@ named `XInputs` struct, deliberately without a `Default`, only where two or more
 type: `pmv_ppd_iso` takes two temperatures side by side, and `solar_gain` seven
 consecutive `f64`, five of them fractions, which no type system distinguishes.
 
-### The `std` feature (deprecated no-op)
-
-There is no longer anything to enable. The crate has one configuration, and it is
-`no_std`. `std` is retained as an empty feature so existing dependants that wrote
-`features = ["std"]` keep building; it will go at the next upstream major.
-
-Historically `std` swapped PET onto a nalgebra solver "for perfect accuracy in extreme
-cold+wind". Two things ended that: the accuracy gap was closed by fixes to the solver
-itself, so both implementations produced identical results; and nalgebra never needed
-`std` in the first place — it has supported `no_std` since 0.15, and is now built against
-`alloc` + `libm` like any other dependency here.
-
 ## Installation
 
 Add this to your `Cargo.toml`:
@@ -204,8 +192,7 @@ cargo build --target wasm32-unknown-unknown --release
 ## Accuracy & Validation
 
 All models produce results identical to pythermalcomfort v4.8.1 across the swept input
-space, in the one build configuration the crate has. There is no accuracy trade-off to
-choose between. The five edge-case divergences that remain are listed under
+space. The five edge-case divergences that remain are listed under
 [Coverage](#coverage); each concerns an input at the boundary of what the model can answer.
 
 Verification is a randomised differential sweep (see [Testing](#testing)) that drives
@@ -216,11 +203,6 @@ where the residue is demonstrably float-representation noise, and each such plac
 in the test and states what resolution was given up. Where a model rounds its own outputs
 upstream, the sweep cannot see drift below that rounding step — which is why run lengths
 are chosen so accumulated drift would exceed it.
-
-Earlier releases shipped a second, hand-written PET solver for `no_std` and documented it
-as less accurate in extreme cold+wind. Both the second solver and the caveat are gone: the
-underlying solver bugs were fixed, after which the two implementations agreed everywhere
-measured, so the duplicate was deleted rather than kept as a choice.
 
 ## Coverage
 
@@ -241,9 +223,7 @@ about an input at the edge of what the model can answer; none affects ordinary r
 
 `two_nodes_gagge_sleep` is a faithful port of the Yan et al. (2022) model: it simulates the
 night minute by minute and takes a per-minute schedule for each driving variable, as upstream
-does. It previously delegated to the standard Gagge model at a fixed 0.7 met, so
-`quilt_thickness` had no effect at all. All ten output trajectories are compared against
-pythermalcomfort to 1e-9.
+does. All ten output trajectories are compared against pythermalcomfort to 1e-9.
 
 `JOS3` is ported in full — all 17 body segments, the 85-node thermal network and the
 per-timestep dense solve — with every output field compared against upstream and driven
